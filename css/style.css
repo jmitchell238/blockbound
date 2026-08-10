@@ -1,0 +1,318 @@
+:root {
+  --bg: #0e1f18;
+  --card: rgba(14, 36, 28, 0.94);
+  --line: rgba(255, 255, 255, 0.14);
+  --text: #f0fff6;
+  --muted: #9ec5b0;
+  --grass: #6fbf45;
+  --sky: #5a9ed4;
+  --magma: #ff6a00;
+  --mint: #7dffa0;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Segoe UI", system-ui, -apple-system, Roboto, Ubuntu, sans-serif;
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.hidden { display: none !important; }
+
+#versionTag {
+  position: absolute;
+  top: max(8px, env(safe-area-inset-top, 0px));
+  right: 10px;
+  z-index: 8;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  opacity: 0.55;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.65);
+  pointer-events: none;
+  letter-spacing: 0.4px;
+  line-height: normal;
+}
+
+#stage {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  line-height: 0;
+  touch-action: none;
+}
+
+#cv {
+  display: block;
+  border-radius: 18px;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.08),
+    0 20px 60px rgba(0, 0, 0, 0.55),
+    0 0 80px rgba(111, 191, 69, 0.12);
+  cursor: crosshair;
+  touch-action: none;
+  position: relative;
+  z-index: 1;
+}
+
+.screen {
+  position: absolute;
+  inset: 0;
+  border-radius: 18px;
+  overflow: hidden;
+  line-height: normal;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.screen[data-screen="menu"] {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px 16px;
+  background: linear-gradient(180deg, rgba(10, 30, 40, 0.55), rgba(10, 20, 16, 0.72));
+}
+
+.screen[data-screen="menu"]:not(.hidden) {
+  pointer-events: auto;
+}
+
+.menu-card {
+  width: min(340px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  padding: 20px 16px 16px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
+  text-align: center;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  pointer-events: auto;
+}
+
+.logo-icon {
+  border-radius: 18px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  margin-bottom: 6px;
+}
+
+h1 {
+  margin: 4px 0;
+  font-size: 1.65rem;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+h1 .c1 { color: var(--grass); }
+h1 .c2 { color: var(--sky); }
+
+.tagline {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.stats {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-bottom: 14px;
+}
+.stats > div {
+  flex: 1;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 12px;
+  padding: 8px 4px;
+  border: 1px solid var(--line);
+}
+.stats .lbl {
+  display: block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+.stats strong {
+  font-size: 1rem;
+  color: var(--mint);
+}
+
+button {
+  display: block;
+  width: 100%;
+  margin: 8px 0 0;
+  border: none;
+  border-radius: 14px;
+  padding: 12px 14px;
+  font-size: 0.98rem;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  transition: transform 0.08s ease, filter 0.12s ease;
+}
+button:active { transform: scale(0.98); }
+
+button.primary {
+  background: linear-gradient(180deg, #7dffa0, #3dbf6a);
+  color: #0a1f12;
+  box-shadow: 0 4px 16px rgba(125, 255, 160, 0.25);
+}
+button.secondary {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  border: 1px solid var(--line);
+}
+button.ghost {
+  background: transparent;
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.how {
+  text-align: left;
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid var(--line);
+  font-size: 0.86rem;
+  color: #d0e8da;
+  line-height: 1.45;
+}
+.how ol { margin: 0; padding-left: 1.2rem; }
+.how li { margin: 0.35rem 0; }
+.how .inspired {
+  margin: 10px 0 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+  opacity: 0.9;
+}
+
+.ver {
+  margin: 12px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+  opacity: 0.7;
+}
+
+.mode-label {
+  margin: 12px 0 6px;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.mode-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.mode-chip {
+  margin: 0;
+  padding: 8px 6px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  border: 1px solid var(--line);
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+}
+.mode-chip.active {
+  background: rgba(125, 255, 160, 0.18);
+  border-color: rgba(125, 255, 160, 0.55);
+  color: var(--mint);
+}
+.mode-chip small {
+  display: block;
+  font-weight: 600;
+  font-size: 0.68rem;
+  opacity: 0.75;
+  margin-top: 2px;
+}
+
+.size-hint {
+  margin: 4px 0 8px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.gen-overlay {
+  margin-top: 10px;
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--line);
+  text-align: center;
+}
+.gen-overlay p { margin: 0 0 8px; font-size: 0.9rem; }
+.gen-bar {
+  height: 10px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+.gen-bar-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #3dbf6a, #7dffa0);
+  border-radius: 6px;
+  transition: width 0.12s ease;
+}
+.gen-pct { font-size: 0.78rem !important; color: var(--muted) !important; }
+
+.icon-btn {
+  position: absolute;
+  z-index: 5;
+  width: auto;
+  min-width: 44px;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(10, 24, 18, 0.82);
+  color: #fff;
+  border: 1px solid var(--line);
+  font-size: 0.95rem;
+  font-weight: 700;
+  pointer-events: auto;
+  line-height: normal;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+.icon-btn:not(.hidden) { display: block; }
+
+#btnMenu {
+  top: max(10px, env(safe-area-inset-top, 0px));
+  left: 10px;
+}
+.craft-btn {
+  top: max(10px, env(safe-area-inset-top, 0px));
+  left: 58px;
+}
+.mode-btn {
+  top: max(98px, calc(env(safe-area-inset-top, 0px) + 88px));
+  left: 10px;
+  font-size: 0.82rem;
+  padding: 8px 10px;
+}
+.use-btn {
+  top: max(54px, calc(env(safe-area-inset-top, 0px) + 44px));
+  left: 10px;
+  font-size: 0.82rem;
+  padding: 8px 10px;
+}

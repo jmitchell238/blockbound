@@ -1,0 +1,26 @@
+{
+  "name": "Blockbound",
+  "short_name": "Blockbound",
+  "description": "Mine, craft, and build in a looping 2D world — dig to magma, climb to the sky. Inspired by The Blockheads.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0e1f18",
+  "theme_color": "#1a3a28",
+  "categories": ["games", "entertainment"],
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

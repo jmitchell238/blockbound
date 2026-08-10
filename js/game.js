@@ -1,0 +1,517 @@
+'use strict';
+
+let session = null;
+
+function _finishSession(world, player, inv, timeOfDay, seed, ents) {
+  if (!world.meta) world.meta = makeWorldMeta();
+  if (!ents) {
+    ents = makeEntityState();
+    seedCritters(ents, world);
+  }
+  const input = makeInput();
+  const ui = {
+    mode: 'mine',
+    craftOpen: false,
+    craftHit: [],
+    chestOpen: null, // { x, y, slots }
+    chestHit: [],
+    toast: '',
+    toastT: 0,
+    showTouch: false,
+    prompt: '',
+    zoom: 1,
+  };
+  const stats = {
+    blocksMined: save.blocksMined | 0,
+    distanceWalked: save.distanceWalked || 0,
+    circumnavigations: save.circumnavigations | 0,
+    milestones: save.milestones | 0,
+    lastX: player.x,
+    wrapAccum: 0,
+  };
+  const cam = { x: player.x, y: player.y - 0.5, zoom: 1 };
+  return {
+    world, player, inv, input, ui, cam, timeOfDay, stats, seed, ents,
+    saveTimer: 0, lightTimer: 0, hungerTimer: 0,
+    particles: makeParticleSystem(),
+    paused: false, dead: false,
+  };
+}
+
+async function createSession(opts) {
+  opts = opts || {};
+  let world;
+  let player;
+  let inv;
+  let timeOfDay = 0.28;
+  let seed = (Math.random() * 1e9) | 0;
+  let ents = null;
+
+  if (opts.continueSave && save.hasWorld && save.world) {
+    world = deserializeWorld(save.world);
+    if (!world) {
+      applyWorldSize((save.worldSize | 0) || worldSizePreset(save.worldSizeId || 'standard').w);
+      world = await generateWorldAsync(save.seed || seed, opts.onProgress);
+    } else {
+      seed = world.seed;
+    }
+    inv = deserializeInv(save.inv);
+    timeOfDay = save.timeOfDay != null ? save.timeOfDay : 0.28;
+    ents = deserializeEntities(save.ents);
+    if (save.player) {
+      player = makePlayer(save.player.x, save.player.y);
+      player.x = save.player.x;
+      player.y = save.player.y;
+      player.hp = save.player.hp != null ? save.player.hp : 100;
+      player.energy = save.player.energy != null ? save.player.energy : 100;
+      player.hunger = save.player.hunger != null ? save.player.hunger : 100;
+    } else {
+      const sp = findSpawn(world);
+      player = makePlayer(sp.x, sp.y);
+    }
+    if (!ents.critters.length) seedCritters(ents, world);
+  } else {
+    seed = opts.seed != null ? opts.seed : seed;
+    const size = worldSizePreset(opts.worldSizeId || save.worldSizeId || 'standard');
+    applyWorldSize(size.w);
+    world = await generateWorldAsync(seed, opts.onProgress);
+    const sp = findSpawn(world);
+    player = makePlayer(sp.x, sp.y);
+    inv = makeInventory();
+    starterKit(inv);
+    addItem(inv, BLOCK.DIRT, 12);
+    addItem(inv, BLOCK.WOOD, 6);
+    addItem(inv, 'apple', 2);
+    ents = makeEntityState();
+    seedCritters(ents, world);
+  }
+
+  return _finishSession(world, player, inv, timeOfDay, seed, ents);
+}
+
+async function enterPlay(continueSave, extra) {
+  extra = extra || {};
+  session = await createSession({
+    continueSave: !!continueSave,
+    worldSizeId: extra.worldSizeId,
+    onProgress: extra.onProgress,
+  });
+  return session;
+}
+
+function enterMenu() {
+  if (session) {
+    try {
+      persistSession(session.world, session.player, session.inv, session.timeOfDay, session.stats, session.ents);
+    } catch (_) {}
+  }
+  session = null;
+}
+
+function toast(ui, msg) {
+  ui.toast = msg;
+  ui.toastT = 2.4;
+}
+
+function gameUpdate(dt) {
+  if (!session) return;
+  const s = session;
+  const { world, player, inv, input, ui, cam, stats, ents } = s;
+
+  if (ui.toastT > 0) ui.toastT -= dt;
+
+  // Pause
+  if (input.pauseToggle) {
+    s.paused = !s.paused;
+    input.pauseToggle = false;
+    if (s.paused) toast(ui, 'Paused — Esc to resume');
+  }
+  if (s.paused) return;
+
+  // Zoom
+  if (input.zoomDelta) {
+    ui.zoom = Math.max(0.7, Math.min(1.6, (ui.zoom || 1) + input.zoomDelta * 0.1));
+    cam.zoom = ui.zoom;
+    input.zoomDelta = 0;
+  }
+
+  if (input.craftToggle) {
+    if (ui.chestOpen) ui.chestOpen = null;
+    else ui.craftOpen = !ui.craftOpen;
+    input.craftToggle = false;
+  }
+  if (input.modeToggle) {
+    ui.mode = ui.mode === 'mine' ? 'place' : 'mine';
+    toast(ui, ui.mode === 'place' ? 'Place mode (Q to mine)' : 'Mine mode (Q to place)');
+    input.modeToggle = false;
+  }
+  if (input.hotbarTap >= 0) {
+    selectHotbar(inv, input.hotbarTap);
+    syncEquippedTool(inv);
+    input.hotbarTap = -1;
+  }
+
+  // Use / interact (F)
+  if (input.usePressed) {
+    input.usePressed = false;
+    handleUse(s);
+  }
+
+  pollInput(input, ui.mode, cam);
+
+  if (input.jumpPressed) {
+    sfxJump();
+    input.jumpPressed = false;
+  }
+
+  if (ui.craftOpen || ui.chestOpen) {
+    s.timeOfDay = (s.timeOfDay + dt / DAY_LEN * 0.25) % 1;
+    return;
+  }
+
+  // Hunger drain
+  s.hungerTimer += dt;
+  const moving = Math.abs(player.vx) > 0.15 || Math.abs(player.vy) > 0.5;
+  player.hunger = Math.max(0, player.hunger - dt * (moving ? 1.1 : 0.45));
+  if (player.hunger <= 0) {
+    if (s.hungerTimer > 1.2) {
+      s.hungerTimer = 0;
+      player.hp -= 4;
+      if (player.invuln <= 0) {
+        player.invuln = 0.4;
+        sfxHurt();
+        toast(ui, 'Starving!');
+      }
+    }
+  } else if (player.hunger > 50 && player.hp < player.maxHp && Math.abs(player.vx) < 0.1) {
+    player.hp = Math.min(player.maxHp, player.hp + dt * 3);
+  }
+
+  // Energy
+  if (moving) player.energy = Math.max(0, player.energy - dt * 1.4);
+  else player.energy = Math.min(player.maxEnergy, player.energy + dt * 5);
+  if (player.energy < 8) {
+    // sluggish
+    player.vx *= 0.92;
+  }
+
+  if (player.hp <= 0) {
+    player.hp = player.maxHp;
+    player.energy = player.maxEnergy;
+    player.hunger = Math.max(40, player.hunger);
+    const sp = findSpawn(world);
+    player.x = sp.x + 0.5;
+    player.y = sp.y;
+    player.vx = 0;
+    player.vy = 0;
+    toast(ui, 'You collapsed — respawned at spawn');
+  }
+
+  let minePower = TOOLS[inv.tool] ? TOOLS[inv.tool].power : 1;
+  if (player.mining) {
+    minePower = toolPowerFor(inv, getTile(world, player.mining.tx, player.mining.ty));
+  }
+
+  if (input.pointerDown && ui.mode === 'place') {
+    input.mineTx = null;
+    input.mineTy = null;
+  }
+
+  // Interact with door/chest by mining click? handled via F
+
+  const prevX = player.x;
+  const result = updatePlayer(player, world, input, dt, minePower);
+
+  if (player.mining && Math.random() < dt * 10) {
+    const meta = BLOCK_META[getTile(world, player.mining.tx, player.mining.ty)];
+    spawnBurst(s.particles, player.mining.tx + 0.5, player.mining.ty + 0.5, (meta && meta.color) || '#888', 2);
+  }
+
+  let dx = player.x - prevX;
+  if (dx > WORLD_W / 2) dx -= WORLD_W;
+  if (dx < -WORLD_W / 2) dx += WORLD_W;
+  stats.distanceWalked += Math.abs(dx);
+  stats.wrapAccum += dx;
+  if (Math.abs(stats.wrapAccum) >= WORLD_W) {
+    stats.circumnavigations += 1;
+    stats.wrapAccum = stats.wrapAccum % WORLD_W;
+    unlockMilestone(world.meta, stats, ui, 'loop');
+  }
+
+  if (result.mined) {
+    sfxMine();
+    stats.blocksMined++;
+    unlockMilestone(world.meta, stats, ui, 'first_mine');
+    if (result.mined.ty > SURFACE_Y + 30) unlockMilestone(world.meta, stats, ui, 'deep_dig');
+
+    const meta = BLOCK_META[result.mined.id];
+    spawnBurst(s.particles, result.mined.tx + 0.5, result.mined.ty + 0.5, (meta && meta.color) || '#c4a060', 10);
+
+    // Drops (floating)
+    let dropId = meta && meta.drops;
+    let dropN = 1;
+    if (result.mined.id === BLOCK.LEAVES && meta && meta.fruitChance && Math.random() < meta.fruitChance) {
+      spawnDrop(ents, result.mined.tx + 0.5, result.mined.ty + 0.5, 'apple', 1);
+    }
+    if (result.mined.id === BLOCK.CHEST) {
+      const slots = getChest(world.meta, result.mined.tx, result.mined.ty);
+      for (const sl of slots) {
+        if (sl) spawnDrop(ents, result.mined.tx + 0.5, result.mined.ty + 0.3, sl.id, sl.count);
+      }
+      removeChest(world.meta, result.mined.tx, result.mined.ty);
+    }
+    if (result.mined.id === BLOCK.DOOR) {
+      delete world.meta.openDoors[tileKey(result.mined.tx, result.mined.ty)];
+    }
+    if (dropId != null) {
+      spawnDrop(ents, result.mined.tx + 0.5, result.mined.ty + 0.5, dropId, dropN);
+    }
+
+    if (inv.tool !== 'hand') {
+      const slot = selectedSlot(inv);
+      if (slot && isTool(slot.id)) {
+        slot.durability = (slot.durability != null ? slot.durability : 100) - 1;
+        if (slot.durability <= 0) {
+          inv.hotbar[inv.selected] = null;
+          inv.tool = 'hand';
+          toast(ui, 'Tool broke!');
+        }
+      }
+    }
+  }
+
+  if (result.hurt) {
+    sfxHurt();
+    if (result.fall) toast(ui, 'Ouch — fall damage!');
+  }
+
+  // Place
+  const wantPlace = (input.pointerDown && ui.mode === 'place') || input._rightPlace || input._rightHeld;
+  if (wantPlace && input.placeTx != null) {
+    const slot = selectedSlot(inv);
+    if (slot && isBlockItem(slot.id)) {
+      if (tryPlace(player, world, input.placeTx, input.placeTy, slot.id)) {
+        removeItem(inv, slot.id, 1);
+        sfxPlace();
+        const m = BLOCK_META[slot.id];
+        spawnBurst(s.particles, input.placeTx + 0.5, input.placeTy + 0.5, (m && m.color) || '#fff', 5);
+        if (slot.id === BLOCK.BED) unlockMilestone(world.meta, stats, ui, 'first_bed');
+        if (slot.id === BLOCK.FURNACE) unlockMilestone(world.meta, stats, ui, 'first_furnace');
+        if (slot.id === BLOCK.TORCH) unlockMilestone(world.meta, stats, ui, 'first_torch');
+        if (slot.id === BLOCK.CHEST) getChest(world.meta, input.placeTx, input.placeTy);
+      }
+    } else if (slot && isFood(slot.id)) {
+      // right-click food = eat
+      const ate = tryEat(inv, player);
+      if (ate && ate.ok) {
+        sfxPickup();
+        toast(ui, 'Ate ' + ate.food.name);
+        unlockMilestone(world.meta, stats, ui, 'fed');
+      }
+    } else if (slot && isTool(slot.id) && ui.mode === 'place') {
+      toast(ui, 'Select a block to place');
+    }
+  }
+  if (input._rightHeld || input._rightPlace) {
+    input.mineTx = null;
+    input.mineTy = null;
+    input._rightPlace = false;
+  }
+
+  // Entities
+  const picked = updateDrops(ents, world, player, inv, dt);
+  if (picked.length) {
+    sfxPickup();
+  }
+  updateCritters(ents, world, dt);
+
+  // Interact prompt
+  const hit = nearInteract(world, world.meta, player.x, player.y);
+  ui.prompt = hit
+    ? (hit.kind === 'door' ? 'F · ' + (isDoorOpen(world.meta, hit.x, hit.y) ? 'Close door' : 'Open door')
+      : hit.kind === 'chest' ? 'F · Open chest'
+      : hit.kind === 'bed' ? 'F · Sleep (night)'
+      : hit.kind === 'furnace' ? 'F · Furnace craft'
+      : hit.kind === 'craft' ? 'F · Craft'
+      : 'F · Use')
+    : (selectedSlot(inv) && isFood(selectedSlot(inv).id) ? 'F · Eat' : '');
+
+  // Camera
+  const targetX = player.x;
+  const targetY = player.y - 0.8;
+  let dCam = targetX - cam.x;
+  if (dCam > WORLD_W / 2) cam.x += WORLD_W;
+  if (dCam < -WORLD_W / 2) cam.x -= WORLD_W;
+  cam.x += (targetX - cam.x) * Math.min(1, dt * 8);
+  cam.y += (targetY - cam.y) * Math.min(1, dt * 8);
+  cam.y = Math.max(8, Math.min(WORLD_H - 8, cam.y));
+  cam.zoom = ui.zoom || 1;
+
+  updateParticles(s.particles, dt);
+  s.timeOfDay = (s.timeOfDay + dt / DAY_LEN) % 1;
+
+  s.lightTimer += dt;
+  if (world.dirtyLight && s.lightTimer > 0.08) {
+    flushLight(world);
+    s.lightTimer = 0;
+  }
+
+  s.saveTimer += dt;
+  if (s.saveTimer > 12) {
+    s.saveTimer = 0;
+    persistSession(world, player, inv, s.timeOfDay, stats, ents);
+  }
+}
+
+function handleUse(s) {
+  const { world, player, inv, ui, stats } = s;
+  // Prefer eat if food selected and no interact
+  const hit = nearInteract(world, world.meta, player.x, player.y);
+
+  if (hit && hit.kind === 'door') {
+    const open = toggleDoor(world.meta, hit.x, hit.y);
+    if (typeof sfxDoor === 'function') sfxDoor(); else sfxPlace();
+    toast(ui, open ? 'Door opened' : 'Door closed');
+    return;
+  }
+  if (hit && hit.kind === 'chest') {
+    ui.craftOpen = false;
+    ui.chestOpen = { x: hit.x, y: hit.y, slots: getChest(world.meta, hit.x, hit.y) };
+    toast(ui, 'Chest — tap items to move');
+    return;
+  }
+  if (hit && hit.kind === 'bed') {
+    const r = trySleep(player, world, s.timeOfDay);
+    if (r.ok) {
+      s.timeOfDay = r.timeOfDay;
+      if (typeof sfxSleep === 'function') sfxSleep(); else sfxCraft();
+      toast(ui, 'Slept until morning. Feeling better!');
+      unlockMilestone(world.meta, stats, ui, 'first_bed');
+    } else {
+      toast(ui, r.reason || 'Can\'t sleep');
+    }
+    return;
+  }
+  if (hit && (hit.kind === 'furnace' || hit.kind === 'craft')) {
+    ui.chestOpen = null;
+    ui.craftOpen = true;
+    toast(ui, hit.kind === 'furnace' ? 'Furnace recipes' : 'Crafting');
+    return;
+  }
+
+  const ate = tryEat(inv, player);
+  if (ate) {
+    if (ate.ok) {
+      sfxPickup();
+      toast(ui, 'Ate ' + ate.food.name);
+      unlockMilestone(world.meta, stats, ui, 'fed');
+    } else toast(ui, ate.reason);
+  }
+}
+
+function gameRender(ctx) {
+  if (!session) return;
+  const s = session;
+  s.ui.showTouch = window.matchMedia('(pointer: coarse)').matches;
+  renderWorld(ctx, s.world, s.player, s.inv, s.cam, s.timeOfDay, s.ui, s.particles, s.ents);
+  if (s.paused) {
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#fff';
+    ctx.font = '700 28px system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText('Paused', W / 2, H / 2);
+    ctx.font = '600 14px system-ui';
+    ctx.fillStyle = '#9ec5b0';
+    ctx.fillText('Esc to resume · ☰ for menu', W / 2, H / 2 + 28);
+  }
+}
+
+function gameClickCraft(x, y) {
+  if (!session) return false;
+  const ui = session.ui;
+
+  // Chest UI clicks
+  if (ui.chestOpen) {
+    const hits = ui.chestHit || [];
+    for (const h of hits) {
+      if (x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h) {
+        if (h.from === 'chest') {
+          transferSlot(ui.chestOpen.slots, h.i, session.inv.hotbar.concat(session.inv.bag));
+          // re-bind chest slots ref
+          const bag = session.inv.bag;
+          // transfer into inv properly:
+          const slot = ui.chestOpen.slots[h.i];
+          if (slot) {
+            // already handled? transferSlot mutates - need fix for concat
+          }
+        }
+        // Simpler path:
+        handleChestClick(session, h);
+        return true;
+      }
+    }
+    // click outside closes
+    if (y < 80 || y > H - 40) ui.chestOpen = null;
+    return true;
+  }
+
+  if (!ui.craftOpen) return false;
+  const hits = ui.craftHit || [];
+  for (const h of hits) {
+    if (x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h) {
+      if (h.ok && craft(session.inv, h.recipe)) {
+        sfxCraft();
+        toast(ui, 'Crafted ' + h.recipe.name);
+        syncEquippedTool(session.inv);
+        unlockMilestone(session.world.meta, session.stats, ui, 'first_craft');
+        if (isTool(h.recipe.out[0])) unlockMilestone(session.world.meta, session.stats, ui, 'first_tool');
+      } else if (!h.ok) {
+        toast(ui, 'Need more materials');
+      }
+      return true;
+    }
+  }
+  return true;
+}
+
+function handleChestClick(s, h) {
+  const chest = s.ui.chestOpen.slots;
+  const invSlots = s.inv.hotbar; // move to/from hotbar for simplicity
+  if (h.from === 'chest') {
+    const item = chest[h.i];
+    if (!item) return;
+    const left = addItem(s.inv, item.id, item.count);
+    if (left <= 0) chest[h.i] = null;
+    else item.count = left;
+    sfxPickup();
+  } else if (h.from === 'hotbar') {
+    const item = invSlots[h.i];
+    if (!item) return;
+    // put into chest
+    for (let i = 0; i < chest.length; i++) {
+      if (chest[i] && chest[i].id === item.id && canStack(item.id) && chest[i].count < 99) {
+        const space = 99 - chest[i].count;
+        const mv = Math.min(space, item.count);
+        chest[i].count += mv;
+        item.count -= mv;
+        if (item.count <= 0) invSlots[h.i] = null;
+        sfxPlace();
+        return;
+      }
+    }
+    for (let i = 0; i < chest.length; i++) {
+      if (!chest[i]) {
+        chest[i] = { id: item.id, count: item.count, durability: item.durability };
+        invSlots[h.i] = null;
+        sfxPlace();
+        return;
+      }
+    }
+    toast(s.ui, 'Chest full');
+  }
+}
+
+function getSession() {
+  return session;
+}

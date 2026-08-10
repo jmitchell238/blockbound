@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#1a3a28" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Blockbound" />
+  <meta name="description" content="Mine, craft, and build in a looping 2D world — dig to magma, climb to the sky, and walk all the way around. Inspired by The Blockheads." />
+  <title>Blockbound</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div id="stage">
+    <canvas id="cv" width="390" height="700"></canvas>
+    <div id="versionTag"></div>
+
+    <div class="screen" data-screen="menu" id="screenMenu">
+      <div class="menu-card">
+        <img class="logo-icon" src="icons/icon-192.png" alt="" width="72" height="72" />
+        <h1><span class="c1">Block</span><span class="c2">bound</span></h1>
+        <p class="tagline">Mine · build · walk the world around</p>
+
+        <div class="stats">
+          <div><span class="lbl">Mined</span><strong id="statMined">0</strong></div>
+          <div><span class="lbl">Loops</span><strong id="statCirc">0</strong></div>
+          <div><span class="lbl">Walked</span><strong id="statDist">0m</strong></div>
+        </div>
+
+        <button id="btnContinue" class="primary hidden" type="button">▶  Continue</button>
+
+        <p class="mode-label">World size (circumference)</p>
+        <div class="mode-row" id="sizeRow" role="group" aria-label="World size"></div>
+        <p class="size-hint" id="sizeHint">Standard · ~12 min to walk around</p>
+
+        <button id="btnPlay" class="primary" type="button">✦  New world</button>
+
+        <div id="genOverlay" class="gen-overlay hidden">
+          <p>Generating world…</p>
+          <div class="gen-bar"><div id="genBarFill" class="gen-bar-fill"></div></div>
+          <p class="gen-pct" id="genPct">0%</p>
+        </div>
+
+        <button id="btnHow" class="secondary" type="button">How to play</button>
+        <button id="muteBtn" class="ghost" type="button">🔊 Sound on</button>
+        <button id="btnHub" class="ghost" type="button">← Arcade Hub</button>
+
+        <div id="howPanel" class="how hidden">
+          <ol>
+            <li><b>Move</b> with WASD / arrows or the left stick. <b>Space</b> / jump button to jump.</li>
+            <li><b>Tap or hold</b> a block to mine it. <b>Right-click</b> (or Q / Place button) to place the selected hotbar block.</li>
+            <li>Open <b>Craft</b> (C / E) — turn wood into planks, sticks, torches, tools. Place a <b>Workbench</b> for better recipes.</li>
+            <li>The world <b>loops left/right</b> — pick a size up to <b>16,384</b> blocks (Blockheads-scale). Dig down to <b>magma</b>; the <b>sky</b> is the ceiling.</li>
+            <li>1–8 select hotbar. <b>F</b> use (door, chest, bed, eat). <b>Esc</b> pause. Scroll to zoom.</li>
+            <li>Stay fed (🍖). Sleep in a <b>bed</b> at night. Smelt ores in a <b>furnace</b>. Store loot in <b>chests</b>.</li>
+          </ol>
+          <p class="inspired">Inspired by the classic iOS sandbox <i>The Blockheads</i> — not affiliated.</p>
+        </div>
+
+        <p id="versionMenu" class="ver"></p>
+      </div>
+    </div>
+
+    <button id="btnMenu" class="icon-btn play-chrome hidden" type="button" title="Menu">☰</button>
+    <button id="btnCraft" class="icon-btn play-chrome craft-btn hidden" type="button" title="Craft">⚒</button>
+    <button id="btnUse" class="icon-btn play-chrome use-btn hidden" type="button" title="Use">✋ Use</button>
+    <button id="btnMode" class="icon-btn play-chrome mode-btn hidden" type="button" title="Mine/Place">⛏ Mine</button>
+  </div>
+
+  <script src="js/config.js"></script>
+  <script src="js/rng.js"></script>
+  <script src="js/world.js"></script>
+  <script src="js/player.js"></script>
+  <script src="js/inventory.js"></script>
+  <script src="js/interact.js"></script>
+  <script src="js/entities.js"></script>
+  <script src="js/textures.js"></script>
+  <script src="js/particles.js"></script>
+  <script src="js/render.js"></script>
+  <script src="js/input.js"></script>
+  <script src="js/audio.js"></script>
+  <script src="js/save.js"></script>
+  <script src="js/game.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
