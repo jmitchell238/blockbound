@@ -193,14 +193,14 @@ function nearestViewX(camX, tileX) {
   return best;
 }
 
-/** Cheap corner AO: darken if neighbors solid. */
+/** Soft ambient occlusion — keep light so seams don't look like a grid. */
 function blockAO(world, x, y) {
   let s = 0;
-  if (isSolid(world, x - 1, y)) s += 0.08;
-  if (isSolid(world, x + 1, y)) s += 0.08;
-  if (isSolid(world, x, y - 1)) s += 0.06;
-  if (isSolid(world, x, y + 1)) s += 0.1;
-  return Math.min(0.35, s);
+  if (isSolid(world, x - 1, y)) s += 0.04;
+  if (isSolid(world, x + 1, y)) s += 0.04;
+  if (isSolid(world, x, y - 1)) s += 0.03;
+  if (isSolid(world, x, y + 1)) s += 0.05;
+  return Math.min(0.18, s);
 }
 
 function drawCelestial(ctx, sky, timeOfDay) {
@@ -299,6 +299,14 @@ function drawParallax(ctx, camX, day) {
   ctx.restore();
 }
 
+/** Terrain types that should look seamless rather than toy-cubes. */
+function isTerrainBlock(id) {
+  return id === BLOCK.GRASS || id === BLOCK.DIRT || id === BLOCK.STONE || id === BLOCK.SAND
+    || id === BLOCK.SNOW || id === BLOCK.CLAY || id === BLOCK.COAL || id === BLOCK.IRON
+    || id === BLOCK.GOLD || id === BLOCK.COPPER || id === BLOCK.BEDROCK || id === BLOCK.PLANKS
+    || id === BLOCK.BRICK || id === BLOCK.WOOD;
+}
+
 function drawBlock(ctx, sx, sy, ts, id, lightMul, wx, ty, ao) {
   const m = BLOCK_META[id];
   if (!m || !m.color) return;
@@ -306,40 +314,44 @@ function drawBlock(ctx, sx, sy, ts, id, lightMul, wx, ty, ao) {
   const alpha = m.alpha != null ? m.alpha : 1;
   const cube = typeof getCubeTex === 'function' ? getCubeTex(id) : null;
   const face = typeof getTileTex === 'function' ? getTileTex(id) : null;
+  const soft = typeof getSoftTex === 'function' ? getSoftTex(id) : face;
 
   ctx.save();
   ctx.globalAlpha = alpha;
 
-  // Lighting via canvas filter-ish multiply overlay after draw
-  const depth = Math.max(3, ts * 0.18);
-
+  const depth = Math.max(2, ts * 0.08);
   const useFlat = id === BLOCK.WATER || id === BLOCK.TORCH || id === BLOCK.LADDER
-    || id === BLOCK.LEAVES || id === BLOCK.GLASS || id === BLOCK.PLATFORM || id === BLOCK.CAMPFIRE;
-  if (cube && !useFlat) {
-    ctx.imageSmoothingEnabled = false;
-    // slight lift for solid blocks
-    ctx.drawImage(cube, sx - 1, sy - 1, ts + 2, ts + 2);
+    || id === BLOCK.LEAVES || id === BLOCK.GLASS || id === BLOCK.PLATFORM || id === BLOCK.CAMPFIRE
+    || isTerrainBlock(id);
+
+  // Overlap neighbors slightly so grid lines disappear
+  const pad = isTerrainBlock(id) ? 0.75 : 0.35;
+
+  if (useFlat && soft && id !== BLOCK.WATER && id !== BLOCK.TORCH && id !== BLOCK.LADDER && id !== BLOCK.LEAVES && id !== BLOCK.CAMPFIRE && id !== BLOCK.PLATFORM) {
+    // Seamless terrain: soft face, slight top highlight only if air above
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(soft, sx - pad, sy - pad, ts + pad * 2, ts + pad * 2);
+    // Soft top edge only when open to sky (reads as ground without cube seams)
+    // (caller doesn't pass world here — lightMul high on surface is enough)
+    if (lightMul > 0.75 && (id === BLOCK.GRASS || id === BLOCK.SNOW || id === BLOCK.SAND)) {
+      ctx.globalAlpha = alpha * 0.18;
+      ctx.fillStyle = m.top || '#fff';
+      ctx.fillRect(sx - pad, sy - pad, ts + pad * 2, Math.max(2, ts * 0.12));
+      ctx.globalAlpha = alpha;
+    }
+  } else if (cube && !useFlat) {
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(cube, sx - pad, sy - pad, ts + pad * 2, ts + pad * 2);
   } else if (face && !useFlat) {
-    ctx.imageSmoothingEnabled = false;
-    // 2.5D from face live
+    ctx.imageSmoothingEnabled = true;
     drawTexturedCube(ctx, sx, sy, ts, face, id);
   } else if (face && useFlat && id !== BLOCK.WATER && id !== BLOCK.TORCH && id !== BLOCK.LADDER && id !== BLOCK.LEAVES) {
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(face, sx, sy, ts, ts);
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(face, sx - pad, sy - pad, ts + pad * 2, ts + pad * 2);
   } else if (!face && !cube) {
-    // color fallback
-    const base = shadeHex(m.color, 0.5 + 0.5 * lightMul);
-    const topC = shadeHex(m.top || m.color, 0.6 + 0.45 * lightMul);
-    ctx.fillStyle = topC;
-    ctx.beginPath();
-    ctx.moveTo(sx, sy + depth);
-    ctx.lineTo(sx + depth, sy);
-    ctx.lineTo(sx + ts, sy);
-    ctx.lineTo(sx + ts - depth, sy + depth);
-    ctx.closePath();
-    ctx.fill();
+    const base = shadeHex(m.color, 0.55 + 0.45 * lightMul);
     ctx.fillStyle = base;
-    ctx.fillRect(sx, sy + depth, ts - depth, ts - depth);
+    ctx.fillRect(sx - pad, sy - pad, ts + pad * 2, ts + pad * 2);
   }
 
   // Special animated overlays
@@ -401,23 +413,20 @@ function drawBlock(ctx, sx, sy, ts, id, lightMul, wx, ty, ao) {
     }
   }
 
-  // Light multiply + AO
-  const shade = Math.max(0.15, lightMul * (1 - ao));
-  if (shade < 0.98 && id !== BLOCK.TORCH && id !== BLOCK.LAVA) {
-    ctx.globalAlpha = 1 - shade;
-    ctx.fillStyle = '#0a0a12';
-    ctx.fillRect(sx, sy, ts + 0.5, ts + 0.5);
+  // Soft light multiply (no hard grid darkening)
+  const shade = Math.max(0.22, lightMul * (1 - ao * 0.55));
+  if (shade < 0.96 && id !== BLOCK.TORCH && id !== BLOCK.LAVA && id !== BLOCK.CAMPFIRE) {
+    ctx.globalAlpha = (1 - shade) * 0.85;
+    ctx.fillStyle = '#0a1018';
+    ctx.fillRect(sx - 0.5, sy - 0.5, ts + 1, ts + 1);
   }
 
-  // Grass fringe when air above
-  if (id === BLOCK.GRASS) {
-    ctx.globalAlpha = 0.9 * lightMul;
-    ctx.fillStyle = '#7dca4a';
-    for (let i = 0; i < 5; i++) {
-      const bx = sx + 3 + i * (ts / 5);
-      const bh = 3 + ((wx * 3 + i * 7 + ty) % 4);
-      ctx.fillRect(bx, sy - bh + 2, 2, bh);
-    }
+  // Subtle grass tufts only on surface grass (sparse)
+  if (id === BLOCK.GRASS && lightMul > 0.7 && ((wx * 5 + ty * 3) % 4 === 0)) {
+    ctx.globalAlpha = 0.55 * lightMul;
+    ctx.fillStyle = '#6fbf45';
+    const bx = sx + ts * 0.35;
+    ctx.fillRect(bx, sy - 2, 2, 4);
   }
 
   ctx.restore();
@@ -556,19 +565,25 @@ function drawPlayer(ctx, p, cam, ts) {
   const sy = (p.y - cam.y) * ts + H / 2;
   const pw = p.w * ts;
   const ph = p.h * ts;
+  const walking = p.onGround && Math.abs(p.vx) > 0.25;
+  const run = Math.min(1, Math.abs(p.vx) / 4);
+  // Faster walk cycle so motion is obvious
+  const phase = p.anim * (walking ? 1.8 : 1);
 
   ctx.save();
   if (p.invuln > 0 && Math.floor(p.invuln * 20) % 2 === 0) {
     ctx.globalAlpha = 0.45;
   }
 
-  // Soft ground shadow
+  // Soft ground shadow (moves with stride)
+  const shadowW = pw * (0.55 + run * 0.12);
   ctx.fillStyle = 'rgba(0,0,0,0.28)';
   ctx.beginPath();
-  ctx.ellipse(sx, sy - 1, pw * 0.62, 4.5, 0, 0, Math.PI * 2);
+  ctx.ellipse(sx + (walking ? Math.sin(phase) * 2 : 0), sy - 1, shadowW, 4.5, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  const bob = p.onGround && Math.abs(p.vx) > 0.35 ? Math.sin(p.anim) * 2.2 : 0;
+  const bob = walking ? Math.abs(Math.sin(phase)) * 3.5 : (p.onGround ? 0 : 0);
+  const lean = walking ? Math.sin(phase) * 0.12 : 0; // radians
   const img = textures.player;
 
   // Boat under player
@@ -581,32 +596,53 @@ function drawPlayer(ctx, p, cam, ts) {
     ctx.fillRect(sx - pw * 0.9, sy - 10, pw * 1.8, 6);
   }
 
+  // Animated legs under sprite (always visible when walking)
+  if (walking && !p.inBoat) {
+    const stride = Math.sin(phase) * 5;
+    const legH = ph * 0.28;
+    const legW = Math.max(3, pw * 0.18);
+    ctx.fillStyle = '#3d5a80';
+    // back leg
+    ctx.fillRect(sx - legW * 1.2, sy - legH + stride, legW, legH - Math.max(0, stride * 0.3));
+    // front leg
+    ctx.fillRect(sx + legW * 0.3, sy - legH - stride, legW, legH + Math.max(0, stride * 0.3));
+    // shoes
+    ctx.fillStyle = '#2a2a32';
+    ctx.fillRect(sx - legW * 1.2 - 1, sy - 3 + stride, legW + 2, 3);
+    ctx.fillRect(sx + legW * 0.3 - 1, sy - 3 - stride, legW + 2, 3);
+  }
+
   if (img) {
     const drawW = ph * 0.72;
-    const drawH = ph * 1.02;
+    const drawH = ph * (walking ? 0.88 : 1.0); // slightly shorter when legs drawn
     ctx.save();
-    ctx.translate(sx, sy - drawH + bob + 2);
+    ctx.translate(sx, sy - drawH + bob + (walking ? -2 : 2));
     if (p.facing < 0) {
       ctx.scale(-1, 1);
-      ctx.translate(-drawW, 0);
+      ctx.translate(-drawW / 2, 0);
     } else {
       ctx.translate(-drawW / 2, 0);
     }
-    // walk squash
-    if (p.onGround && Math.abs(p.vx) > 0.4) {
-      const sq = 1 + Math.sin(p.anim * 2) * 0.04;
-      ctx.translate(drawW / 2, drawH);
-      ctx.scale(1 / sq, sq);
-      ctx.translate(-drawW / 2, -drawH);
+    // lean + squash into run
+    ctx.translate(drawW / 2, drawH);
+    if (walking) {
+      ctx.rotate(lean * p.facing);
+      const sqY = 1 + Math.sin(phase * 2) * 0.06;
+      const sqX = 1 / sqY;
+      ctx.scale(sqX, sqY);
+      // arm swing: clip isn't needed — slight body rock
+    } else if (!p.onGround) {
+      ctx.rotate(p.facing * 0.08);
     }
+    ctx.translate(-drawW / 2, -drawH);
     ctx.imageSmoothingEnabled = true;
     ctx.drawImage(img, 0, 0, drawW, drawH);
     ctx.restore();
   } else {
-    // Procedural blockhead fallback
+    // Procedural blockhead with stride
     const bodyTop = sy - ph + bob;
     const legW = pw * 0.28;
-    const stride = p.onGround ? Math.sin(p.anim) * 3 : 0;
+    const stride = walking ? Math.sin(phase) * 5 : 0;
     ctx.fillStyle = '#3d5a80';
     ctx.fillRect(sx - pw * 0.32, sy - ph * 0.35 + stride, legW, ph * 0.35);
     ctx.fillRect(sx + pw * 0.05, sy - ph * 0.35 - stride, legW, ph * 0.35);
@@ -614,12 +650,9 @@ function drawPlayer(ctx, p, cam, ts) {
     roundRect(ctx, sx - pw * 0.42, bodyTop + ph * 0.28, pw * 0.84, ph * 0.42, 3);
     ctx.fill();
     const hs = pw * 0.9;
-    // cube head with top face
     ctx.fillStyle = '#e8c49a';
     roundRect(ctx, sx - hs / 2, bodyTop, hs, hs * 0.95, 3);
     ctx.fill();
-    ctx.fillStyle = '#f4d6b0';
-    ctx.fillRect(sx - hs / 2 + 1, bodyTop + 1, hs - 2, 4);
     ctx.fillStyle = '#5c3317';
     roundRect(ctx, sx - hs / 2, bodyTop, hs, hs * 0.3, 3);
     ctx.fill();

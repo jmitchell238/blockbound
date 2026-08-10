@@ -23,7 +23,8 @@ function makePlayer(spawnTileX, spawnTileY) {
     anim: 0,
     mining: null, // { tx, ty, progress, need }
     placeCooldown: 0,
-    fallVy: 0, // peak fall speed for fall damage
+    fallVy: 0,
+    fallDist: 0, // tiles fallen this airtime
     inBoat: false,
     spawnX: null,
     spawnY: null,
@@ -102,23 +103,35 @@ function updatePlayer(p, world, input, dt, toolPower) {
   if (p.x >= WORLD_W) p.x -= WORLD_W;
   resolveAxis(p, world, 'x');
 
-  // Move Y
-  if (p.vy > p.fallVy) p.fallVy = p.vy;
+  // Move Y — track peak fall speed and distance for damage
+  if (p.vy > 0) {
+    if (p.vy > p.fallVy) p.fallVy = p.vy;
+    p.fallDist = (p.fallDist || 0) + p.vy * dt;
+  }
   p.y += p.vy * dt;
   const wasGround = p.onGround;
   p.onGround = false;
   resolveAxis(p, world, 'y');
-  // Fall damage on landing
-  if (p.onGround && !wasGround && p.fallVy > 9) {
-    const dmg = Math.floor((p.fallVy - 9) * 6);
-    if (dmg > 0 && p.invuln <= 0) {
-      p.hp -= dmg;
-      p.invuln = 0.5;
-      result.hurt = dmg;
-      result.fall = true;
+  // Fall damage only after a real drop (~4+ tiles). 1–3 block hops are free.
+  if (p.onGround && !wasGround) {
+    const dist = p.fallDist || 0;
+    const safeDist = 3.75; // tiles free-fall before hurt
+    if (dist > safeDist && p.invuln <= 0) {
+      const dmg = Math.floor((dist - safeDist) * 5);
+      if (dmg > 0) {
+        p.hp -= Math.min(40, dmg); // cap single hits
+        p.invuln = 0.55;
+        result.hurt = dmg;
+        result.fall = true;
+      }
     }
+    p.fallVy = 0;
+    p.fallDist = 0;
   }
-  if (p.onGround) p.fallVy = 0;
+  if (p.onGround) {
+    p.fallVy = 0;
+    p.fallDist = 0;
+  }
 
   // Sky limit — soft clamp
   if (p.y - p.h < SKY_LIMIT) {
@@ -196,7 +209,8 @@ function updatePlayer(p, world, input, dt, toolPower) {
   if (moving) p.energy = Math.max(0, p.energy - dt * 1.2);
   else p.energy = Math.min(p.maxEnergy, p.energy + dt * 4);
 
-  p.anim += dt * (p.onGround && Math.abs(p.vx) > 0.3 ? 10 : 4);
+  // Faster anim when moving so walk cycle reads clearly
+  p.anim += dt * (p.onGround && Math.abs(p.vx) > 0.25 ? 14 : 5);
   return result;
 }
 

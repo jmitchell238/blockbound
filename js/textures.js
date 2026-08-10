@@ -1,8 +1,7 @@
 'use strict';
 
 /**
- * Texture atlas loader + fallback procedural faces.
- * Loads assets/tiles/*.png and player/hero.png; game waits for ready.
+ * Texture atlas loader + softer cube bake (less harsh outlines/seams).
  */
 
 const TEX_SIZE = 64;
@@ -32,8 +31,10 @@ const TILE_FILES = {
 
 const textures = {
   ready: false,
-  tiles: Object.create(null), // id -> HTMLImageElement | HTMLCanvasElement
-  cube: Object.create(null),  // id -> pre-baked 2.5D cube canvas
+  tiles: Object.create(null),
+  cube: Object.create(null),
+  /** Soft seamless face (no cube outline) for terrain blending */
+  soft: Object.create(null),
   player: null,
   clouds: null,
   crack: [],
@@ -48,7 +49,7 @@ function loadImage(src) {
   });
 }
 
-/** Bake a 2.5D cube canvas from a square face texture. */
+/** Soft 2.5D cube — shallow depth, no hard black outline. */
 function bakeCube(faceImg, transparent) {
   const S = 72;
   const c = document.createElement('canvas');
@@ -57,13 +58,14 @@ function bakeCube(faceImg, transparent) {
   const ctx = c.getContext('2d');
   ctx.clearRect(0, 0, S, S);
 
-  const depth = Math.floor(S * 0.18);
+  // Shallower bevel so blocks don't read as toy cubes
+  const depth = Math.floor(S * 0.1);
   const frontW = S - depth;
   const frontH = S - depth;
   const frontX = 0;
   const frontY = depth;
 
-  // Top face (parallelogram)
+  // Top face — soft
   ctx.save();
   ctx.beginPath();
   ctx.moveTo(frontX, frontY);
@@ -72,13 +74,15 @@ function bakeCube(faceImg, transparent) {
   ctx.lineTo(frontX + frontW, frontY);
   ctx.closePath();
   ctx.clip();
-  ctx.transform(1, 0, -0.45, 0.55, depth * 0.5, 0);
-  ctx.filter = 'brightness(1.18)';
-  ctx.drawImage(faceImg, 0, 0, frontW + depth, depth + 4);
+  ctx.transform(1, 0, -0.35, 0.45, depth * 0.4, 0);
+  ctx.globalAlpha = 0.95;
+  ctx.filter = 'brightness(1.08)';
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(faceImg, 0, 0, frontW + depth, depth + 6);
   ctx.filter = 'none';
   ctx.restore();
 
-  // Right face
+  // Right face — subtle
   ctx.save();
   ctx.beginPath();
   ctx.moveTo(frontX + frontW, frontY);
@@ -87,35 +91,54 @@ function bakeCube(faceImg, transparent) {
   ctx.lineTo(frontX + frontW, frontY + frontH);
   ctx.closePath();
   ctx.clip();
-  ctx.fillStyle = 'rgba(0,0,0,0.28)';
+  ctx.fillStyle = 'rgba(0,0,0,0.12)';
   ctx.fill();
-  ctx.globalAlpha = 0.85;
-  ctx.filter = 'brightness(0.72)';
-  ctx.drawImage(faceImg, frontX + frontW - 4, frontY, depth + 8, frontH);
+  ctx.globalAlpha = 0.75;
+  ctx.filter = 'brightness(0.82)';
+  ctx.drawImage(faceImg, frontX + frontW - 4, frontY, depth + 6, frontH);
   ctx.filter = 'none';
   ctx.restore();
 
   // Front face
   ctx.save();
-  if (!transparent) {
-    ctx.drawImage(faceImg, frontX, frontY, frontW, frontH);
-  } else {
-    ctx.drawImage(faceImg, frontX, frontY, frontW, frontH);
-  }
-  // Soft bevel
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(faceImg, frontX, frontY, frontW, frontH);
+  // Very soft shading only
   const g = ctx.createLinearGradient(frontX, frontY, frontX, frontY + frontH);
-  g.addColorStop(0, 'rgba(255,255,255,0.12)');
-  g.addColorStop(0.5, 'rgba(0,0,0,0)');
-  g.addColorStop(1, 'rgba(0,0,0,0.18)');
+  g.addColorStop(0, 'rgba(255,255,255,0.06)');
+  g.addColorStop(0.55, 'rgba(0,0,0,0)');
+  g.addColorStop(1, 'rgba(0,0,0,0.1)');
   ctx.fillStyle = g;
   ctx.fillRect(frontX, frontY, frontW, frontH);
   ctx.restore();
 
-  // Outline
-  ctx.strokeStyle = 'rgba(0,0,0,0.22)';
+  // No hard outline — just a whisper of edge
+  ctx.strokeStyle = 'rgba(0,0,0,0.06)';
   ctx.lineWidth = 1;
   ctx.strokeRect(frontX + 0.5, frontY + 0.5, frontW - 1, frontH - 1);
 
+  return c;
+}
+
+/** Flat soft tile for seamless terrain (slight padding for overlap). */
+function bakeSoftFace(faceImg) {
+  const S = 68;
+  const c = document.createElement('canvas');
+  c.width = S;
+  c.height = S;
+  const ctx = c.getContext('2d');
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(faceImg, 0, 0, S, S);
+  // Micro noise to break perfect grid
+  const img = ctx.getImageData(0, 0, S, S);
+  const d = img.data;
+  for (let i = 0; i < d.length; i += 16) {
+    const n = ((i * 13) % 7) - 3;
+    d[i] = Math.max(0, Math.min(255, d[i] + n));
+    d[i + 1] = Math.max(0, Math.min(255, d[i + 1] + n));
+    d[i + 2] = Math.max(0, Math.min(255, d[i + 2] + n));
+  }
+  ctx.putImageData(img, 0, 0);
   return c;
 }
 
@@ -126,8 +149,8 @@ function bakeCracks() {
     c.width = 64;
     c.height = 64;
     const ctx = c.getContext('2d');
-    ctx.strokeStyle = `rgba(20,15,10,${0.25 + stage * 0.12})`;
-    ctx.lineWidth = 1.5 + stage * 0.2;
+    ctx.strokeStyle = `rgba(20,15,10,${0.2 + stage * 0.1})`;
+    ctx.lineWidth = 1.2 + stage * 0.15;
     ctx.lineCap = 'round';
     const arms = 2 + stage;
     for (let i = 0; i < arms; i++) {
@@ -158,10 +181,6 @@ function makeFallbackFace(id) {
     ctx.fillStyle = m.top;
     ctx.fillRect(0, 0, TEX_SIZE, 10);
   }
-  ctx.fillStyle = 'rgba(0,0,0,0.1)';
-  for (let i = 0; i < 20; i++) {
-    ctx.fillRect((i * 17) % 64, (i * 29) % 64, 3, 3);
-  }
   return c;
 }
 
@@ -177,11 +196,13 @@ async function loadTextures() {
           const alpha = !!(BLOCK_META[id] && BLOCK_META[id].alpha != null && BLOCK_META[id].alpha < 1)
             || id === BLOCK.LADDER || id === BLOCK.TORCH || id === BLOCK.LEAVES || id === BLOCK.GLASS || id === BLOCK.WATER;
           textures.cube[id] = bakeCube(img, alpha);
+          textures.soft[id] = bakeSoftFace(img);
         })
         .catch(() => {
           const fb = makeFallbackFace(id);
           textures.tiles[id] = fb;
           textures.cube[id] = bakeCube(fb, false);
+          textures.soft[id] = bakeSoftFace(fb);
         })
     );
   }
@@ -202,4 +223,8 @@ function getTileTex(id) {
 
 function getCubeTex(id) {
   return textures.cube[id] || null;
+}
+
+function getSoftTex(id) {
+  return textures.soft[id] || textures.tiles[id] || null;
 }
