@@ -15,11 +15,16 @@ function _finishSession(world, player, inv, timeOfDay, seed, ents) {
     craftHit: [],
     chestOpen: null, // { x, y, slots }
     chestHit: [],
+    bagOpen: false,
     toast: '',
     toastT: 0,
     showTouch: false,
     prompt: '',
     zoom: 1,
+    hoverTx: null,
+    hoverTy: null,
+    weather: 0, // 0 clear, 1 rain intensity
+    wasNight: false,
   };
   const stats = {
     blocksMined: save.blocksMined | 0,
@@ -65,6 +70,9 @@ async function createSession(opts) {
       player.hp = save.player.hp != null ? save.player.hp : 100;
       player.energy = save.player.energy != null ? save.player.energy : 100;
       player.hunger = save.player.hunger != null ? save.player.hunger : 100;
+      player.spawnX = save.player.spawnX != null ? save.player.spawnX : null;
+      player.spawnY = save.player.spawnY != null ? save.player.spawnY : null;
+      player.inBoat = !!save.player.inBoat;
     } else {
       const sp = findSpawn(world);
       player = makePlayer(sp.x, sp.y);
@@ -137,8 +145,15 @@ function gameUpdate(dt) {
 
   if (input.craftToggle) {
     if (ui.chestOpen) ui.chestOpen = null;
+    else if (ui.bagOpen) ui.bagOpen = false;
     else ui.craftOpen = !ui.craftOpen;
     input.craftToggle = false;
+  }
+  if (input.bagToggle) {
+    ui.bagOpen = !ui.bagOpen;
+    ui.craftOpen = false;
+    ui.chestOpen = null;
+    input.bagToggle = false;
   }
   if (input.modeToggle) {
     ui.mode = ui.mode === 'mine' ? 'place' : 'mine';
@@ -149,6 +164,15 @@ function gameUpdate(dt) {
     selectHotbar(inv, input.hotbarTap);
     syncEquippedTool(inv);
     input.hotbarTap = -1;
+  }
+
+  // Hover target for outline
+  if (input.mineTx != null) {
+    ui.hoverTx = input.mineTx;
+    ui.hoverTy = input.mineTy;
+  } else if (input.placeTx != null) {
+    ui.hoverTx = input.placeTx;
+    ui.hoverTy = input.placeTy;
   }
 
   // Use / interact (F)
@@ -164,7 +188,7 @@ function gameUpdate(dt) {
     input.jumpPressed = false;
   }
 
-  if (ui.craftOpen || ui.chestOpen) {
+  if (ui.craftOpen || ui.chestOpen || ui.bagOpen) {
     s.timeOfDay = (s.timeOfDay + dt / DAY_LEN * 0.25) % 1;
     return;
   }
@@ -199,12 +223,13 @@ function gameUpdate(dt) {
     player.hp = player.maxHp;
     player.energy = player.maxEnergy;
     player.hunger = Math.max(40, player.hunger);
-    const sp = findSpawn(world);
+    player.inBoat = false;
+    const sp = findSpawn(world, player);
     player.x = sp.x + 0.5;
     player.y = sp.y;
     player.vx = 0;
     player.vy = 0;
-    toast(ui, 'You collapsed — respawned at spawn');
+    toast(ui, player.spawnX != null ? 'Respawned at your bed' : 'You collapsed — respawned at spawn');
   }
 
   let minePower = TOOLS[inv.tool] ? TOOLS[inv.tool].power : 1;
@@ -285,11 +310,17 @@ function gameUpdate(dt) {
     if (result.fall) toast(ui, 'Ouch — fall damage!');
   }
 
-  // Place
+  // Place / bucket
   const wantPlace = (input.pointerDown && ui.mode === 'place') || input._rightPlace || input._rightHeld;
   if (wantPlace && input.placeTx != null) {
     const slot = selectedSlot(inv);
-    if (slot && isBlockItem(slot.id)) {
+    if (slot && (slot.id === 'bucket' || slot.id === 'bucket_water')) {
+      const r = tryBucket(inv, world, player, input.placeTx, input.placeTy);
+      if (r) {
+        if (r.ok) { sfxPlace(); toast(ui, r.msg); }
+        else toast(ui, r.reason);
+      }
+    } else if (slot && isBlockItem(slot.id)) {
       if (tryPlace(player, world, input.placeTx, input.placeTy, slot.id)) {
         removeItem(inv, slot.id, 1);
         sfxPlace();
@@ -298,10 +329,13 @@ function gameUpdate(dt) {
         if (slot.id === BLOCK.BED) unlockMilestone(world.meta, stats, ui, 'first_bed');
         if (slot.id === BLOCK.FURNACE) unlockMilestone(world.meta, stats, ui, 'first_furnace');
         if (slot.id === BLOCK.TORCH) unlockMilestone(world.meta, stats, ui, 'first_torch');
+        if (slot.id === BLOCK.CAMPFIRE) unlockMilestone(world.meta, stats, ui, 'first_campfire');
+        if (slot.id === BLOCK.PLATFORM) unlockMilestone(world.meta, stats, ui, 'first_platform');
         if (slot.id === BLOCK.CHEST) getChest(world.meta, input.placeTx, input.placeTy);
+        // Gravity cascade after place
+        tickGravityNear(world, input.placeTx, input.placeTy, 6);
       }
     } else if (slot && isFood(slot.id)) {
-      // right-click food = eat
       const ate = tryEat(inv, player);
       if (ate && ate.ok) {
         sfxPickup();
@@ -312,6 +346,10 @@ function gameUpdate(dt) {
       toast(ui, 'Select a block to place');
     }
   }
+  // Gravity after mine
+  if (result.mined) {
+    tickGravityNear(world, result.mined.tx, result.mined.ty, 8);
+  }
   if (input._rightHeld || input._rightPlace) {
     input.mineTx = null;
     input.mineTy = null;
@@ -320,21 +358,56 @@ function gameUpdate(dt) {
 
   // Entities
   const picked = updateDrops(ents, world, player, inv, dt);
-  if (picked.length) {
-    sfxPickup();
-  }
+  if (picked.length) sfxPickup();
   updateCritters(ents, world, dt);
+
+  // Hostiles at night
+  const hostHits = updateHostiles(ents, world, player, dt, s.timeOfDay, ui);
+  for (const hh of hostHits) {
+    player.hp -= hh.dmg;
+    player.invuln = 0.7;
+    sfxHurt();
+    toast(ui, hh.kind === 'dropbear' ? 'Dropbear attack!' : 'Scorpion sting!');
+  }
+
+  // Weather (rain cycles)
+  const dayAmt = Math.sin(s.timeOfDay * Math.PI * 2 - Math.PI / 2) * 0.5 + 0.5;
+  const rainWave = Math.sin(s.timeOfDay * Math.PI * 4 + seed * 0.001);
+  ui.weather = dayAmt > 0.2 && rainWave > 0.55 ? Math.min(1, (rainWave - 0.55) * 3) : Math.max(0, ui.weather - dt * 0.3);
+  if (ui.weather > 0.3 && Math.random() < dt * 20) {
+    // rain splash particles near player
+    spawnBurst(s.particles, player.x + (Math.random() - 0.5) * 8, player.y - 4 - Math.random() * 6, '#8ec8ff', 1);
+  }
+
+  // Night survival milestone
+  const isNight = dayAmt < 0.35;
+  if (ui.wasNight && !isNight) unlockMilestone(world.meta, stats, ui, 'survived_night');
+  ui.wasNight = isNight;
+
+  // Recover boat if left on shore
+  if (!player.inBoat && s._hadBoat) {
+    addItem(inv, 'boat', 1);
+    s._hadBoat = false;
+    toast(ui, 'Picked up boat');
+  }
+  if (player.inBoat) s._hadBoat = true;
 
   // Interact prompt
   const hit = nearInteract(world, world.meta, player.x, player.y);
+  const slot = selectedSlot(inv);
   ui.prompt = hit
     ? (hit.kind === 'door' ? 'F · ' + (isDoorOpen(world.meta, hit.x, hit.y) ? 'Close door' : 'Open door')
       : hit.kind === 'chest' ? 'F · Open chest'
-      : hit.kind === 'bed' ? 'F · Sleep (night)'
-      : hit.kind === 'furnace' ? 'F · Furnace craft'
+      : hit.kind === 'bed' ? 'F · Sleep (night) · set spawn'
+      : hit.kind === 'furnace' ? 'F · Furnace'
+      : hit.kind === 'campfire' ? 'F · Warm up'
       : hit.kind === 'craft' ? 'F · Craft'
       : 'F · Use')
-    : (selectedSlot(inv) && isFood(selectedSlot(inv).id) ? 'F · Eat' : '');
+    : (slot && slot.id === 'boat' ? 'F · Launch boat (in water)'
+      : player.inBoat ? 'F · Leave boat'
+      : slot && isFood(slot.id) ? 'F · Eat'
+      : slot && (slot.id === 'bucket' || slot.id === 'bucket_water') ? 'Place mode · use bucket'
+      : '');
 
   // Camera
   const targetX = player.x;
@@ -349,6 +422,13 @@ function gameUpdate(dt) {
 
   updateParticles(s.particles, dt);
   s.timeOfDay = (s.timeOfDay + dt / DAY_LEN) % 1;
+
+  // Occasional gravity settle near player
+  s.gravTimer = (s.gravTimer || 0) + dt;
+  if (s.gravTimer > 0.25) {
+    s.gravTimer = 0;
+    tickGravityNear(world, player.x, player.y, 12);
+  }
 
   s.lightTimer += dt;
   if (world.dirtyLight && s.lightTimer > 0.08) {
@@ -381,15 +461,24 @@ function handleUse(s) {
     return;
   }
   if (hit && hit.kind === 'bed') {
-    const r = trySleep(player, world, s.timeOfDay);
+    const r = trySleep(player, world, s.timeOfDay, { x: hit.x, y: hit.y });
     if (r.ok) {
       s.timeOfDay = r.timeOfDay;
       if (typeof sfxSleep === 'function') sfxSleep(); else sfxCraft();
-      toast(ui, 'Slept until morning. Feeling better!');
+      toast(ui, r.setSpawn ? 'Slept · spawn set at bed' : 'Slept until morning');
       unlockMilestone(world.meta, stats, ui, 'first_bed');
     } else {
       toast(ui, r.reason || 'Can\'t sleep');
     }
+    return;
+  }
+  if (hit && hit.kind === 'campfire') {
+    player.hp = Math.min(player.maxHp, player.hp + 8);
+    player.energy = Math.min(player.maxEnergy, player.energy + 25);
+    player.hunger = Math.min(player.maxHunger, player.hunger + 5);
+    sfxCraft();
+    toast(ui, 'Warmed by the campfire');
+    unlockMilestone(world.meta, stats, ui, 'first_campfire');
     return;
   }
   if (hit && (hit.kind === 'furnace' || hit.kind === 'craft')) {
@@ -397,6 +486,27 @@ function handleUse(s) {
     ui.craftOpen = true;
     toast(ui, hit.kind === 'furnace' ? 'Furnace recipes' : 'Crafting');
     return;
+  }
+
+  // Boat
+  if (player.inBoat) {
+    if (tryDismountBoat(player, inv)) {
+      s._hadBoat = false;
+      toast(ui, 'Left the boat');
+      return;
+    }
+  } else {
+    const boat = tryMountBoat(inv, player, world);
+    if (boat) {
+      if (boat.ok) {
+        unlockMilestone(world.meta, stats, ui, 'first_boat');
+        toast(ui, boat.msg);
+        sfxPlace();
+      } else if (selectedSlot(inv) && selectedSlot(inv).id === 'boat') {
+        toast(ui, boat.reason);
+      }
+      if (boat.ok || (selectedSlot(inv) && selectedSlot(inv).id === 'boat')) return;
+    }
   }
 
   const ate = tryEat(inv, player);

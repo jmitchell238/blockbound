@@ -29,13 +29,13 @@ python3 -m http.server 8080
 | Pause | Esc / P | — |
 | Hotbar | 1–8 | Tap slots |
 
-## Features (v1.3)
+## Features (v1.4)
 
-- Procedural **wrapping** world — size presets up to **16,384** wide (Blockheads 1×)
-- Survival: **hunger**, fall damage, sleep in a **bed**, eat **apples / bread / stew**
-- **Doors**, **chests**, **furnace** smelting (iron/gold/copper ingots → better tools)
-- Floating loot drops, ambient dodos & bunnies, minimap, zoom, pause
-- Local lighting, biomes, day/night, milestones, autosave
+- Wrapping worlds up to **16,384** wide · deeper digs · local lighting
+- Survival: hunger, fall damage, bed spawn, food, night **scorpions & dropbears**
+- Build: doors, chests, furnace, **platforms**, **campfires**, boat, water bucket
+- Sand/snow **gravity**, rain weather, floating drops, dodos/bunnies
+- UX: minimap, coords/biome, hover outline, backpack (**I**), zoom, pause
 
 ### World sizes
 

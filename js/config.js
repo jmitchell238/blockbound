@@ -1,13 +1,13 @@
 'use strict';
 
 // Blockbound — keep CACHE in sw.js in sync: 'blockbound-' + GAME_VERSION
-const GAME_VERSION = '1.3.000';
+const GAME_VERSION = '1.4.000';
 const GAME_VERSION_LABEL = 'v' + GAME_VERSION;
 const GAME_NAME = 'Blockbound';
 
 const W = 390;
 const H = 700;
-const SAVE_KEY = 'blockbound-save-v3';
+const SAVE_KEY = 'blockbound-save-v4';
 
 /** Logical tile size in pixels (render scale can differ slightly). */
 const TILE = 28;
@@ -89,6 +89,8 @@ const BLOCK = {
   BED: 23,
   CHEST: 24,
   FURNACE: 25,
+  PLATFORM: 26,
+  CAMPFIRE: 27,
 };
 
 const BLOCK_META = {
@@ -96,7 +98,7 @@ const BLOCK_META = {
   [BLOCK.GRASS]:     { name: 'Grass', solid: true, mine: 0.35, drops: BLOCK.DIRT, color: '#5a9e3a', top: '#6fbf45' },
   [BLOCK.DIRT]:      { name: 'Dirt', solid: true, mine: 0.35, drops: BLOCK.DIRT, color: '#8b5a2b', top: '#9a6a3a' },
   [BLOCK.STONE]:     { name: 'Stone', solid: true, mine: 0.9, drops: BLOCK.STONE, color: '#7a7f88', top: '#8e949e' },
-  [BLOCK.SAND]:      { name: 'Sand', solid: true, mine: 0.3, drops: BLOCK.SAND, color: '#e0c878', top: '#edd89a' },
+  [BLOCK.SAND]:      { name: 'Sand', solid: true, mine: 0.3, drops: BLOCK.SAND, color: '#e0c878', top: '#edd89a', gravity: true },
   [BLOCK.WOOD]:      { name: 'Wood', solid: true, mine: 0.55, drops: BLOCK.WOOD, color: '#8b5a2b', top: '#a06a38', face: '#6e4520' },
   [BLOCK.LEAVES]:    { name: 'Leaves', solid: false, mine: 0.2, drops: BLOCK.LEAVES, color: '#3d8c3a', top: '#4eaa48', alpha: 0.92, fruitChance: 0.12 },
   [BLOCK.COAL]:      { name: 'Coal Ore', solid: true, mine: 1.1, drops: BLOCK.COAL, color: '#3a3a3a', spark: '#1a1a1a' },
@@ -105,7 +107,7 @@ const BLOCK_META = {
   [BLOCK.LAVA]:      { name: 'Magma', solid: true, mine: 99, drops: null, color: '#ff4500', top: '#ff6a00', hazard: true },
   [BLOCK.BEDROCK]:   { name: 'Bedrock', solid: true, mine: 99, drops: null, color: '#1a1a22' },
   [BLOCK.WATER]:     { name: 'Water', solid: false, mine: 0, drops: null, color: '#3a8fd4', alpha: 0.55, fluid: true },
-  [BLOCK.SNOW]:      { name: 'Snow', solid: true, mine: 0.25, drops: BLOCK.SNOW, color: '#eef6ff', top: '#ffffff' },
+  [BLOCK.SNOW]:      { name: 'Snow', solid: true, mine: 0.25, drops: BLOCK.SNOW, color: '#eef6ff', top: '#ffffff', gravity: true },
   [BLOCK.CLAY]:      { name: 'Clay', solid: true, mine: 0.4, drops: BLOCK.CLAY, color: '#a07868', top: '#b08878' },
   [BLOCK.LADDER]:    { name: 'Ladder', solid: false, mine: 0.2, drops: BLOCK.LADDER, color: '#c4a060', climb: true },
   [BLOCK.TORCH]:     { name: 'Torch', solid: false, mine: 0.1, drops: BLOCK.TORCH, color: '#ffcc44', light: 8 },
@@ -118,6 +120,8 @@ const BLOCK_META = {
   [BLOCK.BED]:       { name: 'Bed', solid: true, mine: 0.4, drops: BLOCK.BED, color: '#c45a6a', top: '#e87890', interact: 'bed' },
   [BLOCK.CHEST]:     { name: 'Chest', solid: true, mine: 0.5, drops: BLOCK.CHEST, color: '#b8863a', top: '#d4a04a', interact: 'chest' },
   [BLOCK.FURNACE]:   { name: 'Furnace', solid: true, mine: 0.7, drops: BLOCK.FURNACE, color: '#5a5a62', top: '#6e6e78', interact: 'furnace', light: 4 },
+  [BLOCK.PLATFORM]:  { name: 'Platform', solid: true, mine: 0.25, drops: BLOCK.PLATFORM, color: '#c4a060', top: '#d4b070', platform: true },
+  [BLOCK.CAMPFIRE]:  { name: 'Campfire', solid: false, mine: 0.3, drops: BLOCK.CAMPFIRE, color: '#8b4513', light: 10, interact: 'campfire' },
 };
 
 /** Tool power multiplies mining speed. */
@@ -154,11 +158,16 @@ const RECIPES = [
   { id: 'stick', name: 'Sticks ×4', station: 'hand', in: [[BLOCK.PLANKS, 1]], out: ['stick', 4] },
   { id: 'torch', name: 'Torch ×4', station: 'hand', in: [['stick', 1], [BLOCK.COAL, 1]], out: [BLOCK.TORCH, 4] },
   { id: 'ladder', name: 'Ladder ×4', station: 'hand', in: [['stick', 3]], out: [BLOCK.LADDER, 4] },
+  { id: 'platform', name: 'Platform ×4', station: 'hand', in: [[BLOCK.PLANKS, 1]], out: [BLOCK.PLATFORM, 4] },
   { id: 'workbench', name: 'Workbench', station: 'hand', in: [[BLOCK.PLANKS, 4]], out: [BLOCK.WORKBENCH, 1] },
   { id: 'chest', name: 'Chest', station: 'hand', in: [[BLOCK.PLANKS, 8]], out: [BLOCK.CHEST, 1] },
   { id: 'door', name: 'Door', station: 'hand', in: [[BLOCK.PLANKS, 6]], out: [BLOCK.DOOR, 1] },
+  { id: 'campfire', name: 'Campfire', station: 'hand', in: [['stick', 4], [BLOCK.COAL, 1]], out: [BLOCK.CAMPFIRE, 1] },
   { id: 'bed', name: 'Bed', station: 'workbench', in: [[BLOCK.PLANKS, 3], [BLOCK.LEAVES, 3]], out: [BLOCK.BED, 1] },
   { id: 'furnace', name: 'Furnace', station: 'workbench', in: [[BLOCK.STONE, 8]], out: [BLOCK.FURNACE, 1] },
+  { id: 'boat', name: 'Boat', station: 'workbench', in: [[BLOCK.PLANKS, 5]], out: ['boat', 1] },
+  { id: 'bucket', name: 'Bucket', station: 'workbench', in: [['iron_ingot', 3]], out: ['bucket', 1] },
+  { id: 'bucket_water', name: 'Water Bucket', station: 'hand', in: [], out: ['bucket_water', 1], hidden: true },
   { id: 'wood_pick', name: 'Wood Pickaxe', station: 'workbench', in: [[BLOCK.PLANKS, 3], ['stick', 2]], out: ['wood_pick', 1] },
   { id: 'wood_axe', name: 'Wood Axe', station: 'workbench', in: [[BLOCK.PLANKS, 3], ['stick', 2]], out: ['wood_axe', 1] },
   { id: 'stone_pick', name: 'Stone Pickaxe', station: 'workbench', in: [[BLOCK.STONE, 3], ['stick', 2]], out: ['stone_pick', 1] },
@@ -190,7 +199,12 @@ const ITEM_NAMES = {
   iron_ingot: 'Iron Ingot',
   gold_ingot: 'Gold Ingot',
   copper_ingot: 'Copper Ingot',
+  boat: 'Boat',
+  bucket: 'Bucket',
+  bucket_water: 'Water Bucket',
 };
+
+const BIOME_NAMES = ['Forest', 'Desert', 'Snow', 'Plains'];
 
 const MILESTONES = {
   first_mine: 'First block mined!',
@@ -202,7 +216,19 @@ const MILESTONES = {
   deep_dig: 'Deep underground…',
   loop: 'Circumnavigated the world! 🌍',
   fed: 'A proper meal!',
+  first_boat: 'Set sail!',
+  first_platform: 'Skywalk ready!',
+  survived_night: 'Survived the night!',
+  first_campfire: 'Warmth!',
 };
+
+function isPlatform(id) {
+  return id === BLOCK.PLATFORM || !!(BLOCK_META[id] && BLOCK_META[id].platform);
+}
+
+function isGravityBlock(id) {
+  return !!(BLOCK_META[id] && BLOCK_META[id].gravity);
+}
 
 function itemName(id) {
   if (typeof id === 'number') return (BLOCK_META[id] && BLOCK_META[id].name) || 'Item';

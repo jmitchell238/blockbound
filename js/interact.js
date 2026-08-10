@@ -93,15 +93,64 @@ function tryEat(inv, player) {
   return { ok: true, food };
 }
 
-function trySleep(player, world, timeOfDay) {
+function trySleep(player, world, timeOfDay, bedPos) {
   // Must be night-ish
   const day = Math.sin(timeOfDay * Math.PI * 2 - Math.PI / 2) * 0.5 + 0.5;
   if (day > 0.45) return { ok: false, reason: 'You can only sleep at night' };
   player.hp = player.maxHp;
   player.energy = player.maxEnergy;
   player.hunger = Math.min(player.maxHunger, player.hunger + 15);
+  if (bedPos) {
+    player.spawnX = bedPos.x;
+    player.spawnY = bedPos.y;
+  }
   // Skip to morning ~0.28
-  return { ok: true, timeOfDay: 0.28 };
+  return { ok: true, timeOfDay: 0.28, setSpawn: !!bedPos };
+}
+
+/** Empty bucket scoop water, or water bucket place water. */
+function tryBucket(inv, world, player, tx, ty) {
+  const slot = selectedSlot(inv);
+  if (!slot) return null;
+  if (slot.id === 'bucket') {
+    if (getTile(world, tx, ty) === BLOCK.WATER) {
+      setTile(world, tx, ty, BLOCK.AIR);
+      removeItem(inv, 'bucket', 1);
+      addItem(inv, 'bucket_water', 1);
+      return { ok: true, msg: 'Filled bucket' };
+    }
+    return { ok: false, reason: 'Aim at water' };
+  }
+  if (slot.id === 'bucket_water') {
+    if (getTile(world, tx, ty) === BLOCK.AIR || getTile(world, tx, ty) === BLOCK.WATER) {
+      setTile(world, tx, ty, BLOCK.WATER);
+      removeItem(inv, 'bucket_water', 1);
+      addItem(inv, 'bucket', 1);
+      return { ok: true, msg: 'Placed water' };
+    }
+    return { ok: false, reason: 'Need empty space' };
+  }
+  return null;
+}
+
+function tryMountBoat(inv, player, world) {
+  const slot = selectedSlot(inv);
+  if (!slot || slot.id !== 'boat') return null;
+  const feet = getTile(world, Math.floor(player.x), Math.floor(player.y));
+  const below = getTile(world, Math.floor(player.x), Math.floor(player.y + 0.2));
+  if (feet === BLOCK.WATER || below === BLOCK.WATER) {
+    player.inBoat = true;
+    removeItem(inv, 'boat', 1);
+    return { ok: true, msg: 'Boarded boat — sail the seas!' };
+  }
+  return { ok: false, reason: 'Stand in water to launch boat' };
+}
+
+function tryDismountBoat(player, inv) {
+  if (!player.inBoat) return false;
+  player.inBoat = false;
+  addItem(inv, 'boat', 1);
+  return true;
 }
 
 function unlockMilestone(meta, stats, ui, id) {

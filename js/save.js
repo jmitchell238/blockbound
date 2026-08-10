@@ -61,6 +61,9 @@ function persistSession(world, player, inv, timeOfDay, stats, ents) {
     hp: player.hp,
     energy: player.energy,
     hunger: player.hunger,
+    spawnX: player.spawnX,
+    spawnY: player.spawnY,
+    inBoat: !!player.inBoat,
   };
   save.inv = serializeInv(inv);
   if (ents && typeof serializeEntities === 'function') {

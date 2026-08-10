@@ -71,6 +71,7 @@ globalThis.__BB = {
   applyWorldSize, wrapX, wrapDeltaX, generateWorld, getTile, setTile, getLight, isSolid,
   serializeWorld, deserializeWorld, markLightDirty, flushLight, recomputeSkyLight,
   makeInventory, addItem, canCraft, craft, countItem, makeWorldMeta, toggleDoor, tileKey,
+  tickGravityNear, isPlatform, isGravityBlock,
 };
 `;
 vm.createContext(sandbox);
@@ -120,6 +121,14 @@ ok(!BB.isSolid(world, 60, doorY), 'door open walkable');
 
 // Food / recipes include furnace smelt
 ok(BB.FOOD.apple && BB.RECIPES.some(r => r.id === 'smelt_iron'), 'food + smelt recipes');
+ok(BB.BLOCK.PLATFORM && BB.BLOCK.CAMPFIRE, 'platform + campfire blocks');
+ok(BB.RECIPES.some(r => r.id === 'boat') && BB.RECIPES.some(r => r.id === 'bucket'), 'boat + bucket recipes');
+// Sand gravity
+const sandY = world.surface[70] - 2;
+BB.setTile(world, 70, sandY, BB.BLOCK.SAND);
+BB.setTile(world, 70, sandY + 1, BB.BLOCK.AIR);
+const fell = BB.tickGravityNear(world, 70, sandY, 4);
+ok(fell >= 1 && BB.getTile(world, 70, sandY + 1) === BB.BLOCK.SAND, 'sand gravity falls');
 
 // Epic size can allocate (smoke, no full gen of 16k in CI if slow — gen Tour+Standard ok)
 BB.applyWorldSize(4096);

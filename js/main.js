@@ -194,6 +194,7 @@ function syncInput(session) {
   if (b.modeToggle) { a.modeToggle = true; b.modeToggle = false; }
   if (b.usePressed) { a.usePressed = true; b.usePressed = false; }
   if (b.pauseToggle) { a.pauseToggle = true; b.pauseToggle = false; }
+  if (b.bagToggle) { a.bagToggle = true; b.bagToggle = false; }
   if (b.zoomDelta) { a.zoomDelta = (a.zoomDelta || 0) + b.zoomDelta; b.zoomDelta = 0; }
   if (b.hotbarTap >= 0) { a.hotbarTap = b.hotbarTap; b.hotbarTap = -1; }
   if (b.jumpPressed) { a.jumpPressed = true; b.jumpPressed = false; }

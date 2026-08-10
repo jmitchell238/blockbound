@@ -8,6 +8,7 @@ function makeEntityState() {
   return {
     drops: [],
     critters: [],
+    hostiles: [],
   };
 }
 
@@ -92,6 +93,90 @@ function updateDrops(ents, world, player, inv, dt) {
   return picked;
 }
 
+function spawnHostile(ents, x, y) {
+  ents.hostiles.push({
+    x: x + 0.5,
+    y: y,
+    vx: (Math.random() < 0.5 ? -1 : 1) * (1.2 + Math.random()),
+    hp: 20,
+    anim: 0,
+    atkCd: 0,
+    kind: Math.random() < 0.5 ? 'scorpion' : 'dropbear',
+  });
+}
+
+/** Night surface hostiles near player. */
+function updateHostiles(ents, world, player, dt, timeOfDay, ui) {
+  const day = Math.sin(timeOfDay * Math.PI * 2 - Math.PI / 2) * 0.5 + 0.5;
+  const night = day < 0.35;
+
+  // Despawn in day
+  if (!night) {
+    if (ents.hostiles.length) ents.hostiles.length = 0;
+    return [];
+  }
+
+  // Spawn near player occasionally
+  if (ents.hostiles.length < 5 && Math.random() < dt * 0.12) {
+    const side = Math.random() < 0.5 ? -1 : 1;
+    const sx = wrapX(Math.floor(player.x) + side * (8 + Math.floor(Math.random() * 10)));
+    let sy = world.surface[sx];
+    while (sy < WORLD_H - 1 && !isSolid(world, sx, sy + 1)) sy++;
+    while (sy > SKY_LIMIT && isSolid(world, sx, sy)) sy--;
+    // Only if surface-ish and dark
+    if (getTile(world, sx, sy) === BLOCK.AIR) spawnHostile(ents, sx, sy + 1);
+  }
+
+  const hits = [];
+  for (let i = ents.hostiles.length - 1; i >= 0; i--) {
+    const h = ents.hostiles[i];
+    h.anim += dt * 10;
+    h.atkCd = Math.max(0, h.atkCd - dt);
+
+    // Chase player
+    const dx = wrapDeltaX(h.x, player.x);
+    h.vx = Math.sign(dx || 1) * (h.kind === 'dropbear' ? 1.8 : 1.3);
+    const nextX = h.x + h.vx * dt;
+    const feet = Math.floor(h.y + 0.05);
+    const ahead = Math.floor(nextX + Math.sign(h.vx) * 0.3);
+    if (isSolid(world, ahead, feet - 1)) h.vx *= -1;
+    else h.x = nextX;
+    if (h.x < 0) h.x += WORLD_W;
+    if (h.x >= WORLD_W) h.x -= WORLD_W;
+
+    // Stick to ground
+    const tx = Math.floor(h.x);
+    let gy = Math.floor(h.y);
+    while (gy < WORLD_H - 1 && !isSolid(world, tx, gy + 1) && !isPlatform(getTile(world, tx, gy + 1))) gy++;
+    while (gy > SKY_LIMIT && isSolid(world, tx, gy)) gy--;
+    h.y = gy;
+
+    // Attack
+    const dist = Math.hypot(wrapDeltaX(h.x, player.x), h.y - player.y);
+    if (dist < 1.1 && h.atkCd <= 0 && player.invuln <= 0) {
+      h.atkCd = 1.1;
+      hits.push({ dmg: h.kind === 'dropbear' ? 14 : 10, kind: h.kind });
+    }
+
+    // Player can "stomp" or mine-hit: if overlapping and falling
+    if (dist < 1.0 && player.vy > 2) {
+      h.hp -= 12;
+      player.vy = JUMP_VEL / TILE * 0.45;
+    }
+    // Distance despawn
+    if (Math.abs(wrapDeltaX(h.x, player.x)) > 40) {
+      ents.hostiles.splice(i, 1);
+      continue;
+    }
+    if (h.hp <= 0) {
+      spawnDrop(ents, h.x, h.y - 0.5, 'apple', 1);
+      if (Math.random() < 0.3) spawnDrop(ents, h.x, h.y - 0.3, BLOCK.COAL, 1);
+      ents.hostiles.splice(i, 1);
+    }
+  }
+  return hits;
+}
+
 function updateCritters(ents, world, dt) {
   for (const c of ents.critters) {
     c.anim += dt * 8;
@@ -141,6 +226,47 @@ function drawEntities(ctx, ents, cam, ts) {
       ctx.fillRect(sx - 4, sy - 4, 8, 8);
     }
     ctx.restore();
+  }
+
+  // Hostiles
+  if (ents.hostiles) {
+    for (const h of ents.hostiles) {
+      const sx = (h.x - cam.x) * ts + W / 2;
+      const sy = (h.y - cam.y) * ts + H / 2;
+      const bob = Math.sin(h.anim) * 1.5;
+      ctx.save();
+      ctx.translate(sx, sy + bob);
+      if (h.vx < 0) ctx.scale(-1, 1);
+      if (h.kind === 'scorpion') {
+        ctx.fillStyle = '#8b4513';
+        ctx.beginPath();
+        ctx.ellipse(0, -6, 12, 6, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#5a2a0a';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(8, -8);
+        ctx.quadraticCurveTo(16, -18, 10, -14);
+        ctx.stroke();
+        ctx.fillStyle = '#222';
+        ctx.fillRect(4, -10, 2, 2);
+      } else {
+        // dropbear
+        ctx.fillStyle = '#6b4423';
+        ctx.beginPath();
+        ctx.ellipse(0, -10, 11, 10, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#4a2a12';
+        ctx.beginPath();
+        ctx.arc(-6, -18, 4, 0, Math.PI * 2);
+        ctx.arc(6, -18, 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#f44';
+        ctx.fillRect(-3, -12, 2, 2);
+        ctx.fillRect(2, -12, 2, 2);
+      }
+      ctx.restore();
+    }
   }
 
   // Critters
@@ -194,6 +320,7 @@ function serializeEntities(ents) {
   return {
     drops: ents.drops.map(d => ({ x: d.x, y: d.y, id: d.id, count: d.count, life: d.life })),
     critters: ents.critters.map(c => ({ x: c.x, y: c.y, vx: c.vx, kind: c.kind })),
+    // hostiles not saved — respawn at night
   };
 }
 

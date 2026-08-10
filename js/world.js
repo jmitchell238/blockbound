@@ -78,6 +78,47 @@ function isSolid(world, x, y) {
   return !!(m && m.solid);
 }
 
+/** Platforms only block from above (one-way). */
+function blocksFromAbove(world, x, y) {
+  const t = getTile(world, x, y);
+  if (isPlatform(t)) return true;
+  return isSolid(world, x, y);
+}
+
+/**
+ * Local sand/snow gravity near a column (and player neighborhood).
+ * Returns number of blocks that fell.
+ */
+function tickGravityNear(world, cx, cy, radius) {
+  radius = radius == null ? 10 : radius;
+  let moved = 0;
+  // Bottom-up so cascades work in one pass
+  const y0 = Math.max(1, Math.floor(cy) - radius);
+  const y1 = Math.min(WORLD_H - 2, Math.floor(cy) + radius);
+  for (let y = y1; y >= y0; y--) {
+    for (let dx = -radius; dx <= radius; dx++) {
+      const x = wrapX(Math.floor(cx) + dx);
+      const id = getTile(world, x, y);
+      if (!isGravityBlock(id)) continue;
+      const below = getTile(world, x, y + 1);
+      if (below === BLOCK.AIR || below === BLOCK.WATER) {
+        // Fall one step
+        world.tiles[idx(x, y)] = below === BLOCK.WATER ? BLOCK.WATER : BLOCK.AIR;
+        world.tiles[idx(x, y + 1)] = id;
+        markLightDirty(world, x, y);
+        markLightDirty(world, x, y + 1);
+        moved++;
+      }
+    }
+  }
+  return moved;
+}
+
+function biomeNameAt(world, x) {
+  const b = world.biome[wrapX(Math.floor(x))];
+  return (BIOME_NAMES && BIOME_NAMES[b]) || 'Wilds';
+}
+
 function isClimbable(world, x, y) {
   const t = getTile(world, x, y);
   return !!(BLOCK_META[t] && BLOCK_META[t].climb);

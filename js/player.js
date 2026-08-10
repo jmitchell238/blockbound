@@ -24,6 +24,9 @@ function makePlayer(spawnTileX, spawnTileY) {
     mining: null, // { tx, ty, progress, need }
     placeCooldown: 0,
     fallVy: 0, // peak fall speed for fall damage
+    inBoat: false,
+    spawnX: null,
+    spawnY: null,
   };
 }
 
@@ -140,8 +143,19 @@ function updatePlayer(p, world, input, dt, toolPower) {
     }
   }
 
-  // Water slow
-  if (feet === BLOCK.WATER || body === BLOCK.WATER) {
+  // Water / boat
+  if (p.inBoat) {
+    // Fast horizontal on water, no fall through
+    const targetBoat = ix * (MOVE_SPEED * 1.35) / TILE;
+    p.vx += (targetBoat - p.vx) * Math.min(1, dt * 6);
+    p.vy = Math.min(p.vy, 1.2);
+    if (feet !== BLOCK.WATER && body !== BLOCK.WATER) {
+      // Beached
+      p.vy = 0;
+      if (p.onGround) p.inBoat = false; // leave boat on shore — recovered in game loop
+    }
+    if (input.jump || input.up) p.vy = -2.5;
+  } else if (feet === BLOCK.WATER || body === BLOCK.WATER) {
     p.vx *= 0.92;
     if (p.vy > 1.5) p.vy *= 0.85;
     if (input.jump || input.up) p.vy = Math.min(p.vy, -2.2);
@@ -195,14 +209,11 @@ function resolveAxis(p, world, axis) {
 
   for (let ty = minTY; ty <= maxTY; ty++) {
     for (let txi = minTX; txi <= maxTX; txi++) {
-      const tx = txi; // getTile wraps
-      if (!isSolid(world, tx, ty)) continue;
-      // Solid AABB in continuous space near player
-      // Map tile into player's local unwrapped neighborhood
-      let tileLeft = wrapX(tx);
-      // Choose representation closest to player.x
-      let dx = wrapDeltaX(0, tileLeft - 0); // not quite
-      // Better: express tile x relative to player
+      const tx = txi;
+      const tid = getTile(world, tx, ty);
+      const isPlat = isPlatform(tid);
+      if (!isSolid(world, tx, ty) && !isPlat) continue;
+
       const rel = nearestTileX(p.x, tx);
       const tl = rel;
       const tr = rel + 1;
@@ -210,6 +221,23 @@ function resolveAxis(p, world, axis) {
       const tb = ty + 1;
 
       if (box.right <= tl || box.left >= tr || box.bottom <= tt || box.top >= tb) continue;
+
+      // One-way platforms: only collide when falling onto top
+      if (isPlat) {
+        if (axis !== 'y') continue;
+        if (p.vy < 0) continue; // jumping up through
+        if (box.bottom - p.vy * 0.02 > tt + 0.35) continue; // already deep inside
+        // only land on top surface
+        const overlapT = box.bottom - tt;
+        if (overlapT > 0 && overlapT < 0.55 && p.vy >= 0) {
+          p.y -= overlapT;
+          p.vy = 0;
+          p.onGround = true;
+          const b2 = playerAABB(p);
+          box.left = b2.left; box.right = b2.right; box.top = b2.top; box.bottom = b2.bottom;
+        }
+        continue;
+      }
 
       if (axis === 'x') {
         const overlapL = box.right - tl;
@@ -233,7 +261,6 @@ function resolveAxis(p, world, axis) {
           p.vy = Math.max(0, p.vy);
         }
       }
-      // refresh box after correction
       const b2 = playerAABB(p);
       box.left = b2.left;
       box.right = b2.right;
@@ -274,20 +301,21 @@ function tryPlace(p, world, tx, ty, blockId) {
   if (ty < SKY_LIMIT || ty >= MAGMA_Y) return false;
   const dist = Math.hypot(wrapDeltaX(p.x, tx + 0.5), (p.y - p.h * 0.5) - (ty + 0.5));
   if (dist > REACH) return false;
-  if (getTile(world, tx, ty) !== BLOCK.AIR && getTile(world, tx, ty) !== BLOCK.WATER) return false;
-  // Don't place inside player
+  const cur = getTile(world, tx, ty);
+  if (cur !== BLOCK.AIR && cur !== BLOCK.WATER) return false;
+  // Campfire/torch can sit in air with support; water bucket handled elsewhere
   const rel = nearestTileX(p.x, tx);
   const box = playerAABB(p);
   if (box.right > rel && box.left < rel + 1 && box.bottom > ty && box.top < ty + 1) return false;
-  // Need adjacent solid or existing structure (except torch/ladder)
   const meta = BLOCK_META[blockId];
-  const needSupport = !(meta && (meta.light || meta.climb));
+  const needSupport = !(meta && (meta.light || meta.climb || meta.platform || blockId === BLOCK.CAMPFIRE));
   if (needSupport) {
     const adj =
       isSolid(world, tx - 1, ty) ||
       isSolid(world, tx + 1, ty) ||
       isSolid(world, tx, ty - 1) ||
-      isSolid(world, tx, ty + 1);
+      isSolid(world, tx, ty + 1) ||
+      isPlatform(getTile(world, tx, ty + 1));
     if (!adj) return false;
   }
   setTile(world, tx, ty, blockId);
@@ -295,10 +323,24 @@ function tryPlace(p, world, tx, ty, blockId) {
   return true;
 }
 
-function findSpawn(world) {
+function findSpawn(world, player) {
+  if (player && player.spawnX != null && player.spawnY != null) {
+    const sx = wrapX(player.spawnX);
+    let sy = player.spawnY | 0;
+    // Validate bed still nearby
+    let ok = false;
+    for (let dy = -2; dy <= 2 && !ok; dy++) {
+      for (let dx = -2; dx <= 2; dx++) {
+        if (getTile(world, sx + dx, sy + dy) === BLOCK.BED) ok = true;
+      }
+    }
+    if (ok) {
+      while (sy < WORLD_H - 1 && isSolid(world, sx, sy)) sy++;
+      return { x: sx, y: sy };
+    }
+  }
   const sx = Math.floor(WORLD_W / 2);
   let sy = world.surface[sx];
-  // Stand on surface
   while (sy < WORLD_H - 1 && !isSolid(world, sx, sy + 1)) sy++;
   while (sy > SKY_LIMIT && isSolid(world, sx, sy)) sy--;
   return { x: sx, y: sy + 1 };

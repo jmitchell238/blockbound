@@ -119,6 +119,18 @@ function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particles, ent
     drawBlock(ctx, d.sx, d.sy, ts, d.id, d.dayMul, d.wx, d.ty, d.ao);
   }
 
+  // Hover outline
+  if (ui && ui.hoverTx != null && ui.hoverTy != null) {
+    const htx = nearestViewX(cam.x, ui.hoverTx);
+    const hsx = (htx - cam.x) * ts + W / 2;
+    const hsy = (ui.hoverTy - cam.y) * ts + H / 2;
+    ctx.save();
+    ctx.strokeStyle = ui.mode === 'place' ? 'rgba(100,200,255,0.85)' : 'rgba(255,255,255,0.7)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(hsx + 1, hsy + 1, ts - 2, ts - 2);
+    ctx.restore();
+  }
+
   // Mining crack overlay
   if (player.mining) {
     const tx = nearestViewX(cam.x, player.mining.tx);
@@ -133,6 +145,11 @@ function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particles, ent
 
   drawPlayer(ctx, player, cam, ts);
 
+  // Rain
+  if (ui && ui.weather > 0.05) {
+    drawRain(ctx, ui.weather, cam, timeOfDay);
+  }
+
   // Night vignette
   if (sky.day < 0.55) {
     const v = ctx.createRadialGradient(W / 2, H / 2, H * 0.15, W / 2, H / 2, H * 0.8);
@@ -144,6 +161,24 @@ function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particles, ent
 
   drawHUD(ctx, player, inv, world, cam, ui, sky);
   if (ui.chestOpen) drawChestPanel(ctx, inv, ui);
+  if (ui.bagOpen) drawBagPanel(ctx, inv, ui);
+}
+
+function drawRain(ctx, intensity, cam, timeOfDay) {
+  ctx.save();
+  ctx.strokeStyle = `rgba(180,210,255,${0.25 + intensity * 0.35})`;
+  ctx.lineWidth = 1;
+  const n = Math.floor(40 + intensity * 80);
+  const t = performance.now() / 30;
+  for (let i = 0; i < n; i++) {
+    const x = ((i * 97 + t * 3 + (cam.x * 7)) % W + W) % W;
+    const y = ((i * 53 + t * 12) % H + H) % H;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x - 2, y + 10 + intensity * 6);
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 function nearestViewX(camX, tileX) {
@@ -279,7 +314,7 @@ function drawBlock(ctx, sx, sy, ts, id, lightMul, wx, ty, ao) {
   const depth = Math.max(3, ts * 0.18);
 
   const useFlat = id === BLOCK.WATER || id === BLOCK.TORCH || id === BLOCK.LADDER
-    || id === BLOCK.LEAVES || id === BLOCK.GLASS;
+    || id === BLOCK.LEAVES || id === BLOCK.GLASS || id === BLOCK.PLATFORM || id === BLOCK.CAMPFIRE;
   if (cube && !useFlat) {
     ctx.imageSmoothingEnabled = false;
     // slight lift for solid blocks
@@ -355,13 +390,12 @@ function drawBlock(ctx, sx, sy, ts, id, lightMul, wx, ty, ao) {
     ctx.globalAlpha = 0.92;
     ctx.drawImage(face, sx, sy, ts, ts);
   }
-  // Procedural furniture when no texture
-  if ((id === BLOCK.DOOR || id === BLOCK.BED || id === BLOCK.CHEST || id === BLOCK.FURNACE) && !face) {
-    drawFurniture(ctx, sx, sy, ts, id, lightMul);
-  } else if (id === BLOCK.DOOR || id === BLOCK.BED || id === BLOCK.CHEST || id === BLOCK.FURNACE) {
-    if (face) {
+  // Procedural furniture / specials
+  if (id === BLOCK.DOOR || id === BLOCK.BED || id === BLOCK.CHEST || id === BLOCK.FURNACE
+      || id === BLOCK.PLATFORM || id === BLOCK.CAMPFIRE) {
+    if (face && id !== BLOCK.PLATFORM && id !== BLOCK.CAMPFIRE) {
       ctx.globalAlpha = 1;
-      ctx.drawImage(face, sx, sy + (id === BLOCK.DOOR ? 0 : 0), ts, ts);
+      ctx.drawImage(face, sx, sy, ts, ts);
     } else {
       drawFurniture(ctx, sx, sy, ts, id, lightMul);
     }
@@ -428,6 +462,38 @@ function drawTexturedCube(ctx, sx, sy, ts, face, id) {
 
 function drawFurniture(ctx, sx, sy, ts, id, lightMul) {
   const L = 0.5 + 0.5 * lightMul;
+  if (id === BLOCK.PLATFORM) {
+    ctx.fillStyle = shadeHex('#c4a060', L);
+    ctx.fillRect(sx + 1, sy + ts * 0.35, ts - 2, ts * 0.22);
+    ctx.fillStyle = shadeHex('#8a6a30', L);
+    ctx.fillRect(sx + 2, sy + ts * 0.52, 3, ts * 0.2);
+    ctx.fillRect(sx + ts - 5, sy + ts * 0.52, 3, ts * 0.2);
+    return;
+  }
+  if (id === BLOCK.CAMPFIRE) {
+    ctx.fillStyle = shadeHex('#5a3a1a', L);
+    ctx.fillRect(sx + ts * 0.2, sy + ts * 0.65, ts * 0.6, 4);
+    ctx.strokeStyle = shadeHex('#6a4020', L);
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(sx + 6, sy + ts * 0.7);
+    ctx.lineTo(sx + ts - 6, sy + ts * 0.45);
+    ctx.moveTo(sx + ts - 6, sy + ts * 0.7);
+    ctx.lineTo(sx + 6, sy + ts * 0.45);
+    ctx.stroke();
+    const f = 0.6 + 0.4 * Math.sin(performance.now() / 120);
+    ctx.fillStyle = `rgba(255,140,40,${0.7 * f})`;
+    ctx.beginPath();
+    ctx.moveTo(sx + ts * 0.5, sy + ts * 0.25);
+    ctx.lineTo(sx + ts * 0.35, sy + ts * 0.6);
+    ctx.lineTo(sx + ts * 0.65, sy + ts * 0.6);
+    ctx.fill();
+    ctx.fillStyle = `rgba(255,220,80,${0.8 * f})`;
+    ctx.beginPath();
+    ctx.arc(sx + ts * 0.5, sy + ts * 0.48, ts * 0.1, 0, Math.PI * 2);
+    ctx.fill();
+    return;
+  }
   if (id === BLOCK.DOOR) {
     ctx.fillStyle = shadeHex('#a07840', L);
     ctx.fillRect(sx + ts * 0.15, sy + 2, ts * 0.7, ts - 4);
@@ -504,6 +570,16 @@ function drawPlayer(ctx, p, cam, ts) {
 
   const bob = p.onGround && Math.abs(p.vx) > 0.35 ? Math.sin(p.anim) * 2.2 : 0;
   const img = textures.player;
+
+  // Boat under player
+  if (p.inBoat) {
+    ctx.fillStyle = '#8b5a2b';
+    ctx.beginPath();
+    ctx.ellipse(sx, sy - 4, pw * 1.1, 8, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#c49a5a';
+    ctx.fillRect(sx - pw * 0.9, sy - 10, pw * 1.8, 6);
+  }
 
   if (img) {
     const drawW = ph * 0.72;
@@ -597,6 +673,27 @@ function drawHUD(ctx, player, inv, world, cam, ui, sky) {
 
   // Minimap
   drawMinimap(ctx, world, player, cam);
+
+  // Coords + biome
+  const bx2 = wrapX(Math.floor(player.x));
+  const by2 = Math.floor(player.y);
+  const biome = typeof biomeNameAt === 'function' ? biomeNameAt(world, player.x) : '';
+  ctx.fillStyle = 'rgba(6,14,10,0.5)';
+  roundRect(ctx, 12, 56, 150, 32, 8);
+  ctx.fill();
+  ctx.fillStyle = '#c8e8d8';
+  ctx.font = '600 11px system-ui';
+  ctx.textAlign = 'left';
+  ctx.fillText(biome + ' · x' + bx2 + ' y' + by2, 20, 70);
+  if (player.spawnX != null) {
+    ctx.fillStyle = '#7dffa0';
+    ctx.font = '10px system-ui';
+    ctx.fillText('Bed spawn set', 20, 84);
+  } else {
+    ctx.fillStyle = '#9ec5b0';
+    ctx.font = '10px system-ui';
+    ctx.fillText(ui.weather > 0.3 ? '🌧 Raining' : (player.inBoat ? '⛵ Sailing' : 'Explore'), 20, 84);
+  }
 
   // Interact prompt
   if (ui.prompt) {
@@ -771,6 +868,22 @@ function drawItemIcon(ctx, x, y, s, id) {
     ctx.fill();
     return;
   }
+  if (id === 'boat') {
+    ctx.fillStyle = '#8b5a2b';
+    ctx.beginPath();
+    ctx.ellipse(x + s / 2, y + s * 0.6, s * 0.4, s * 0.18, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#c49a5a';
+    ctx.fillRect(x + s * 0.15, y + s * 0.4, s * 0.7, s * 0.15);
+    return;
+  }
+  if (id === 'bucket' || id === 'bucket_water') {
+    ctx.fillStyle = '#888';
+    ctx.fillRect(x + s * 0.25, y + s * 0.35, s * 0.5, s * 0.45);
+    ctx.fillStyle = id === 'bucket_water' ? '#3a8fd4' : '#aaa';
+    ctx.fillRect(x + s * 0.3, y + s * 0.4, s * 0.4, s * 0.25);
+    return;
+  }
   if (typeof id === 'number') {
     const cube = typeof getCubeTex === 'function' ? getCubeTex(id) : null;
     const face = typeof getTileTex === 'function' ? getTileTex(id) : null;
@@ -895,6 +1008,48 @@ function drawChestPanel(ctx, inv, ui) {
   ctx.font = '12px system-ui';
   ctx.textAlign = 'center';
   ctx.fillText('C / E to close', W / 2, py + ph - 16);
+}
+
+function drawBagPanel(ctx, inv, ui) {
+  const pw = 300;
+  const ph = 340;
+  const px = (W - pw) / 2;
+  const py = (H - ph) / 2 - 10;
+  ctx.fillStyle = 'rgba(10, 22, 18, 0.96)';
+  roundRect(ctx, px, py, pw, ph, 18);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(125,255,160,0.3)';
+  ctx.stroke();
+  ctx.fillStyle = '#7dffa0';
+  ctx.font = '700 18px system-ui';
+  ctx.textAlign = 'center';
+  ctx.fillText('Backpack', W / 2, py + 28);
+  ctx.fillStyle = '#9ec5b0';
+  ctx.font = '12px system-ui';
+  ctx.fillText('I / B to close · items auto-stack to hotbar', W / 2, py + 48);
+
+  const cell = 34;
+  const gap = 6;
+  const cols = 6;
+  for (let i = 0; i < inv.bag.length; i++) {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const x = px + 28 + col * (cell + gap);
+    const y = py + 64 + row * (cell + gap);
+    ctx.fillStyle = 'rgba(255,255,255,0.06)';
+    roundRect(ctx, x, y, cell, cell, 8);
+    ctx.fill();
+    const s = inv.bag[i];
+    if (s) {
+      drawItemIcon(ctx, x + 3, y + 3, cell - 6, s.id);
+      if (s.count > 1) {
+        ctx.fillStyle = '#fff';
+        ctx.font = '700 10px system-ui';
+        ctx.textAlign = 'right';
+        ctx.fillText(String(s.count), x + cell - 3, y + cell - 4);
+      }
+    }
+  }
 }
 
 function drawCraftPanel(ctx, inv, world, player, ui) {
