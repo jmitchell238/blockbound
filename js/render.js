@@ -790,14 +790,15 @@ function drawHUD(ctx, player, inv, world, cam, ui, sky) {
     ctx.fillText(String(i + 1), x + 5, hy + 12);
   }
 
+  // Tool under biome card (top-left) — not near bottom chrome
   ctx.fillStyle = 'rgba(6,14,10,0.5)';
-  roundRect(ctx, 10, H - 102, 140, 30, 10);
+  roundRect(ctx, 12, 100, 150, 22, 8);
   ctx.fill();
   ctx.fillStyle = '#e8fff0';
   ctx.font = '600 11px system-ui';
   ctx.textAlign = 'left';
   const tname = (TOOLS[inv.tool] && TOOLS[inv.tool].name) || 'Hands';
-  ctx.fillText('Tool: ' + tname, 18, H - 83);
+  ctx.fillText('Tool: ' + tname, 20, 115);
 
   if (ui.craftOpen) drawCraftPanel(ctx, inv, world, player, ui);
 
