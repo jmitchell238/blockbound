@@ -85,26 +85,30 @@ export function shadeHex(hex, mul) {
 }
 
 /**
- * Air/column is "sheltered" (cave) if below the surface line OR any solid
- * sits between this y and the sky — then we never show outdoor sky color.
+ * Terrain roof material (trees/leaves do NOT count — they were blacking out the outdoors).
  */
-function isShelteredColumn(world, wx, fromY) {
-  const surf = (world.surface && world.surface[wx] != null) ? world.surface[wx] : SURFACE_Y;
-  if (fromY > surf) return true;
-  for (let y = fromY - 1; y >= SKY_LIMIT; y--) {
-    if (isSolid(world, wx, y)) return true;
-  }
-  return false;
+function isRoofSolidId(id) {
+  if (id == null || id === BLOCK.AIR) return false;
+  if (id === BLOCK.LEAVES || id === BLOCK.WOOD || id === BLOCK.LADDER) return false;
+  if (id === BLOCK.TORCH || id === BLOCK.LANTERN || id === BLOCK.WATER) return false;
+  if (id === BLOCK.GLASS || id === BLOCK.PLATFORM || id === BLOCK.CAMPFIRE) return false;
+  const m = BLOCK_META[id];
+  return !!(m && m.solid);
 }
 
-/** True if player is in a cave / dug-out / under ground (not open sky). */
-function isPlayerUnderground(world, player) {
-  const px = wrapX(Math.floor(player.x));
-  const bodyY = Math.floor(player.y - player.h * 0.45);
-  if (isShelteredColumn(world, px, bodyY)) return true;
-  // Neighbor columns (standing under a ledge / side of a cave)
-  for (const dx of [-1, 1, -2, 2]) {
-    if (isShelteredColumn(world, wrapX(px + dx), bodyY)) return true;
+/**
+ * This air cell is cave/dug-out if it's below the natural surface line,
+ * or any terrain roof sits between it and the sky.
+ */
+function isShelteredAir(world, wx, fromY) {
+  fromY = Math.floor(fromY);
+  if (fromY < 0) return false;
+  const surf = (world.surface && world.surface[wx] != null) ? world.surface[wx] : SURFACE_Y;
+  // Below natural ground surface → underground
+  if (fromY > surf) return true;
+  // Terrain roof overhead (dirt/stone/etc., not trees)
+  for (let y = fromY - 1; y >= SKY_LIMIT; y--) {
+    if (isRoofSolidId(getTile(world, wx, y))) return true;
   }
   return false;
 }
@@ -112,13 +116,10 @@ function isPlayerUnderground(world, player) {
 export function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particles, ents) {
   const weather = (ui && ui.weather) || 0;
   const sky = skyColors(timeOfDay, weather);
-  const underground = isPlayerUnderground(world, player);
 
-  // ALWAYS solid near-black when underground — outdoor sky must never appear
-  if (underground) {
-    ctx.fillStyle = '#020106';
-    ctx.fillRect(0, 0, W, H);
-  } else {
+  // Always draw outdoor sky first — cave air paints dark ON TOP per-tile.
+  // (Full-screen black mode was stuck on and blanked the outdoors.)
+  {
     const g = ctx.createLinearGradient(0, 0, 0, H);
     g.addColorStop(0, sky.top);
     g.addColorStop(0.45, sky.mid);
@@ -137,15 +138,14 @@ export function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particl
   const startTX = Math.floor(cam.x - W / (2 * ts)) - 1;
   const startTY = Math.floor(cam.y - H / (2 * ts)) - 1;
 
-  // Visible light emitters (torches etc.)
   const emitters = collectEmitters(world, startTX, startTY, tilesX, tilesY);
   const now = performance.now();
 
-  // Cave air: dim warm pools on black — never white (forceCave when underground)
-  drawSmoothCaveBackdrop(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY, emitters, now, underground);
+  // Paint dark cave air only on sheltered open cells (covers sky there)
+  drawSmoothCaveBackdrop(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY, emitters, now);
 
   // Terrain continuous surface
-  drawSeamlessTerrain(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY, sky, emitters, now, underground);
+  drawSeamlessTerrain(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY, sky, emitters, now);
 
   // Non-terrain solids + deferred non-solids
   const deferred = [];
@@ -167,14 +167,14 @@ export function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particl
       const fl = emitterFlickerAt(wx + 0.5, ty + 0.5, emitters, now);
       if (lvl > 2) lvl = Math.min(15, lvl * (0.92 + 0.1 * fl));
       let dayMul = lightToBrightness(lvl, { ambient: 0.04 });
-      const nearSurface = !underground && ty <= (world.surface[wx] || SURFACE_Y) + 1;
+      const sheltered = isShelteredAir(world, wx, ty);
+      const nearSurface = !sheltered && ty <= (world.surface[wx] || SURFACE_Y) + 1;
       if (nearSurface && lvl >= 8) {
         const skyMul = 0.2 + 0.8 * sky.day;
         dayMul = Math.max(dayMul, skyMul * lightToBrightness(lvl, { ambient: 0.15 }));
       }
-      if (underground && lvl > 5) {
-        // Slight warm lift only — keep stone dark-readable
-        dayMul = Math.min(0.95, dayMul * (1 + (lvl / 15) * 0.06 * fl));
+      if (sheltered && lvl > 5) {
+        dayMul = Math.min(0.9, dayMul * (1 + (lvl / 15) * 0.05 * fl));
       }
       const ao = blockAO(world, wx, ty);
       if (meta && !meta.solid && id !== BLOCK.WORKBENCH) {
@@ -188,9 +188,13 @@ export function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particl
     drawBlock(ctx, d.sx, d.sy, ts, d.id, d.dayMul, d.wx, d.ty, d.ao, world);
   }
 
-  // Additive blooms ONLY outdoors — underground they turn the cave white
-  if (!underground) {
-    drawEmitterBlooms(ctx, world, cam, ts, emitters, now);
+  // Soft torch glows outdoors only (additive = white wash in caves)
+  {
+    const px = wrapX(Math.floor(player.x));
+    const py = Math.floor(player.y - player.h * 0.5);
+    if (!isShelteredAir(world, px, py)) {
+      drawEmitterBlooms(ctx, world, cam, ts, emitters, now);
+    }
   }
 
   // Hover outline
@@ -222,26 +226,27 @@ export function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particl
 
   drawPlayer(ctx, player, cam, ts, inv);
 
-  // Rain only outdoors (at / near surface) — never underground
+  // Rain only under open sky (not in caves / dug-outs)
   if (ui && ui.weather > 0.05) {
-    const pCol = wrapX(Math.floor(player.x));
-    const surfY = (world.surface && world.surface[pCol] != null)
-      ? world.surface[pCol]
-      : SURFACE_Y;
-    // y increases downward: deeper = larger y. Only rain if near or above surface.
-    if (player.y <= surfY + 1.25) {
+    const px = wrapX(Math.floor(player.x));
+    const py = Math.floor(player.y - player.h * 0.5);
+    if (!isShelteredAir(world, px, py)) {
       drawRain(ctx, ui.weather, cam, timeOfDay);
     }
   }
 
-  // Soft screen-edge vignette only on surface at night — NOT underground
-  if (!underground && sky.day < 0.55) {
-    const v = ctx.createRadialGradient(W / 2, H / 2, H * 0.22, W / 2, H / 2, H * 0.85);
-    v.addColorStop(0, 'rgba(0,0,0,0)');
-    v.addColorStop(0.55, 'rgba(0,0,0,0)');
-    v.addColorStop(1, `rgba(2,2,12,${(0.55 - sky.day) * 0.75})`);
-    ctx.fillStyle = v;
-    ctx.fillRect(0, 0, W, H);
+  // Soft screen-edge vignette only outdoors at night
+  if (sky.day < 0.55) {
+    const px = wrapX(Math.floor(player.x));
+    const py = Math.floor(player.y - player.h * 0.5);
+    if (!isShelteredAir(world, px, py)) {
+      const v = ctx.createRadialGradient(W / 2, H / 2, H * 0.22, W / 2, H / 2, H * 0.85);
+      v.addColorStop(0, 'rgba(0,0,0,0)');
+      v.addColorStop(0.55, 'rgba(0,0,0,0)');
+      v.addColorStop(1, `rgba(2,2,12,${(0.55 - sky.day) * 0.75})`);
+      ctx.fillStyle = v;
+      ctx.fillRect(0, 0, W, H);
+    }
   }
 
   drawHUD(ctx, player, inv, world, cam, ui, sky);
@@ -309,7 +314,7 @@ let _tLightFieldCtx = null;
  * - Smooth light multiply over the whole terrain layer
  * - NO blur — stays sharp and readable
  */
-function drawSeamlessTerrain(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY, sky, emitters, now, underground) {
+function drawSeamlessTerrain(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY, sky, emitters, now) {
   if (!_terrainCvs) {
     _terrainCvs = document.createElement('canvas');
     _terrainCtx = _terrainCvs.getContext('2d');
@@ -396,19 +401,19 @@ function drawSeamlessTerrain(ctx, world, cam, ts, startTX, startTY, tilesX, tile
       if (dyn > 0.05) lvl = Math.min(15, lvl + dyn * fl);
       else if (lvl > 1.5) lvl = Math.min(15, lvl * (0.94 + 0.08 * fl));
 
-      let bri = lightToBrightness(lvl, { ambient: underground ? 0.02 : 0.05 });
-      const nearSurface = !underground && fy <= ((world.surface && world.surface[wx]) || SURFACE_Y) + 1;
+      const sheltered = isShelteredAir(world, wx, Math.floor(fy));
+      let bri = lightToBrightness(lvl, { ambient: sheltered ? 0.02 : 0.05 });
+      const nearSurface = !sheltered && fy <= ((world.surface && world.surface[wx]) || SURFACE_Y) + 1;
       if (nearSurface && lvl >= 8 && sky) {
         bri = Math.max(bri, (0.25 + 0.75 * sky.day) * lightToBrightness(lvl, { ambient: 0.18 }));
       }
-      // Underground: keep stone dim (torch-lit rock, not daylight white)
-      // Surface: allow brighter
-      const lo = underground ? 0.08 : 0.12;
-      const hi = underground ? 0.62 : 0.88;
+      // Sheltered rock stays dim; open surface can be brighter
+      const lo = sheltered ? 0.1 : 0.14;
+      const hi = sheltered ? 0.58 : 0.9;
       const v = Math.floor(Math.max(18, Math.min(220, (lo + bri * (hi - lo)) * 255)));
       data[p] = v;
-      data[p + 1] = Math.floor(v * (underground ? 0.92 : 0.96));
-      data[p + 2] = Math.floor(v * (underground ? 0.82 : 0.9));
+      data[p + 1] = Math.floor(v * (sheltered ? 0.9 : 0.96));
+      data[p + 2] = Math.floor(v * (sheltered ? 0.8 : 0.9));
       data[p + 3] = 255;
     }
   }
@@ -789,11 +794,12 @@ function dynamicEmitterBoost(fx, fy, emitters, now) {
 }
 
 /**
- * Underground open-air fill: always dark cave (never white/sky).
- * Torch light = soft warm dim pools that fade smoothly into black.
+ * Paint dark cave air over the sky for open cells that are sheltered
+ * (below surface or under terrain roof). Open sky air stays transparent.
+ * Colors stay near-black — never pale/white.
  */
-function drawSmoothCaveBackdrop(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY, emitters, now, forceCave) {
-  const RES = 4; // smoother sampling
+function drawSmoothCaveBackdrop(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY, emitters, now) {
+  const RES = 4;
   const pad = 2;
   const tw = tilesX + 2 + pad * 2;
   const th = tilesY + 2 + pad * 2;
@@ -814,65 +820,45 @@ function drawSmoothCaveBackdrop(ctx, world, cam, ts, startTX, startTY, tilesX, t
   const img = lctx.createImageData(bw, bh);
   const data = img.data;
 
-  // Pitch-black void → very dim warm air when lit (NEVER pale/white)
-  const voidR = 3, voidG = 3, voidB = 6;
-  const litR = 28, litG = 20, litB = 12;
+  // Void black → dim warm when torch-lit (hard RGB cap, no white)
+  const voidR = 2, voidG = 2, voidB = 5;
+  const litR = 22, litG = 16, litB = 10;
 
   for (let j = 0; j < bh; j++) {
     for (let i = 0; i < bw; i++) {
       const p = (j * bw + i) * 4;
+      // default transparent
+      data[p] = 0; data[p + 1] = 0; data[p + 2] = 0; data[p + 3] = 0;
+
       const fx = otx + (i + 0.5) / RES;
       const fy = oty + (j + 0.5) / RES;
       const tileX = Math.floor(fx);
       const tileY = Math.floor(fy);
+      if (tileY < 0 || tileY >= WORLD_H) continue;
 
-      // When forceCave: every pixel is opaque dark cave (no transparency → no sky)
-      if (tileY < 0 || tileY >= WORLD_H) {
-        data[p] = voidR; data[p + 1] = voidG; data[p + 2] = voidB;
-        data[p + 3] = forceCave ? 255 : 0;
-        continue;
-      }
       const wx = wrapX(tileX);
       const id = getTile(world, wx, tileY);
-      // Sheltered = under surface OR has a solid roof toward the sky
-      const sheltered = forceCave || isShelteredColumn(world, wx, tileY);
-
-      // Non-open (solid) cells
-      if (!isCaveOpenTile(id)) {
-        if (forceCave || sheltered) {
-          data[p] = voidR; data[p + 1] = voidG; data[p + 2] = voidB; data[p + 3] = 255;
-        } else {
-          data[p + 3] = 0;
-        }
-        continue;
-      }
-
-      // True open sky — leave transparent so outdoor blue sky shows
-      if (!sheltered) {
-        data[p + 3] = 0;
-        continue;
-      }
+      // Only paint open cells; solids are drawn as terrain later
+      if (!isCaveOpenTile(id)) continue;
+      if (!isShelteredAir(world, wx, tileY)) continue; // open sky → leave transparent
 
       let lvl = sampleLight(world, fx, fy);
       const dyn = dynamicEmitterBoost(fx, fy, emitters, now);
       const fl = emitterFlickerAt(fx, fy, emitters, now);
-      if (dyn > 0.02) {
-        lvl = Math.min(15, lvl + dyn * (0.85 + 0.15 * fl));
-      }
+      if (dyn > 0.02) lvl = Math.min(15, lvl + dyn * (0.85 + 0.15 * fl));
 
       const t = Math.max(0, Math.min(15, lvl)) / 15;
       const smooth = t * t * (3 - 2 * t);
-      const bri = Math.pow(smooth, 1.2);
-      const flicker = 0.94 + 0.06 * fl;
-      // Hard cap — even full torch never exceeds dim brown
-      const r = Math.min(litR + 8, (voidR + (litR - voidR) * bri) * flicker);
-      const g = Math.min(litG + 6, (voidG + (litG - voidG) * bri) * flicker);
-      const b = Math.min(litB + 4, (voidB + (litB - voidB) * bri));
+      const bri = Math.pow(smooth, 1.25);
+      const flicker = 0.95 + 0.05 * fl;
+      const r = Math.min(litR, (voidR + (litR - voidR) * bri) * flicker);
+      const g = Math.min(litG, (voidG + (litG - voidG) * bri) * flicker);
+      const b = Math.min(litB, (voidB + (litB - voidB) * bri));
 
       data[p] = r | 0;
       data[p + 1] = g | 0;
       data[p + 2] = b | 0;
-      data[p + 3] = 255; // opaque cave air — no sky leak
+      data[p + 3] = 255;
     }
   }
 
