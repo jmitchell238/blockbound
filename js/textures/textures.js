@@ -276,32 +276,38 @@ export async function loadTextures() {
   return textures;
 }
 
-/** Best player frame for current action state.
- *  Tool/weapon graphics are drawn live via drawHeldItem (not baked into poses),
- *  so we only pick body frames here.
+/**
+ * Body pose for the current player state.
+ * Returns { img, key } so held items can use the matching hand anchor.
+ * Tool graphics are overlaid via drawHeldItem (not baked into poses).
  */
-export function getPlayerFrame(player, inv) {
+export function getPlayerPose(player, inv) {
   const A = textures.playerAnims || {};
   const idle = A.idle || textures.player;
-  if (!player) return idle;
+  if (!player) return { img: idle, key: 'idle' };
 
-  if (player.inBoat) return A.boat || idle;
+  if (player.inBoat) return { img: A.boat || idle, key: 'boat' };
 
-  // Crouch when holding down while grounded
-  if (player.onGround && player.crouching) return A.crouch || idle;
-
-  // Airborne
-  if (!player.onGround) return A.jump || idle;
-
-  // Walk cycle — player.anim advances in "frames" (see player update: ~10/s while walking)
-  const walking = player.onGround && Math.abs(player.vx) > 0.2;
-  if (walking && A.walk && A.walk.length) {
-    // One full cycle uses walk.length frames; anim is already in frame units
-    const fi = Math.floor(Math.abs(player.anim)) % A.walk.length;
-    return A.walk[fi] || idle;
+  if (player.onGround && player.crouching) {
+    return { img: A.crouch || idle, key: 'crouch' };
   }
 
-  return idle;
+  if (!player.onGround) return { img: A.jump || idle, key: 'jump' };
+
+  const walking = player.onGround && Math.abs(player.vx) > 0.2;
+  if (walking && A.walk && A.walk.length) {
+    // Must match walk array build: [walk0, walk1, walk2, walk1]
+    const walkKeys = ['walk0', 'walk1', 'walk2', 'walk1'];
+    const fi = Math.floor(Math.abs(player.anim)) % A.walk.length;
+    return { img: A.walk[fi] || idle, key: walkKeys[fi] || 'walk0' };
+  }
+
+  return { img: idle, key: 'idle' };
+}
+
+/** Best player frame image for current action state. */
+export function getPlayerFrame(player, inv) {
+  return getPlayerPose(player, inv).img;
 }
 
 export function getItemIcon(id) {

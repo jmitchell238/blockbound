@@ -9,7 +9,7 @@ import { itemName, isBlockItem } from '../content/items.js';
 import {
   wrapX, getTile, getLight, getRenderLight, lightToBrightness, isSolid, biomeNameAt,
 } from '../world/index.js';
-import { textures, getCubeTex, getTileTex, getSoftTex, getPlayerFrame, getItemIcon } from '../textures/textures.js';
+import { textures, getCubeTex, getTileTex, getSoftTex, getPlayerPose, getItemIcon } from '../textures/textures.js';
 import { drawEntities } from '../entities/draw.js';
 import { drawParticles } from '../particles/particles.js';
 import { HOTBAR_SIZE, BAG_SIZE, canCraft, bagUsed, countItem } from '../inventory/inventory.js';
@@ -846,6 +846,60 @@ export function drawCrack(ctx, sx, sy, ts, p) {
  * Draw the player — original orange-hoodie hero, procedural, with a real
  * pivoted walk cycle (same limb math that fixed the Steve prototype).
  */
+/** Hero sprite canvas size (feet on bottom edge). */
+const HERO_SW = 96;
+const HERO_SH = 176;
+
+/**
+ * Front-hand tip anchors measured from hero PNG pixels (facing +X / right).
+ * Values are canvas pixel coords; converted to feet-origin draw space at runtime.
+ * Facing left is handled by the parent scale(-1,1) flip.
+ */
+const HAND_TIP = {
+  idle:   { x: 72, y: 125 },
+  walk0:  { x: 89, y: 116 },
+  walk1:  { x: 71, y: 122 },
+  walk2:  { x: 89, y: 122 },
+  jump:   { x: 94, y: 119 },
+  crouch: { x: 94, y: 125 },
+  boat:   { x: 72, y: 125 },
+  // Action poses (from baked mine/sword/shovel frames) for swing targets
+  mine:   { x: 89, y: 107 },
+  sword:  { x: 74, y: 107 },
+  shovel: { x: 58, y: 123 },
+};
+
+/**
+ * Handle grip on each item icon (normalized 0–1 within the 64×64 PNG).
+ * Magenta = where the hand should pin the tool. Center (0.5,0.5) for blocks/misc.
+ */
+const ITEM_GRIP = {
+  wood_pick:    { gx: 0.16, gy: 0.91 },
+  stone_pick:   { gx: 0.16, gy: 0.90 },
+  iron_pick:    { gx: 0.18, gy: 0.89 },
+  gold_pick:    { gx: 0.17, gy: 0.92 },
+  wood_axe:     { gx: 0.26, gy: 0.61 },
+  stone_axe:    { gx: 0.19, gy: 0.64 },
+  iron_axe:     { gx: 0.17, gy: 0.67 },
+  gold_axe:     { gx: 0.19, gy: 0.67 },
+  wood_shovel:  { gx: 0.36, gy: 0.54 },
+  stone_shovel: { gx: 0.53, gy: 0.64 },
+  iron_shovel:  { gx: 0.59, gy: 0.41 },
+  wood_sword:   { gx: 0.16, gy: 0.87 },
+  stone_sword:  { gx: 0.18, gy: 0.87 },
+  iron_sword:   { gx: 0.16, gy: 0.81 },
+  stick:        { gx: 0.25, gy: 0.76 },
+  apple:        { gx: 0.50, gy: 0.55 },
+  bread:        { gx: 0.50, gy: 0.55 },
+  stew:         { gx: 0.50, gy: 0.55 },
+  boat:         { gx: 0.50, gy: 0.55 },
+  bucket:       { gx: 0.53, gy: 0.56 },
+  bucket_water: { gx: 0.54, gy: 0.55 },
+  iron_ingot:   { gx: 0.50, gy: 0.53 },
+  gold_ingot:   { gx: 0.50, gy: 0.53 },
+  copper_ingot: { gx: 0.50, gy: 0.53 },
+};
+
 export function drawPlayer(ctx, p, cam, ts, inv) {
   const sx = (p.x - cam.x) * ts + W / 2;
   const sy = (p.y - cam.y) * ts + H / 2;
@@ -876,13 +930,15 @@ export function drawPlayer(ctx, p, cam, ts, inv) {
     ctx.fillRect(sx - pw * 0.9, sy - 10, pw * 1.8, 6);
   }
 
-  const img = getPlayerFrame(p, inv) || textures.player;
+  const pose = getPlayerPose(p, inv);
+  const img = pose.img || textures.player;
   const drawH = ph * (p.crouching ? 0.92 : 1.12);
-  const drawW = drawH * (96 / 176);
+  const drawW = drawH * (HERO_SW / HERO_SH);
   const footY = sy + (p.inBoat ? -6 : 0);
 
   ctx.save();
   ctx.translate(sx, footY);
+  // Face +X locally; flip whole character (and held item) when facing left
   if (p.facing < 0) ctx.scale(-1, 1);
 
   if (img) {
@@ -901,18 +957,33 @@ export function drawPlayer(ctx, p, cam, ts, inv) {
     ctx.fill();
   }
 
-  // Always show the selected hotbar item in the character's hand
-  drawHeldItem(ctx, p, inv, drawW, drawH);
+  // Pin selected hotbar item to this frame's hand tip via tool-handle grip
+  drawHeldItem(ctx, p, inv, drawW, drawH, pose.key);
 
   ctx.restore();
   ctx.restore();
 }
 
+/** Convert sprite-pixel hand tip → feet-origin draw coords. */
+function handTipDraw(poseKey, drawW, drawH) {
+  const tip = HAND_TIP[poseKey] || HAND_TIP.idle;
+  return {
+    x: ((tip.x - HERO_SW / 2) / HERO_SW) * drawW,
+    y: ((tip.y - HERO_SH) / HERO_SH) * drawH,
+  };
+}
+
+function itemGrip(id) {
+  if (id != null && ITEM_GRIP[id]) return ITEM_GRIP[id];
+  // Blocks / unknown: hold at icon center
+  return { gx: 0.5, gy: 0.55 };
+}
+
 /**
- * Draw whatever is selected on the hotbar in the hero's front hand.
+ * Draw the selected hotbar item with its handle grip pinned to the pose hand tip.
  * Origin is feet; character faces +X (caller flips for left).
  */
-function drawHeldItem(ctx, p, inv, drawW, drawH) {
+function drawHeldItem(ctx, p, inv, drawW, drawH, poseKey) {
   if (!inv || p.inBoat) return;
   const slot = inv.hotbar && inv.hotbar[inv.selected];
   if (!slot || slot.id == null || slot.id === 'hand') return;
@@ -923,59 +994,75 @@ function drawHeldItem(ctx, p, inv, drawW, drawH) {
   const swinging = (p.attackT || 0) > 0;
   const tool = isTool(id);
   const weapon = isWeapon(id);
-  const isPickOrAxe = tool && (String(id).indexOf('pick') >= 0 || String(id).indexOf('axe') >= 0);
-  const isShovel = tool && String(id).indexOf('shovel') >= 0;
+  const sid = String(id);
+  const isPickOrAxe = tool && (sid.indexOf('pick') >= 0 || sid.indexOf('axe') >= 0);
+  const isShovel = tool && sid.indexOf('shovel') >= 0;
 
-  // Hand / grip point relative to feet (matches side-view idle proportions)
-  const phase = p.anim || 0;
-  const walkSwing = walking ? Math.sin(phase * 2.2) : 0;
-  let handX = drawW * 0.20 + walkSwing * drawW * 0.04;
-  let handY = -drawH * (p.crouching ? 0.42 : 0.48) + Math.abs(walkSwing) * drawH * 0.02;
+  // Base hand from current body frame (walk/idle/jump/crouch)
+  let hand = handTipDraw(poseKey || 'idle', drawW, drawH);
 
-  // Carry / swing angle (radians). Tools sit a bit upright; blocks hang lower.
-  let angle = tool ? -0.55 : -0.15;
+  // During mine/attack, blend toward the action-pose hand (from baked sprites)
+  let actionKey = null;
+  if (mining) actionKey = isShovel ? 'shovel' : 'mine';
+  else if (swinging) actionKey = weapon ? 'sword' : (isShovel ? 'shovel' : 'mine');
+
+  if (actionKey) {
+    const target = handTipDraw(actionKey, drawW, drawH);
+    let blend = 1;
+    if (swinging) {
+      // Attack wind-up peels hand toward strike pose
+      const atk = Math.min(1, (p.attackT || 0) / 0.22);
+      blend = Math.sin((1 - atk) * Math.PI); // 0 → 1 → 0
+    } else if (mining) {
+      const t = (p.mining.progress || 0) * 9;
+      blend = 0.55 + 0.45 * Math.abs(Math.sin(t));
+    }
+    hand = {
+      x: hand.x + (target.x - hand.x) * blend,
+      y: hand.y + (target.y - hand.y) * blend,
+    };
+  }
+
+  // Rest angles (canvas: + = clockwise). Icons have handles near bottom;
+  // clockwise tips the blade forward (+X) so it stays out of the head.
+  let angle = 0.35;
+  if (weapon) angle = 0.70;
+  else if (isPickOrAxe) angle = 0.55;
+  else if (isShovel) angle = 0.85;
+  else if (tool) angle = 0.50;
+  else angle = 0.15; // block / food
+
   if (walking && !mining && !swinging) {
-    angle += walkSwing * 0.35;
+    // Subtle walk bob already in hand tip; tiny angle wiggle
+    angle += Math.sin((p.anim || 0) * 2.2) * 0.12;
   }
   if (mining) {
-    // Chop cycle — raise then strike
     const t = (p.mining.progress || 0) * 9;
-    angle = -0.2 - Math.sin(t) * 1.15;
-    handX = drawW * 0.28;
-    handY = -drawH * 0.52 - Math.cos(t) * drawH * 0.04;
+    // Raise (less clockwise) then strike forward (more clockwise)
+    angle = 0.15 + Math.sin(t) * 0.95;
   } else if (swinging) {
-    // Attack arc from raised to forward
     const atk = Math.min(1, (p.attackT || 0) / 0.22);
-    const swing = Math.sin((1 - atk) * Math.PI); // 0 → peak → 0
-    angle = -1.3 + swing * 1.7;
-    handX = drawW * 0.26;
-    handY = -drawH * 0.55;
+    const swing = Math.sin((1 - atk) * Math.PI);
+    angle = 0.2 + swing * 1.15;
   }
 
-  // Icon size — tools larger, blocks a bit smaller
-  let size = drawH * (tool || weapon ? 0.38 : 0.30);
-  if (isPickOrAxe || weapon) size = drawH * 0.42;
-  if (isShovel) size = drawH * 0.40;
+  // World size of the icon
+  let size = drawH * 0.30;
+  if (weapon) size = drawH * 0.36;
+  else if (isPickOrAxe) size = drawH * 0.34;
+  else if (isShovel) size = drawH * 0.34;
+  else if (tool) size = drawH * 0.32;
+  else size = drawH * 0.26; // blocks / food
 
-  // Grip offset: tools pivot near the handle end (bottom of icon)
-  const gripX = 0;
-  const gripY = size * (tool ? 0.32 : 0.15);
+  const grip = itemGrip(id);
 
   ctx.save();
-  ctx.translate(handX, handY);
+  ctx.translate(hand.x, hand.y);
   ctx.rotate(angle);
   ctx.imageSmoothingEnabled = false;
 
-  // Slight drop shadow under item for readability
-  ctx.save();
-  ctx.globalAlpha = 0.25;
-  ctx.fillStyle = '#000';
-  ctx.beginPath();
-  ctx.ellipse(0, size * 0.15, size * 0.22, size * 0.08, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
-
-  drawItemIcon(ctx, -size / 2 + gripX, -size / 2 - gripY, size, id);
+  // Pin grip pixel of the icon to (0,0) = hand tip
+  drawItemIcon(ctx, -grip.gx * size, -grip.gy * size, size, id);
   ctx.restore();
 }
 
