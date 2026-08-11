@@ -154,14 +154,12 @@ function gameUpdate(dt) {
       ui.craftOpen = !ui.craftOpen;
       if (ui.craftOpen) {
         ui.craftScroll = 0;
-        // Auto-pick a craftable recipe if none selected
-        if (!ui.craftSelected) {
-          const rows = typeof recipesInTab === 'function'
-            ? recipesInTab(ui.craftTab || 'basic', world, player.x, player.y)
-            : [];
-          const ready = rows.find(row => row.stationOk && canCraft(inv, row.recipe));
-          ui.craftSelected = ready ? ready.recipe.id : (rows[0] && rows[0].recipe.id) || null;
-        }
+        ui.craftTab = ui.craftTab || 'all';
+        const rows = typeof recipesInTab === 'function'
+          ? recipesInTab(ui.craftTab, world, player.x, player.y)
+          : [];
+        const ready = rows.find(row => row.stationOk && canCraft(inv, row.recipe));
+        ui.craftSelected = ready ? ready.recipe.id : (rows[0] && rows[0].recipe.id) || null;
       }
     }
     input.craftToggle = false;
@@ -197,6 +195,12 @@ function gameUpdate(dt) {
   if (input.usePressed) {
     input.usePressed = false;
     handleUse(s);
+  }
+
+  // Attack (X / J / Attack button / tap near mob)
+  if (input.attackPressed) {
+    input.attackPressed = false;
+    doPlayerAttack(s);
   }
 
   pollInput(input, ui.mode, cam);
@@ -266,7 +270,27 @@ function gameUpdate(dt) {
     input.mineTy = null;
   }
 
-  // Interact with door/chest by mining click? handled via F
+  // Tap near a mob (or empty air while they're close) → sword swing instead of mine
+  if (input.pointerDown && ui.mode === 'mine' && player.attackCd <= 0) {
+    let nearMob = false;
+    if (ents.hostiles) {
+      for (const h of ents.hostiles) {
+        if (Math.hypot(wrapDeltaX(player.x, h.x), (player.y - 0.5) - h.y) < 2.5) {
+          nearMob = true;
+          break;
+        }
+      }
+    }
+    if (nearMob) {
+      const tid = input.mineTx != null ? getTile(world, input.mineTx, input.mineTy) : BLOCK.AIR;
+      // Prefer attack over mining air / leaves when a monster is in range
+      if (tid === BLOCK.AIR || tid === BLOCK.WATER || tid === BLOCK.LEAVES || input.mineTx == null) {
+        input.mineTx = null;
+        input.mineTy = null;
+        doPlayerAttack(s);
+      }
+    }
+  }
 
   const prevX = player.x;
   const result = updatePlayer(player, world, input, dt, minePower);
@@ -509,8 +533,23 @@ function handleUse(s) {
   }
   if (hit && (hit.kind === 'furnace' || hit.kind === 'craft')) {
     ui.chestOpen = null;
+    ui.bagOpen = null;
+    ui.bagOpen = false;
     ui.craftOpen = true;
-    toast(ui, hit.kind === 'furnace' ? 'Furnace recipes' : 'Crafting');
+    ui.craftScroll = 0;
+    if (hit.kind === 'furnace') {
+      ui.craftTab = 'smelt';
+      toast(ui, 'Furnace — smelt ores into ingots');
+    } else {
+      // Full workbench: show everything, start on tools
+      ui.craftTab = 'all';
+      toast(ui, 'Workbench — all recipes');
+    }
+    const rows = typeof recipesInTab === 'function'
+      ? recipesInTab(ui.craftTab, world, player.x, player.y)
+      : [];
+    const ready = rows.find(row => row.stationOk && canCraft(inv, row.recipe));
+    ui.craftSelected = ready ? ready.recipe.id : (rows[0] && rows[0].recipe.id) || null;
     return;
   }
 
@@ -725,6 +764,22 @@ function gameClickCraft(x, y) {
     }
   }
   return true; // swallow clicks while open
+}
+
+function doPlayerAttack(s) {
+  const { player, inv, ents, world, ui, stats } = s;
+  if (player.attackCd > 0) return;
+  const result = tryMeleeAttack(player, inv, ents, world);
+  if (typeof sfxMine === 'function') sfxMine();
+  if (result.hits > 0) {
+    spawnBurst(s.particles, player.x + player.facing * 0.8, player.y - 0.7, '#fff', 6);
+    if (result.kills > 0) {
+      toast(ui, 'Monster defeated!');
+      unlockMilestone(world.meta, stats, ui, 'first_kill');
+    }
+  }
+  const tool = getHeldTool(inv);
+  if (tool && tool.weapon) unlockMilestone(world.meta, stats, ui, 'first_sword');
 }
 
 function getSession() {

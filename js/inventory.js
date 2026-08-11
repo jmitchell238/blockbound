@@ -91,6 +91,12 @@ function syncEquippedTool(inv) {
   if (s && isTool(s.id)) {
     inv.tool = s.id;
     inv.toolDurability = s.durability != null ? s.durability : (TOOLS[s.id] && TOOLS[s.id].durability) || 100;
+  } else if (!s || !isTool(s.id)) {
+    // Keep last tool for mining power only if hotbar empty of tools — prefer hand when holding blocks
+    if (s && !isTool(s.id)) {
+      // Holding a block/item: still allow last weapon? Use hand for mining, but attack uses selected tool
+      // Leave inv.tool as last tool for pickaxe mining convenience only if it was a pickaxe
+    }
   }
 }
 

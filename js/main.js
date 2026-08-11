@@ -203,6 +203,7 @@ function syncInput(session) {
   if (b.usePressed) { a.usePressed = true; b.usePressed = false; }
   if (b.pauseToggle) { a.pauseToggle = true; b.pauseToggle = false; }
   if (b.bagToggle) { a.bagToggle = true; b.bagToggle = false; }
+  if (b.attackPressed) { a.attackPressed = true; b.attackPressed = false; }
   if (b.zoomDelta) { a.zoomDelta = (a.zoomDelta || 0) + b.zoomDelta; b.zoomDelta = 0; }
   if (b.hotbarTap >= 0) { a.hotbarTap = b.hotbarTap; b.hotbarTap = -1; }
   if (b.jumpPressed) { a.jumpPressed = true; b.jumpPressed = false; }
@@ -297,6 +298,10 @@ function wireUI() {
     s.ui.chestOpen = null;
     s.ui.invPick = null;
     s.ui.craftOpen = !s.ui.craftOpen;
+    if (s.ui.craftOpen) {
+      s.ui.craftTab = 'all';
+      s.ui.craftScroll = 0;
+    }
   });
   const bagBtn = document.getElementById('btnBag');
   if (bagBtn) {
@@ -321,6 +326,13 @@ function wireUI() {
     useBtn.addEventListener('click', () => {
       const s = getSession();
       if (s) s.input.usePressed = true;
+    });
+  }
+  const atkBtn = document.getElementById('btnAttack');
+  if (atkBtn) {
+    atkBtn.addEventListener('click', () => {
+      const s = getSession();
+      if (s) s.input.attackPressed = true;
     });
   }
 

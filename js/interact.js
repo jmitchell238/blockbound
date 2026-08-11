@@ -190,35 +190,41 @@ function stationAvailable(world, px, py, station) {
 }
 
 function availableRecipesAt(inv, world, px, py) {
-  // Always list craftable-at-hand + anything whose station is nearby
-  return RECIPES.filter(r => {
-    if (r.hidden) return false;
-    return stationAvailable(world, px, py, r.station);
-  });
-}
-
-/** All non-hidden recipes, tagged with whether station is OK. */
-function allRecipesForUi(world, px, py) {
-  return RECIPES.filter(r => !r.hidden).map(r => ({
-    recipe: r,
-    stationOk: stationAvailable(world, px, py, r.station),
-  }));
+  return allRecipesForUi(world, px, py)
+    .filter(row => row.stationOk)
+    .map(row => row.recipe);
 }
 
 function recipeTabId(r) {
   if (r.station === 'furnace') return 'smelt';
-  if (r.station === 'workbench' || isTool(r.out[0])) return 'tools';
+  if (r.station === 'workbench' || isTool(r.out[0]) || isWeapon(r.out[0])) return 'tools';
   return 'basic';
 }
 
 const CRAFT_TABS = [
+  { id: 'all', label: 'All' },
   { id: 'basic', label: 'Basic' },
   { id: 'tools', label: 'Tools' },
   { id: 'smelt', label: 'Smelt' },
 ];
 
+/** All recipes always listed; stationOk depends on nearby workbench/furnace. */
+function allRecipesForUi(world, px, py) {
+  const atBench = stationAvailable(world, px, py, 'workbench');
+  const atFurn = stationAvailable(world, px, py, 'furnace');
+  return RECIPES.filter(r => !r.hidden).map(r => {
+    let stationOk = false;
+    if (r.station === 'hand') stationOk = true;
+    else if (r.station === 'workbench') stationOk = atBench;
+    else if (r.station === 'furnace') stationOk = atFurn;
+    return { recipe: r, stationOk };
+  });
+}
+
 function recipesInTab(tabId, world, px, py) {
-  return allRecipesForUi(world, px, py).filter(row => recipeTabId(row.recipe) === tabId);
+  const all = allRecipesForUi(world, px, py);
+  if (tabId === 'all') return all;
+  return all.filter(row => recipeTabId(row.recipe) === tabId);
 }
 
 function missingMaterials(inv, recipe) {

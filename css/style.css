@@ -319,8 +319,15 @@ button.ghost {
   font-size: 0.78rem;
   padding: 8px 9px;
 }
+.attack-btn {
+  left: 210px;
+  bottom: max(72px, calc(env(safe-area-inset-bottom, 0px) + 68px));
+  font-size: 0.78rem;
+  padding: 8px 9px;
+  background: rgba(120, 30, 30, 0.9);
+}
 .mode-btn {
-  left: 212px;
+  left: 278px;
   bottom: max(72px, calc(env(safe-area-inset-bottom, 0px) + 68px));
   font-size: 0.78rem;
   padding: 8px 9px;

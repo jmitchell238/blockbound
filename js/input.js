@@ -27,6 +27,7 @@ function makeInput() {
     usePressed: false,
     pauseToggle: false,
     bagToggle: false,
+    attackPressed: false,
     zoomDelta: 0,
     hotbarTap: -1,
     keys: Object.create(null),
@@ -49,6 +50,7 @@ function bindInput(input, canvas, getCam) {
       if (k === 'f' || k === 'enter') input.usePressed = true;
       if (k === 'escape' || k === 'p') input.pauseToggle = true;
       if (k === 'i' || k === 'b') input.bagToggle = true;
+      if (k === 'x' || k === 'j' || k === 'control') input.attackPressed = true;
       if (k >= '1' && k <= '8') input.hotbarTap = parseInt(k, 10) - 1;
       if (k === ' ') input.jumpPressed = true;
     }

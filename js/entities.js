@@ -222,17 +222,15 @@ function updateHostiles(ents, world, player, dt, timeOfDay, ui) {
     while (gy > SKY_LIMIT && isSolid(world, tx, gy)) gy--;
     h.y = gy;
 
-    // Attack only in melee range WITH clear line of sight (no through-block hits)
-    if (canSee && !sheltered && dist < 1.15 && h.atkCd <= 0 && player.invuln <= 0) {
+    // Attack only in melee range WITH clear line of sight (no through-block hits).
+    // Don't hit players mid-swing (gives them a fair chance to fight).
+    if (canSee && !sheltered && dist < 1.15 && h.atkCd <= 0 && player.invuln <= 0
+        && !(player.attackT > 0)) {
       h.atkCd = 1.1;
       hits.push({ dmg: h.kind === 'dropbear' ? 14 : 10, kind: h.kind });
     }
 
-    // Stomp only if same airspace (LOS + close + falling)
-    if (canSee && dist < 1.0 && player.vy > 2) {
-      h.hp -= 12;
-      player.vy = JUMP_VEL / TILE * 0.45;
-    }
+    // No more stomp combat — swords/swipe only (jumping on them used to hurt both)
 
     // Despawn far away, or if player is deep underground away from them
     if (Math.abs(dx) > 40 || (sheltered && dist > 6)) {
@@ -385,6 +383,65 @@ function drawEntities(ctx, ents, cam, ts) {
     }
     ctx.restore();
   }
+}
+
+/**
+ * Melee swipe — hit hostiles in front of the player.
+ * @returns {{ kills: number, hits: number, dmg: number }}
+ */
+function tryMeleeAttack(player, inv, ents, world) {
+  if (!player || player.attackCd > 0) return { kills: 0, hits: 0, dmg: 0 };
+  const tool = typeof getHeldTool === 'function' ? getHeldTool(inv) : (TOOLS.hand || { damage: 5, reach: 1.5 });
+  const dmg = tool.damage || 5;
+  const reach = tool.reach || 1.5;
+  player.attackT = 0.22;
+  player.attackCd = tool.weapon ? 0.32 : 0.4;
+  player.attackHit = false;
+  player.invuln = Math.max(player.invuln, 0.18); // brief i-frames so trade-hits feel fair
+
+  let hits = 0;
+  let kills = 0;
+  if (!ents || !ents.hostiles) return { kills: 0, hits: 0, dmg };
+
+  const face = player.facing >= 0 ? 1 : -1;
+  const px = player.x;
+  const py = player.y - player.h * 0.5;
+
+  for (let i = ents.hostiles.length - 1; i >= 0; i--) {
+    const h = ents.hostiles[i];
+    const dx = wrapDeltaX(px, h.x);
+    const dy = (h.y - 0.5) - py;
+    const dist = Math.hypot(dx, dy);
+    if (dist > reach + 0.35) continue;
+    // Must be roughly in front (or very close all around)
+    if (dist > 0.7 && Math.sign(dx || face) !== face) continue;
+    if (!hasLineOfSight(world, px, py, h.x, h.y - 0.5)) continue;
+
+    h.hp -= dmg;
+    h.vx = face * 3.5; // knockback
+    hits++;
+    player.attackHit = true;
+    if (h.hp <= 0) {
+      spawnDrop(ents, h.x, h.y - 0.5, 'apple', 1);
+      if (Math.random() < 0.35) spawnDrop(ents, h.x, h.y - 0.3, BLOCK.COAL, 1);
+      ents.hostiles.splice(i, 1);
+      kills++;
+    }
+  }
+
+  // Wear weapon a little
+  if (hits > 0 && inv) {
+    const slot = selectedSlot(inv);
+    if (slot && isTool(slot.id) && TOOLS[slot.id] && TOOLS[slot.id].durability < Infinity) {
+      slot.durability = (slot.durability != null ? slot.durability : TOOLS[slot.id].durability) - 1;
+      if (slot.durability <= 0) {
+        inv.hotbar[inv.selected] = null;
+        inv.tool = 'hand';
+      }
+    }
+  }
+
+  return { kills, hits, dmg };
 }
 
 function serializeEntities(ents) {

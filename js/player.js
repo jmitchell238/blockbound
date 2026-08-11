@@ -28,6 +28,10 @@ function makePlayer(spawnTileX, spawnTileY) {
     inBoat: false,
     spawnX: null,
     spawnY: null,
+    /** Melee swing 0 = idle, >0 animating */
+    attackT: 0,
+    attackCd: 0,
+    attackHit: false, // already applied damage this swing
   };
 }
 
@@ -49,6 +53,8 @@ function updatePlayer(p, world, input, dt, toolPower) {
 
   if (p.invuln > 0) p.invuln = Math.max(0, p.invuln - dt);
   if (p.placeCooldown > 0) p.placeCooldown = Math.max(0, p.placeCooldown - dt);
+  if (p.attackCd > 0) p.attackCd = Math.max(0, p.attackCd - dt);
+  if (p.attackT > 0) p.attackT = Math.max(0, p.attackT - dt);
 
   // Horizontal intent
   let ix = 0;

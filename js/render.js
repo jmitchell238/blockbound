@@ -612,6 +612,28 @@ function drawPlayer(ctx, p, cam, ts) {
     ctx.fillRect(sx + legW * 0.3 - 1, sy - 3 - stride, legW + 2, 3);
   }
 
+  // Sword swing arc
+  if (p.attackT > 0) {
+    const t = 1 - p.attackT / 0.22;
+    const ang = (p.facing >= 0 ? -0.9 : Math.PI + 0.9) + p.facing * t * 1.8;
+    const len = ph * 0.55;
+    ctx.save();
+    ctx.translate(sx, sy - ph * 0.45);
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(Math.cos(ang) * len, Math.sin(ang) * len);
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(200,220,255,0.35)';
+    ctx.lineWidth = 8;
+    ctx.beginPath();
+    ctx.arc(0, 0, len * 0.85, ang - 0.4, ang + 0.1);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   if (img) {
     const drawW = ph * 0.72;
     const drawH = ph * (walking ? 0.88 : 1.0); // slightly shorter when legs drawn
@@ -625,12 +647,13 @@ function drawPlayer(ctx, p, cam, ts) {
     }
     // lean + squash into run
     ctx.translate(drawW / 2, drawH);
-    if (walking) {
+    if (p.attackT > 0) {
+      ctx.rotate(p.facing * 0.25);
+    } else if (walking) {
       ctx.rotate(lean * p.facing);
       const sqY = 1 + Math.sin(phase * 2) * 0.06;
       const sqX = 1 / sqY;
       ctx.scale(sqX, sqY);
-      // arm swing: clip isn't needed — slight body rock
     } else if (!p.onGround) {
       ctx.rotate(p.facing * 0.08);
     }
@@ -867,6 +890,18 @@ function drawItemIcon(ctx, x, y, s, id) {
     ctx.stroke();
     ctx.fillStyle = metal;
     ctx.beginPath();
+    if (id.indexOf('sword') >= 0) {
+      // Blade
+      ctx.moveTo(x + s * 0.5, y + s * 0.12);
+      ctx.lineTo(x + s * 0.62, y + s * 0.55);
+      ctx.lineTo(x + s * 0.5, y + s * 0.6);
+      ctx.lineTo(x + s * 0.38, y + s * 0.55);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#c4a060';
+      ctx.fillRect(x + s * 0.35, y + s * 0.58, s * 0.3, s * 0.08);
+      return;
+    }
     if (id.indexOf('axe') >= 0) {
       ctx.moveTo(x + s * 0.2, y + s * 0.25);
       ctx.lineTo(x + s * 0.85, y + s * 0.15);
