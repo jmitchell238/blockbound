@@ -9,7 +9,7 @@ import { itemName, isBlockItem } from '../content/items.js';
 import {
   wrapX, getTile, getLight, getRenderLight, lightToBrightness, isSolid, biomeNameAt,
 } from '../world/index.js';
-import { textures, getCubeTex, getTileTex, getSoftTex, getPlayerFrame, getItemIcon } from '../textures/textures.js';
+import { textures, getCubeTex, getTileTex, getSoftTex, getItemIcon } from '../textures/textures.js';
 import { drawEntities } from '../entities/draw.js';
 import { drawParticles } from '../particles/particles.js';
 import { HOTBAR_SIZE, BAG_SIZE, canCraft, bagUsed, countItem } from '../inventory/inventory.js';
@@ -842,6 +842,10 @@ export function drawCrack(ctx, sx, sy, ts, p) {
   ctx.restore();
 }
 
+/**
+ * Draw the player — clean procedural Minecraft-style figure.
+ * Legs/arms use a real sin walk cycle (no sprite sheets).
+ */
 export function drawPlayer(ctx, p, cam, ts, inv) {
   const sx = (p.x - cam.x) * ts + W / 2;
   const sy = (p.y - cam.y) * ts + H / 2;
@@ -856,49 +860,137 @@ export function drawPlayer(ctx, p, cam, ts, inv) {
   }
 
   // Soft ground shadow
-  const shadowW = pw * (0.55 + run * 0.1);
   ctx.fillStyle = 'rgba(0,0,0,0.28)';
   ctx.beginPath();
-  ctx.ellipse(sx, sy - 1, shadowW, 4.5, 0, 0, Math.PI * 2);
+  ctx.ellipse(sx, sy - 1, pw * (0.55 + run * 0.1), 4.5, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // Procedural boat under sprite if boat frame is missing
-  if (p.inBoat && !(textures.playerAnims && textures.playerAnims.boat)) {
+  if (p.inBoat) {
     ctx.fillStyle = '#8b5a2b';
     ctx.beginPath();
-    ctx.ellipse(sx, sy - 4, pw * 1.1, 8, 0, 0, Math.PI * 2);
+    ctx.ellipse(sx, sy - 4, pw * 1.15, 8, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = '#c49a5a';
     ctx.fillRect(sx - pw * 0.9, sy - 10, pw * 1.8, 6);
   }
 
-  const img = getPlayerFrame(p, inv) || textures.player;
-  if (img) {
-    // Fixed draw height for ALL frames so jump/mine never shrink the character.
-    // Width follows the sprite's natural aspect (feet authored on canvas bottom).
-    const drawH = ph * (p.crouching ? 0.92 : 1.15);
-    const aspect = (img.naturalWidth || img.width || 128) / (img.naturalHeight || img.height || 160);
-    const drawW = drawH * aspect;
-    const footY = sy + (p.inBoat ? -6 : 0);
-    ctx.save();
-    ctx.translate(sx, footY);
-    if (p.facing < 0) ctx.scale(-1, 1);
-    ctx.imageSmoothingEnabled = false; // crisp blocky / pixel sprites
-    ctx.drawImage(img, -drawW / 2, -drawH, drawW, drawH);
-    ctx.restore();
-  } else {
-    // Minimal procedural fallback
-    const bob = walking ? Math.abs(Math.sin(p.anim * 2)) * 2 : 0;
-    const bodyTop = sy - ph + bob;
-    ctx.fillStyle = '#ee6c4d';
-    roundRect(ctx, sx - pw * 0.4, bodyTop + ph * 0.25, pw * 0.8, ph * 0.45, 3);
-    ctx.fill();
-    ctx.fillStyle = '#e8c49a';
-    roundRect(ctx, sx - pw * 0.35, bodyTop, pw * 0.7, ph * 0.28, 4);
-    ctx.fill();
-  }
+  const footY = sy + (p.inBoat ? -6 : 0);
+  const drawH = ph * (p.crouching ? 0.88 : 1.0);
+  ctx.save();
+  ctx.translate(sx, footY);
+  if (p.facing < 0) ctx.scale(-1, 1);
+  drawSteveSide(ctx, p, drawH);
+  ctx.restore();
 
   ctx.restore();
+}
+
+/**
+ * Side-view blocky player. Origin = feet center, faces +X.
+ * Limb swing is true opposite pairs via sin(anim).
+ */
+function drawSteveSide(ctx, p, H) {
+  const crouch = !!p.crouching;
+  const walking = p.onGround && Math.abs(p.vx) > 0.25 && !crouch;
+  const airborne = !p.onGround;
+  const mining = !!(p.mining && p.mining.progress > 0);
+  const swinging = (p.attackT || 0) > 0;
+  const phase = p.anim * 2.8;
+
+  // Minecraft skin grid: 32 units tall
+  const u = H / 32;
+  const headS = 8 * u;
+  const torsoH = (crouch ? 10 : 12) * u;
+  const torsoW = 8 * u;
+  const limbW = 4 * u;
+  const legH = (crouch ? 8 : 12) * u;
+  const armH = 12 * u;
+
+  const stride = walking ? Math.sin(phase) : airborne ? 0.7 : 0;
+  const bob = walking ? Math.abs(Math.sin(phase)) * u * 0.7 : 0;
+
+  // Arm swing (opposite to legs). Mining/attack overrides near arm.
+  let nearArmSwing = -stride; // opposite of far-leg +stride
+  if (mining || swinging) {
+    const t = mining ? p.mining.progress * 7 : (p.attackT || 0) * 12;
+    nearArmSwing = -0.2 - Math.sin(t) * 1.1;
+  }
+
+  const skin = '#c68642';
+  const shirt = '#00a8a8';
+  const shirtD = '#007878';
+  const pants = '#3d3dcc';
+  const pantsD = '#2a2aa0';
+  const hair = '#3a2410';
+  const shoe = '#1a1a1a';
+
+  const ground = -bob;
+  const hip = ground - legH;
+  const shoulder = hip - torsoH;
+  const headY = shoulder - headS;
+
+  // ── Legs (under torso). Far leg +stride, near leg -stride ──
+  // Each leg is a rectangle from hip toward ground; foot slides forward/back.
+  function drawLeg(x, swing, color) {
+    const footX = x + swing * limbW * 0.55;
+    const top = hip;
+    const h = legH;
+    ctx.fillStyle = color;
+    ctx.fillRect(x, top, limbW, h);
+    ctx.fillStyle = shoe;
+    ctx.fillRect(footX - u * 0.15, ground - u * 0.3, limbW + u * 0.3, u * 1.5);
+  }
+  drawLeg(-limbW - u * 0.05, stride, pantsD);   // far/back leg
+  drawLeg(u * 0.05, -stride, pants);             // near/front leg
+
+  // ── Torso ──
+  ctx.fillStyle = shirt;
+  ctx.fillRect(-torsoW / 2, shoulder, torsoW, torsoH);
+  ctx.fillStyle = shirtD;
+  ctx.fillRect(torsoW / 2 - u * 1.4, shoulder, u * 1.4, torsoH);
+
+  // ── Arms ──
+  function drawArm(x, swing, sleeve, handOnTop) {
+    // swing: -1..1 → vertical offset of hand end
+    const handY = shoulder + armH * 0.85 + swing * armH * 0.35;
+    const top = shoulder + swing * armH * 0.08;
+    const h = Math.max(armH * 0.55, handY - top);
+    ctx.fillStyle = sleeve;
+    ctx.fillRect(x, top, limbW, h);
+    ctx.fillStyle = skin;
+    ctx.fillRect(x, top + h - limbW * 0.9, limbW, limbW);
+  }
+  drawArm(-torsoW / 2 - limbW + u * 0.4, stride, shirtD, false);      // far arm
+  drawArm(torsoW / 2 - u * 0.4, nearArmSwing, shirt, true);           // near arm
+
+  // Tool in near hand while mining / attacking
+  if (mining || swinging) {
+    const handY = shoulder + armH * 0.7 + nearArmSwing * armH * 0.35;
+    const handX = torsoW / 2 + limbW * 0.3;
+    ctx.save();
+    ctx.translate(handX, handY);
+    ctx.rotate(nearArmSwing * 0.5);
+    ctx.fillStyle = '#6b3f1a';
+    ctx.fillRect(-u * 0.55, -u * 0.4, u * 1.1, armH * 0.65);
+    ctx.fillStyle = '#a0a6ac';
+    ctx.fillRect(-u * 2.4, -u * 2.0, u * 4.8, u * 2.4);
+    ctx.restore();
+  }
+
+  // ── Head ──
+  ctx.fillStyle = skin;
+  ctx.fillRect(-headS / 2, headY, headS, headS);
+  ctx.fillStyle = hair;
+  ctx.fillRect(-headS / 2, headY, headS, headS * 0.34);
+  ctx.fillRect(-headS / 2, headY, headS * 0.22, headS * 0.55);
+  // eye toward +X
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(headS * 0.06, headY + headS * 0.42, headS * 0.3, headS * 0.22);
+  ctx.fillStyle = '#2a1a10';
+  ctx.fillRect(headS * 0.18, headY + headS * 0.48, headS * 0.12, headS * 0.12);
+  // mouth
+  ctx.fillStyle = '#7a4a2a';
+  ctx.fillRect(headS * 0.08, headY + headS * 0.72, headS * 0.26, u * 0.55);
 }
 
 export function roundRect(ctx, x, y, w, h, r) {
