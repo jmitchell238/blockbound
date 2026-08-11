@@ -61,7 +61,7 @@ const sandbox = {
   Int16Array,
   performance: { now: () => 0 },
 };
-const files = ['js/config.js', 'js/rng.js', 'js/world.js', 'js/inventory.js', 'js/interact.js'];
+const files = ['js/config.js', 'js/rng.js', 'js/world.js', 'js/inventory.js', 'js/interact.js', 'js/entities.js'];
 let code = '';
 for (const f of files) code += fs.readFileSync(path.join(root, f), 'utf8') + '\n';
 code += `
@@ -71,7 +71,7 @@ globalThis.__BB = {
   applyWorldSize, wrapX, wrapDeltaX, generateWorld, getTile, setTile, getLight, isSolid,
   serializeWorld, deserializeWorld, markLightDirty, flushLight, recomputeSkyLight,
   makeInventory, addItem, canCraft, craft, countItem, makeWorldMeta, toggleDoor, tileKey,
-  tickGravityNear, isPlatform, isGravityBlock,
+  tickGravityNear, isPlatform, isGravityBlock, hasLineOfSight, playerIsSheltered,
 };
 `;
 vm.createContext(sandbox);
@@ -129,6 +129,18 @@ BB.setTile(world, 70, sandY, BB.BLOCK.SAND);
 BB.setTile(world, 70, sandY + 1, BB.BLOCK.AIR);
 const fell = BB.tickGravityNear(world, 70, sandY, 4);
 ok(fell >= 1 && BB.getTile(world, 70, sandY + 1) === BB.BLOCK.SAND, 'sand gravity falls');
+
+// Line of sight blocked by solid wall
+ok(typeof BB.hasLineOfSight === 'function', 'hasLineOfSight export');
+if (typeof BB.hasLineOfSight === 'function') {
+  const sx = 80;
+  const sy = world.surface[sx];
+  // Clear air ray at surface
+  ok(BB.hasLineOfSight(world, sx + 0.5, sy - 1, sx + 2.5, sy - 1), 'LOS open air');
+  // Place a dirt wall and ensure LOS fails through it
+  BB.setTile(world, sx + 1, sy - 1, BB.BLOCK.DIRT);
+  ok(!BB.hasLineOfSight(world, sx + 0.5, sy - 1, sx + 2.5, sy - 1), 'LOS blocked by dirt');
+}
 
 // Epic size can allocate (smoke, no full gen of 16k in CI if slow — gen Tour+Standard ok)
 BB.applyWorldSize(4096);

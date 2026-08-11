@@ -105,6 +105,56 @@ function spawnHostile(ents, x, y) {
   });
 }
 
+/**
+ * True if solid blocks block a ray from (x0,y0) to (x1,y1).
+ * Open doors / platforms / ladders do not block. Used so mobs can't hit through dirt.
+ */
+function hasLineOfSight(world, x0, y0, x1, y1) {
+  const dx = wrapDeltaX(x0, x1);
+  const dy = y1 - y0;
+  const dist = Math.hypot(dx, dy);
+  if (dist < 0.15) return true;
+  const steps = Math.max(2, Math.ceil(dist * 4)); // ~0.25 tile samples
+  for (let i = 1; i < steps; i++) {
+    const t = i / steps;
+    const x = x0 + dx * t;
+    const y = y0 + dy * t;
+    const tx = Math.floor(x);
+    const ty = Math.floor(y);
+    const tile = getTile(world, tx, ty);
+    if (tile === BLOCK.AIR || tile === BLOCK.WATER || tile === BLOCK.LADDER
+        || tile === BLOCK.TORCH || tile === BLOCK.LEAVES || tile === BLOCK.GLASS
+        || tile === BLOCK.CAMPFIRE || isPlatform(tile)) {
+      continue;
+    }
+    // Open door is walkable
+    if (tile === BLOCK.DOOR && world.meta && world.meta.openDoors
+        && world.meta.openDoors[tileKey(tx, ty)]) {
+      continue;
+    }
+    if (isSolid(world, tx, ty)) return false;
+  }
+  return true;
+}
+
+/** Player is sealed underground (solid/ceiling nearby) — surface mobs shouldn't aggro through dirt. */
+function playerIsSheltered(world, player) {
+  const px = Math.floor(player.x);
+  const py = Math.floor(player.y - player.h * 0.5);
+  // Head-adjacent solid above or on sides counts as cover
+  let solids = 0;
+  for (let dy = -2; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      if (dx === 0 && dy === 0) continue;
+      if (isSolid(world, px + dx, py + dy)) solids++;
+    }
+  }
+  const surface = world.surface[wrapX(px)];
+  const depth = player.y - surface;
+  // Deep enough under surface with nearby walls = safe from surface mobs
+  return depth > 2.5 && solids >= 3;
+}
+
 /** Night surface hostiles near player. */
 function updateHostiles(ents, world, player, dt, timeOfDay, ui) {
   const day = Math.sin(timeOfDay * Math.PI * 2 - Math.PI / 2) * 0.5 + 0.5;
@@ -116,26 +166,47 @@ function updateHostiles(ents, world, player, dt, timeOfDay, ui) {
     return [];
   }
 
-  // Spawn near player occasionally
-  if (ents.hostiles.length < 5 && Math.random() < dt * 0.12) {
+  const sheltered = playerIsSheltered(world, player);
+
+  // Spawn near player on surface only — never next to buried players
+  if (!sheltered && ents.hostiles.length < 5 && Math.random() < dt * 0.12) {
     const side = Math.random() < 0.5 ? -1 : 1;
     const sx = wrapX(Math.floor(player.x) + side * (8 + Math.floor(Math.random() * 10)));
     let sy = world.surface[sx];
     while (sy < WORLD_H - 1 && !isSolid(world, sx, sy + 1)) sy++;
     while (sy > SKY_LIMIT && isSolid(world, sx, sy)) sy--;
-    // Only if surface-ish and dark
-    if (getTile(world, sx, sy) === BLOCK.AIR) spawnHostile(ents, sx, sy + 1);
+    // Only if surface-ish and dark, and near player's vertical band
+    if (getTile(world, sx, sy) === BLOCK.AIR
+        && Math.abs((sy + 1) - player.y) < 8) {
+      spawnHostile(ents, sx, sy + 1);
+    }
   }
 
   const hits = [];
+  const pEyeX = player.x;
+  const pEyeY = player.y - player.h * 0.45;
+
   for (let i = ents.hostiles.length - 1; i >= 0; i--) {
     const h = ents.hostiles[i];
     h.anim += dt * 10;
     h.atkCd = Math.max(0, h.atkCd - dt);
 
-    // Chase player
     const dx = wrapDeltaX(h.x, player.x);
-    h.vx = Math.sign(dx || 1) * (h.kind === 'dropbear' ? 1.8 : 1.3);
+    const dy = player.y - h.y;
+    const dist = Math.hypot(dx, dy);
+    const hEyeX = h.x;
+    const hEyeY = h.y - 0.6;
+    const canSee = hasLineOfSight(world, hEyeX, hEyeY, pEyeX, pEyeY);
+
+    // Only chase when they can see the player (no wall-hacks)
+    if (canSee && !sheltered) {
+      h.vx = Math.sign(dx || 1) * (h.kind === 'dropbear' ? 1.8 : 1.3);
+    } else {
+      // Wander / give up if player is behind dirt
+      if (Math.random() < dt * 0.4) h.vx *= -1;
+      h.vx = Math.sign(h.vx || 1) * 0.7;
+    }
+
     const nextX = h.x + h.vx * dt;
     const feet = Math.floor(h.y + 0.05);
     const ahead = Math.floor(nextX + Math.sign(h.vx) * 0.3);
@@ -151,20 +222,20 @@ function updateHostiles(ents, world, player, dt, timeOfDay, ui) {
     while (gy > SKY_LIMIT && isSolid(world, tx, gy)) gy--;
     h.y = gy;
 
-    // Attack
-    const dist = Math.hypot(wrapDeltaX(h.x, player.x), h.y - player.y);
-    if (dist < 1.1 && h.atkCd <= 0 && player.invuln <= 0) {
+    // Attack only in melee range WITH clear line of sight (no through-block hits)
+    if (canSee && !sheltered && dist < 1.15 && h.atkCd <= 0 && player.invuln <= 0) {
       h.atkCd = 1.1;
       hits.push({ dmg: h.kind === 'dropbear' ? 14 : 10, kind: h.kind });
     }
 
-    // Player can "stomp" or mine-hit: if overlapping and falling
-    if (dist < 1.0 && player.vy > 2) {
+    // Stomp only if same airspace (LOS + close + falling)
+    if (canSee && dist < 1.0 && player.vy > 2) {
       h.hp -= 12;
       player.vy = JUMP_VEL / TILE * 0.45;
     }
-    // Distance despawn
-    if (Math.abs(wrapDeltaX(h.x, player.x)) > 40) {
+
+    // Despawn far away, or if player is deep underground away from them
+    if (Math.abs(dx) > 40 || (sheltered && dist > 6)) {
       ents.hostiles.splice(i, 1);
       continue;
     }
