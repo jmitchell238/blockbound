@@ -13,6 +13,9 @@ function _finishSession(world, player, inv, timeOfDay, seed, ents) {
     mode: 'mine',
     craftOpen: false,
     craftHit: [],
+    craftTab: 'basic',
+    craftScroll: 0,
+    craftSelected: null, // recipe id
     chestOpen: null, // { x, y, slots }
     chestHit: [],
     bagOpen: false,
@@ -146,7 +149,20 @@ function gameUpdate(dt) {
   if (input.craftToggle) {
     if (ui.chestOpen) ui.chestOpen = null;
     else if (ui.bagOpen) ui.bagOpen = false;
-    else ui.craftOpen = !ui.craftOpen;
+    else {
+      ui.craftOpen = !ui.craftOpen;
+      if (ui.craftOpen) {
+        ui.craftScroll = 0;
+        // Auto-pick a craftable recipe if none selected
+        if (!ui.craftSelected) {
+          const rows = typeof recipesInTab === 'function'
+            ? recipesInTab(ui.craftTab || 'basic', world, player.x, player.y)
+            : [];
+          const ready = rows.find(row => row.stationOk && canCraft(inv, row.recipe));
+          ui.craftSelected = ready ? ready.recipe.id : (rows[0] && rows[0].recipe.id) || null;
+        }
+      }
+    }
     input.craftToggle = false;
   }
   if (input.bagToggle) {
@@ -189,6 +205,12 @@ function gameUpdate(dt) {
   }
 
   if (ui.craftOpen || ui.chestOpen || ui.bagOpen) {
+    // Don't mine/place while menus are open
+    input.pointerDown = false;
+    input.mineTx = null;
+    input.mineTy = null;
+    input.placeTx = null;
+    input.placeTy = null;
     s.timeOfDay = (s.timeOfDay + dt / DAY_LEN * 0.25) % 1;
     return;
   }
@@ -540,49 +562,80 @@ function gameRender(ctx) {
 function gameClickCraft(x, y) {
   if (!session) return false;
   const ui = session.ui;
+  const inv = session.inv;
 
   // Chest UI clicks
   if (ui.chestOpen) {
     const hits = ui.chestHit || [];
     for (const h of hits) {
       if (x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h) {
-        if (h.from === 'chest') {
-          transferSlot(ui.chestOpen.slots, h.i, session.inv.hotbar.concat(session.inv.bag));
-          // re-bind chest slots ref
-          const bag = session.inv.bag;
-          // transfer into inv properly:
-          const slot = ui.chestOpen.slots[h.i];
-          if (slot) {
-            // already handled? transferSlot mutates - need fix for concat
-          }
-        }
-        // Simpler path:
         handleChestClick(session, h);
         return true;
       }
     }
-    // click outside closes
     if (y < 80 || y > H - 40) ui.chestOpen = null;
     return true;
   }
 
   if (!ui.craftOpen) return false;
+
   const hits = ui.craftHit || [];
-  for (const h of hits) {
-    if (x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h) {
-      if (h.ok && craft(session.inv, h.recipe)) {
+  // Process later hits first? No — check each, first match wins. Prefer specific actions.
+  // Sort by kind priority: craft > tab > scroll > select > close
+  const order = { craft: 0, tab: 1, scroll: 2, select: 3, close: 4 };
+  const sorted = hits.slice().sort((a, b) => (order[a.kind] != null ? order[a.kind] : 9) - (order[b.kind] != null ? order[b.kind] : 9));
+
+  for (const h of sorted) {
+    if (x < h.x || x > h.x + h.w || y < h.y || y > h.y + h.h) continue;
+
+    if (h.kind === 'close') {
+      ui.craftOpen = false;
+      return true;
+    }
+    if (h.kind === 'tab') {
+      ui.craftTab = h.tab;
+      ui.craftScroll = 0;
+      ui.craftSelected = null;
+      const rows = recipesInTab(ui.craftTab, session.world, session.player.x, session.player.y);
+      const ready = rows.find(row => row.stationOk && canCraft(inv, row.recipe));
+      ui.craftSelected = ready ? ready.recipe.id : (rows[0] && rows[0].recipe.id) || null;
+      return true;
+    }
+    if (h.kind === 'scroll') {
+      ui.craftScroll = Math.max(0, (ui.craftScroll || 0) + h.dir);
+      return true;
+    }
+    if (h.kind === 'select') {
+      ui.craftSelected = h.recipe.id;
+      return true;
+    }
+    if (h.kind === 'craft') {
+      const recipe = h.recipe;
+      if (!h.stationOk) {
+        toast(ui, stationHint(recipe.station) || 'Need a station');
+        return true;
+      }
+      if (!canCraft(inv, recipe)) {
+        const miss = missingMaterials(inv, recipe);
+        if (miss.length) {
+          const m = miss[0];
+          toast(ui, 'Need ' + (m.need - m.have) + ' more ' + itemName(m.id));
+        } else {
+          toast(ui, 'Need more materials');
+        }
+        return true;
+      }
+      if (craft(inv, recipe)) {
         sfxCraft();
-        toast(ui, 'Crafted ' + h.recipe.name);
-        syncEquippedTool(session.inv);
+        toast(ui, '✓ Made ' + recipe.name + '!');
+        syncEquippedTool(inv);
         unlockMilestone(session.world.meta, session.stats, ui, 'first_craft');
-        if (isTool(h.recipe.out[0])) unlockMilestone(session.world.meta, session.stats, ui, 'first_tool');
-      } else if (!h.ok) {
-        toast(ui, 'Need more materials');
+        if (isTool(recipe.out[0])) unlockMilestone(session.world.meta, session.stats, ui, 'first_tool');
       }
       return true;
     }
   }
-  return true;
+  return true; // swallow clicks while open
 }
 
 function handleChestClick(s, h) {

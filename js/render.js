@@ -1089,56 +1089,253 @@ function drawBagPanel(ctx, inv, ui) {
 }
 
 function drawCraftPanel(ctx, inv, world, player, ui) {
-  const pw = 328;
-  const ph = 430;
+  const pw = 340;
+  const ph = 520;
   const px = (W - pw) / 2;
-  const py = (H - ph) / 2 - 16;
-  ctx.fillStyle = 'rgba(10, 22, 18, 0.96)';
+  const py = Math.max(8, (H - ph) / 2 - 8);
+  ui.craftHit = [];
+
+  // Dim world behind
+  ctx.fillStyle = 'rgba(0,0,0,0.45)';
+  ctx.fillRect(0, 0, W, H);
+
+  // Panel
+  ctx.fillStyle = 'rgba(12, 28, 22, 0.98)';
   roundRect(ctx, px, py, pw, ph, 18);
   ctx.fill();
-  ctx.strokeStyle = 'rgba(125,255,160,0.25)';
-  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = 'rgba(125,255,160,0.35)';
+  ctx.lineWidth = 2;
   ctx.stroke();
 
+  // Title + close
   ctx.fillStyle = '#7dffa0';
   ctx.font = '700 20px system-ui';
+  ctx.textAlign = 'left';
+  ctx.fillText('Craft', px + 18, py + 32);
+  // Close X
+  const cx = px + pw - 44;
+  const cy = py + 12;
+  ctx.fillStyle = 'rgba(255,255,255,0.1)';
+  roundRect(ctx, cx, cy, 32, 32, 10);
+  ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.font = '700 18px system-ui';
   ctx.textAlign = 'center';
-  ctx.fillText('Crafting', W / 2, py + 30);
-  const at = nearWorkbench(world, player.x, player.y);
-  ctx.fillStyle = at ? '#a8d4c0' : '#ffc06a';
-  ctx.font = '12px system-ui';
-  ctx.fillText(at ? 'Workbench nearby — full recipes' : 'Hand craft · place a Workbench for tools', W / 2, py + 50);
+  ctx.fillText('✕', cx + 16, cy + 22);
+  ui.craftHit.push({ kind: 'close', x: cx, y: cy, w: 32, h: 32 });
 
-  const recipes = availableRecipes(inv, world, player.x, player.y);
-  const startY = py + 66;
-  const rowH = 38;
-  ui.craftHit = [];
-  for (let i = 0; i < recipes.length; i++) {
-    const r = recipes[i];
-    const y = startY + i * rowH;
-    if (y + rowH > py + ph - 48) break;
-    const ok = canCraft(inv, r);
-    ctx.fillStyle = ok ? 'rgba(125,255,160,0.14)' : 'rgba(255,255,255,0.04)';
-    roundRect(ctx, px + 12, y, pw - 24, rowH - 4, 10);
+  // Station status
+  const atBench = nearWorkbench(world, player.x, player.y);
+  const atFurn = typeof nearBlock === 'function' && nearBlock(world, player.x, player.y, BLOCK.FURNACE, 3);
+  ctx.font = '11px system-ui';
+  ctx.textAlign = 'left';
+  ctx.fillStyle = atBench ? '#7dffa0' : '#8899aa';
+  ctx.fillText(atBench ? '✓ Workbench nearby' : '○ No workbench (tools locked)', px + 18, py + 52);
+  ctx.fillStyle = atFurn ? '#7dffa0' : '#8899aa';
+  ctx.fillText(atFurn ? '✓ Furnace nearby' : '○ No furnace (smelting locked)', px + 18, py + 68);
+
+  // Tabs
+  const tabY = py + 80;
+  const tabs = typeof CRAFT_TABS !== 'undefined' ? CRAFT_TABS : [
+    { id: 'basic', label: 'Basic' },
+    { id: 'tools', label: 'Tools' },
+    { id: 'smelt', label: 'Smelt' },
+  ];
+  const tabW = (pw - 36) / tabs.length;
+  if (!ui.craftTab) ui.craftTab = 'basic';
+  for (let i = 0; i < tabs.length; i++) {
+    const t = tabs[i];
+    const tx = px + 12 + i * tabW;
+    const on = ui.craftTab === t.id;
+    ctx.fillStyle = on ? 'rgba(125,255,160,0.22)' : 'rgba(255,255,255,0.06)';
+    roundRect(ctx, tx, tabY, tabW - 6, 34, 10);
     ctx.fill();
-    // mini icon of output
-    const outId = r.out[0];
-    if (typeof outId === 'number' || isTool(outId) || outId === 'stick') {
-      drawItemIcon(ctx, px + 18, y + 4, 26, outId);
+    if (on) {
+      ctx.strokeStyle = 'rgba(125,255,160,0.55)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
     }
-    ctx.fillStyle = ok ? '#f0fff6' : '#8899aa';
-    ctx.font = '600 13px system-ui';
+    ctx.fillStyle = on ? '#e8fff0' : '#9ec5b0';
+    ctx.font = '700 13px system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText(t.label, tx + (tabW - 6) / 2, tabY + 22);
+    ui.craftHit.push({ kind: 'tab', tab: t.id, x: tx, y: tabY, w: tabW - 6, h: 34 });
+  }
+
+  // Recipe list
+  const rows = typeof recipesInTab === 'function'
+    ? recipesInTab(ui.craftTab, world, player.x, player.y)
+    : [];
+  const listTop = tabY + 44;
+  const listH = 200;
+  const rowH = 48;
+  const visible = Math.floor(listH / rowH);
+  const maxScroll = Math.max(0, rows.length - visible);
+  ui.craftScroll = Math.max(0, Math.min(maxScroll, ui.craftScroll || 0));
+
+  // Scroll buttons
+  if (rows.length > visible) {
+    ctx.fillStyle = 'rgba(255,255,255,0.1)';
+    roundRect(ctx, px + pw - 40, listTop, 28, 28, 8);
+    ctx.fill();
+    roundRect(ctx, px + pw - 40, listTop + listH - 28, 28, 28, 8);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.font = '700 16px system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText('▲', px + pw - 26, listTop + 20);
+    ctx.fillText('▼', px + pw - 26, listTop + listH - 8);
+    ui.craftHit.push({ kind: 'scroll', dir: -1, x: px + pw - 40, y: listTop, w: 28, h: 28 });
+    ui.craftHit.push({ kind: 'scroll', dir: 1, x: px + pw - 40, y: listTop + listH - 28, w: 28, h: 28 });
+  }
+
+  // Clip list area
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(px + 12, listTop, pw - 56, listH);
+  ctx.clip();
+
+  for (let i = 0; i < visible; i++) {
+    const idx = i + ui.craftScroll;
+    if (idx >= rows.length) break;
+    const row = rows[idx];
+    const r = row.recipe;
+    const y = listTop + i * rowH;
+    const can = row.stationOk && canCraft(inv, r);
+    const sel = ui.craftSelected === r.id;
+
+    ctx.fillStyle = sel
+      ? 'rgba(125,255,160,0.2)'
+      : can
+        ? 'rgba(125,255,160,0.1)'
+        : 'rgba(255,255,255,0.04)';
+    roundRect(ctx, px + 12, y + 2, pw - 56, rowH - 4, 10);
+    ctx.fill();
+    if (sel) {
+      ctx.strokeStyle = 'rgba(125,255,160,0.7)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    const outId = r.out[0];
+    drawItemIcon(ctx, px + 20, y + 8, 30, outId);
+
+    ctx.fillStyle = can ? '#f0fff6' : '#99a';
+    ctx.font = '700 14px system-ui';
     ctx.textAlign = 'left';
-    ctx.fillText(r.name, px + 50, y + 24);
-    ctx.font = '11px system-ui';
-    ctx.fillStyle = '#8eb5a4';
-    const need = r.in.map(([id, n]) => n + '×' + itemName(id)).join(', ');
-    ctx.fillText(need, px + 150, y + 24);
-    ui.craftHit.push({ recipe: r, x: px + 12, y, w: pw - 24, h: rowH - 4, ok });
+    ctx.fillText(r.name, px + 58, y + 22);
+
+    // Material chips: have/need
+    let mx = px + 58;
+    ctx.font = '600 11px system-ui';
+    for (const [id, n] of r.in) {
+      const have = countItem(inv, id);
+      const okM = have >= n;
+      ctx.fillStyle = okM ? 'rgba(125,255,160,0.2)' : 'rgba(255,100,100,0.18)';
+      const label = have + '/' + n + ' ' + itemName(id);
+      const tw = Math.min(110, ctx.measureText(label).width + 10);
+      roundRect(ctx, mx, y + 28, tw, 14, 4);
+      ctx.fill();
+      ctx.fillStyle = okM ? '#b8f5c8' : '#ffb0b0';
+      ctx.fillText(label, mx + 5, y + 39);
+      mx += tw + 4;
+      if (mx > px + pw - 70) break;
+    }
+
+    if (!row.stationOk) {
+      ctx.fillStyle = '#ffb347';
+      ctx.font = '600 10px system-ui';
+      ctx.fillText(stationHint(r.station), px + 58, y + 14);
+    }
+
+    ui.craftHit.push({
+      kind: 'select',
+      recipe: r,
+      stationOk: row.stationOk,
+      x: px + 12,
+      y: y + 2,
+      w: pw - 56,
+      h: rowH - 4,
+    });
+  }
+  ctx.restore();
+
+  // Detail + CRAFT button
+  const detailY = listTop + listH + 12;
+  let selected = rows.find(row => row.recipe.id === ui.craftSelected);
+  if (!selected && rows.length) {
+    selected = rows[0];
+    ui.craftSelected = selected.recipe.id;
+  }
+
+  ctx.fillStyle = 'rgba(0,0,0,0.28)';
+  roundRect(ctx, px + 12, detailY, pw - 24, 120, 12);
+  ctx.fill();
+
+  if (selected) {
+    const r = selected.recipe;
+    const can = selected.stationOk && canCraft(inv, r);
+    drawItemIcon(ctx, px + 24, detailY + 16, 40, r.out[0]);
+    ctx.fillStyle = '#e8fff0';
+    ctx.font = '700 16px system-ui';
+    ctx.textAlign = 'left';
+    ctx.fillText(r.name, px + 76, detailY + 34);
+
+    ctx.font = '12px system-ui';
+    ctx.fillStyle = '#9ec5b0';
+    let line = 'Needs: ';
+    for (const [id, n] of r.in) {
+      const have = countItem(inv, id);
+      line += itemName(id) + ' ' + have + '/' + n + '   ';
+    }
+    ctx.fillText(line.trim(), px + 76, detailY + 54);
+
+    if (!selected.stationOk) {
+      ctx.fillStyle = '#ffb347';
+      ctx.font = '600 12px system-ui';
+      ctx.fillText(stationHint(r.station), px + 76, detailY + 72);
+    } else if (!can) {
+      const miss = missingMaterials(inv, r);
+      ctx.fillStyle = '#ff8a80';
+      ctx.font = '600 12px system-ui';
+      if (miss.length) {
+        ctx.fillText('Missing ' + itemName(miss[0].id) + ' (have ' + miss[0].have + ', need ' + miss[0].need + ')', px + 76, detailY + 72);
+      }
+    } else {
+      ctx.fillStyle = '#7dffa0';
+      ctx.font = '600 12px system-ui';
+      ctx.fillText('Ready to craft!', px + 76, detailY + 72);
+    }
+
+    // Big CRAFT button
+    const btnY = detailY + 82;
+    const btnH = 36;
+    ctx.fillStyle = can ? 'rgba(125,255,160,0.85)' : 'rgba(120,120,120,0.35)';
+    roundRect(ctx, px + 20, btnY, pw - 40, btnH, 12);
+    ctx.fill();
+    ctx.fillStyle = can ? '#0a1f12' : '#666';
+    ctx.font = '700 16px system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText(can ? '⚒  CRAFT' : (selected.stationOk ? 'Need materials' : 'Need station'), W / 2, btnY + 24);
+    ui.craftHit.push({
+      kind: 'craft',
+      recipe: r,
+      stationOk: selected.stationOk,
+      ok: can,
+      x: px + 20,
+      y: btnY,
+      w: pw - 40,
+      h: btnH,
+    });
+  } else {
+    ctx.fillStyle = '#8899aa';
+    ctx.font = '14px system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText('No recipes in this tab', W / 2, detailY + 60);
   }
 
   ctx.fillStyle = '#7a9a8a';
-  ctx.font = '12px system-ui';
+  ctx.font = '11px system-ui';
   ctx.textAlign = 'center';
-  ctx.fillText('Tap recipe · C / Craft to close', W / 2, py + ph - 18);
+  ctx.fillText('Tap a recipe, then CRAFT · ⚒ or C to close', W / 2, py + ph - 14);
 }

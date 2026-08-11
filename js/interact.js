@@ -190,8 +190,48 @@ function stationAvailable(world, px, py, station) {
 }
 
 function availableRecipesAt(inv, world, px, py) {
+  // Always list craftable-at-hand + anything whose station is nearby
   return RECIPES.filter(r => {
     if (r.hidden) return false;
     return stationAvailable(world, px, py, r.station);
   });
+}
+
+/** All non-hidden recipes, tagged with whether station is OK. */
+function allRecipesForUi(world, px, py) {
+  return RECIPES.filter(r => !r.hidden).map(r => ({
+    recipe: r,
+    stationOk: stationAvailable(world, px, py, r.station),
+  }));
+}
+
+function recipeTabId(r) {
+  if (r.station === 'furnace') return 'smelt';
+  if (r.station === 'workbench' || isTool(r.out[0])) return 'tools';
+  return 'basic';
+}
+
+const CRAFT_TABS = [
+  { id: 'basic', label: 'Basic' },
+  { id: 'tools', label: 'Tools' },
+  { id: 'smelt', label: 'Smelt' },
+];
+
+function recipesInTab(tabId, world, px, py) {
+  return allRecipesForUi(world, px, py).filter(row => recipeTabId(row.recipe) === tabId);
+}
+
+function missingMaterials(inv, recipe) {
+  const miss = [];
+  for (const [id, n] of recipe.in) {
+    const have = countItem(inv, id);
+    if (have < n) miss.push({ id, need: n, have });
+  }
+  return miss;
+}
+
+function stationHint(station) {
+  if (station === 'workbench') return 'Place a Workbench nearby';
+  if (station === 'furnace') return 'Place a Furnace nearby';
+  return '';
 }

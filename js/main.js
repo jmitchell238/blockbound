@@ -124,11 +124,19 @@ function ensureListeners() {
     const s = getSession();
     if (!s) return;
     const p = eventToStage(e);
-    if (s.ui.craftOpen) {
+    // Craft / chest / bag capture all taps so mining doesn't steal them
+    if (s.ui.craftOpen || s.ui.chestOpen || s.ui.bagOpen) {
       gameClickCraft(p.x, p.y);
       e.preventDefault();
+      e.stopPropagation();
+      // Cancel any mine/place from the shared input binder
+      liveInput.pointerDown = false;
+      liveInput.mineTx = null;
+      liveInput.mineTy = null;
+      liveInput.placeTx = null;
+      liveInput.placeTy = null;
     }
-  });
+  }, true); // capture phase — run before mine/place binder
 }
 
 async function startPlay(continueSave) {
