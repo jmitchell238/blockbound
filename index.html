@@ -20,25 +20,81 @@
     <canvas id="cv" width="390" height="700"></canvas>
     <div id="versionTag"></div>
 
-    <div class="screen" data-screen="menu" id="screenMenu">
-      <div class="menu-card">
+    <!-- TITLE (Minecraft-style splash) -->
+    <div class="screen menu-screen" data-screen="title" id="screenTitle">
+      <div class="menu-card title-card">
         <img class="logo-icon" src="icons/icon-192.png" alt="" width="72" height="72" />
         <h1><span class="c1">Block</span><span class="c2">bound</span></h1>
-        <p class="tagline">Mine · build · walk the world around</p>
+        <p class="tagline splash-line" id="splashLine">Mine · build · walk the world around</p>
 
-        <div class="stats">
-          <div><span class="lbl">Mined</span><strong id="statMined">0</strong></div>
-          <div><span class="lbl">Loops</span><strong id="statCirc">0</strong></div>
-          <div><span class="lbl">Walked</span><strong id="statDist">0m</strong></div>
+        <div class="menu-stack">
+          <button id="btnSingleplayer" class="primary" type="button">Singleplayer</button>
+          <button id="btnHow" class="secondary" type="button">How to Play</button>
+          <button id="btnOptions" class="secondary" type="button">Options</button>
+          <button id="btnHub" class="ghost" type="button">← Arcade Hub</button>
         </div>
 
-        <button id="btnContinue" class="primary hidden" type="button">▶  Continue</button>
+        <div id="howPanel" class="how hidden">
+          <ol>
+            <li><b>Move</b> with WASD / arrows or the left stick. <b>Space</b> / jump button to jump. Hold <b>Shift</b> to sprint.</li>
+            <li><b>Tap</b> to place the selected block. <b>Hold</b> on a block to dig it up.</li>
+            <li>Open <b>Craft</b> (C / E). Place a <b>Workbench</b> for better recipes. <b>Furnace</b> smelts ores.</li>
+            <li>Worlds <b>loop left/right</b>. Dig to <b>magma</b>; the <b>sky</b> is the ceiling.</li>
+            <li><b>Singleplayer</b> opens your world list — name worlds, pick a <b>seed</b>, difficulty, and size.</li>
+            <li>Same <b>seed + size</b> regenerates the same terrain. Share seeds with friends.</li>
+            <li>Rotate your device for <b>portrait or landscape</b> play.</li>
+            <li><b>Difficulty</b>: Creative / Easy / Normal / Hard. Creative: ✦ Blocks (G) for every item.</li>
+          </ol>
+          <p class="inspired">Inspired by <i>The Blockheads</i> &amp; Minecraft menus — not affiliated.</p>
+        </div>
+
+        <p id="versionMenu" class="ver"></p>
+      </div>
+    </div>
+
+    <!-- WORLD SELECT -->
+    <div class="screen menu-screen hidden" data-screen="worlds" id="screenWorlds">
+      <div class="menu-card worlds-card">
+        <h2 class="menu-title">Select World</h2>
+        <p class="menu-sub">Play, create, rename, or delete saved worlds</p>
+
+        <div id="worldList" class="world-list" role="listbox" aria-label="Saved worlds"></div>
+        <p id="worldEmpty" class="world-empty hidden">No worlds yet — create one to start mining.</p>
+
+        <div class="menu-actions">
+          <button id="btnPlayWorld" class="primary" type="button" disabled>▶  Play Selected</button>
+          <button id="btnCreateWorld" class="secondary" type="button">✦  Create New World</button>
+          <div class="menu-actions-row">
+            <button id="btnRenameWorld" class="ghost" type="button" disabled>Rename</button>
+            <button id="btnDeleteWorld" class="ghost danger" type="button" disabled>Delete</button>
+          </div>
+          <button id="btnWorldsBack" class="ghost" type="button">← Back</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- CREATE WORLD -->
+    <div class="screen menu-screen hidden" data-screen="create" id="screenCreate">
+      <div class="menu-card create-card">
+        <h2 class="menu-title">Create New World</h2>
+
+        <label class="field-label" for="inputWorldName">World name</label>
+        <input id="inputWorldName" class="field-input" type="text" maxlength="40" placeholder="New World" autocomplete="off" spellcheck="false" />
+
+        <label class="field-label" for="inputSeed">Seed <span class="field-hint">(blank = random)</span></label>
+        <div class="seed-row">
+          <input id="inputSeed" class="field-input" type="text" maxlength="64" placeholder="Leave empty for random" autocomplete="off" spellcheck="false" />
+          <button id="btnRandomSeed" class="chip-btn" type="button" title="Random seed">🎲</button>
+        </div>
+        <p class="size-hint" id="seedHint">Same seed + size = same terrain</p>
+
+        <p class="mode-label">Difficulty</p>
+        <div class="mode-row mode-row-4" id="diffRow" role="group" aria-label="Difficulty"></div>
+        <p class="size-hint" id="diffHint">Normal · classic survival</p>
 
         <p class="mode-label">World size (circumference)</p>
         <div class="mode-row" id="sizeRow" role="group" aria-label="World size"></div>
         <p class="size-hint" id="sizeHint">Standard · ~12 min to walk around</p>
-
-        <button id="btnPlay" class="primary" type="button">✦  New world</button>
 
         <div id="genOverlay" class="gen-overlay hidden">
           <p>Generating world…</p>
@@ -46,36 +102,47 @@
           <p class="gen-pct" id="genPct">0%</p>
         </div>
 
-        <button id="btnHow" class="secondary" type="button">How to play</button>
-        <button id="muteBtn" class="ghost" type="button">🔊 Sound on</button>
-        <button id="btnHub" class="ghost" type="button">← Arcade Hub</button>
-
-        <div id="howPanel" class="how hidden">
-          <ol>
-            <li><b>Move</b> with WASD / arrows or the left stick. <b>Space</b> / jump button to jump.</li>
-            <li><b>Tap</b> to place the selected block. <b>Hold</b> on a block to dig it up.</li>
-            <li>Open <b>Craft</b> (C / E) — turn wood into planks, sticks, torches, tools. Place a <b>Workbench</b> for better recipes.</li>
-            <li>The world <b>loops left/right</b> — pick a size up to <b>16,384</b> blocks (Blockheads-scale). Dig down to <b>magma</b>; the <b>sky</b> is the ceiling.</li>
-            <li><b>🎒 Inventory</b> — backpack holds 24 stacks. Craft a <b>Chest</b>, place it, <b>F</b> to store more.</li>
-            <li><b>Workbench</b> unlocks tools & swords. <b>Furnace</b> smelts ores. Craft menu has All / Basic / Tools / Smelt.</li>
-            <li><b>⚔ Hit</b> punches or sword-swipes. Night: <b>zombies & skeletons</b>. Day/night: <b>wolves</b>. <b>Rabbits</b> hop around (food).</li>
-            <li>1–8 hotbar · <b>F</b> use · <b>Esc</b> pause · scroll zoom.</li>
-          </ol>
-          <p class="inspired">Inspired by the classic iOS sandbox <i>The Blockheads</i> — not affiliated.</p>
+        <div class="menu-actions">
+          <button id="btnCreatePlay" class="primary" type="button">Create New World</button>
+          <button id="btnCreateCancel" class="ghost" type="button">Cancel</button>
         </div>
+      </div>
+    </div>
 
-        <p id="versionMenu" class="ver"></p>
+    <!-- OPTIONS -->
+    <div class="screen menu-screen hidden" data-screen="options" id="screenOptions">
+      <div class="menu-card options-card">
+        <h2 class="menu-title">Options</h2>
+        <div class="menu-stack">
+          <button id="muteBtn" class="secondary" type="button">🔊 Sound on</button>
+          <p class="size-hint">Rotate your phone or resize the window for landscape / portrait.</p>
+          <button id="btnOptionsBack" class="ghost" type="button">← Back</button>
+        </div>
+        <p id="versionOptions" class="ver"></p>
+      </div>
+    </div>
+
+    <!-- RENAME MODAL (overlay inside stage) -->
+    <div id="renameModal" class="modal hidden">
+      <div class="modal-card">
+        <h3>Rename World</h3>
+        <input id="inputRename" class="field-input" type="text" maxlength="40" autocomplete="off" spellcheck="false" />
+        <div class="menu-actions-row">
+          <button id="btnRenameCancel" class="ghost" type="button">Cancel</button>
+          <button id="btnRenameOk" class="primary" type="button">Save</button>
+        </div>
       </div>
     </div>
 
     <button id="btnMenu" class="icon-btn play-chrome hidden" type="button" title="Menu">☰</button>
     <button id="btnCraft" class="icon-btn play-chrome craft-btn hidden" type="button" title="Craft">⚒</button>
     <button id="btnBag" class="icon-btn play-chrome bag-btn hidden" type="button" title="Inventory">🎒</button>
+    <button id="btnCreative" class="icon-btn play-chrome creative-btn hidden" type="button" title="Creative blocks">✦</button>
     <button id="btnUse" class="icon-btn play-chrome use-btn hidden" type="button" title="Use">✋ Use</button>
     <button id="btnAttack" class="icon-btn play-chrome attack-btn hidden" type="button" title="Attack">⚔ Hit</button>
   </div>
 
   <!-- ?v= busts sticky SW/browser caches when version bumps -->
-  <script type="module" src="js/main.js?v=1.6.003"></script>
+  <script type="module" src="js/main.js?v=1.8.000"></script>
 </body>
 </html>

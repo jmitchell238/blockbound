@@ -8,6 +8,7 @@
   --sky: #5a9ed4;
   --magma: #ff6a00;
   --mint: #7dffa0;
+  --danger: #ff8a80;
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -23,6 +24,13 @@ html, body {
   user-select: none;
   -webkit-user-select: none;
   -webkit-tap-highlight-color: transparent;
+}
+
+/* Allow text fields */
+input, textarea {
+  user-select: text;
+  -webkit-user-select: text;
+  touch-action: manipulation;
 }
 
 .hidden { display: none !important; }
@@ -74,15 +82,15 @@ html, body {
   z-index: 2;
 }
 
-.screen[data-screen="menu"] {
+.menu-screen {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20px 16px;
+  padding: 16px 14px;
   background: linear-gradient(180deg, rgba(10, 30, 40, 0.55), rgba(10, 20, 16, 0.72));
 }
 
-.screen[data-screen="menu"]:not(.hidden) {
+.menu-screen:not(.hidden) {
   pointer-events: auto;
 }
 
@@ -99,6 +107,12 @@ html, body {
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   pointer-events: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.worlds-card,
+.create-card {
+  width: min(360px, 100%);
 }
 
 .logo-icon {
@@ -116,36 +130,39 @@ h1 {
 h1 .c1 { color: var(--grass); }
 h1 .c2 { color: var(--sky); }
 
-.tagline {
+.menu-title {
+  margin: 0 0 4px;
+  font-size: 1.25rem;
+  letter-spacing: -0.02em;
+}
+.menu-sub {
   margin: 0 0 12px;
   color: var(--muted);
-  font-size: 0.92rem;
+  font-size: 0.85rem;
 }
 
-.stats {
+.tagline, .splash-line {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: 0.92rem;
+  min-height: 1.2em;
+}
+
+.menu-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.menu-actions {
+  margin-top: 10px;
+}
+.menu-actions-row {
   display: flex;
   gap: 8px;
-  justify-content: center;
-  margin-bottom: 14px;
 }
-.stats > div {
+.menu-actions-row > button {
   flex: 1;
-  background: rgba(0, 0, 0, 0.25);
-  border-radius: 12px;
-  padding: 8px 4px;
-  border: 1px solid var(--line);
-}
-.stats .lbl {
-  display: block;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--muted);
-  margin-bottom: 2px;
-}
-.stats strong {
-  font-size: 1rem;
-  color: var(--mint);
 }
 
 button {
@@ -162,6 +179,11 @@ button {
   transition: transform 0.08s ease, filter 0.12s ease;
 }
 button:active { transform: scale(0.98); }
+button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
 
 button.primary {
   background: linear-gradient(180deg, #7dffa0, #3dbf6a);
@@ -178,6 +200,9 @@ button.ghost {
   color: var(--muted);
   font-weight: 600;
   font-size: 0.9rem;
+}
+button.ghost.danger {
+  color: var(--danger);
 }
 
 .how {
@@ -207,12 +232,61 @@ button.ghost {
   opacity: 0.7;
 }
 
-.mode-label {
+.mode-label, .field-label {
+  display: block;
   margin: 12px 0 6px;
   font-size: 0.78rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--muted);
+  text-align: left;
+}
+.field-hint {
+  text-transform: none;
+  letter-spacing: 0;
+  opacity: 0.75;
+  font-weight: 500;
+}
+
+.field-input {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 11px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--text);
+  font-size: 0.95rem;
+  font-family: inherit;
+  font-weight: 600;
+  outline: none;
+}
+.field-input:focus {
+  border-color: rgba(125, 255, 160, 0.55);
+  box-shadow: 0 0 0 2px rgba(125, 255, 160, 0.15);
+}
+.field-input::placeholder {
+  color: rgba(158, 197, 176, 0.55);
+  font-weight: 500;
+}
+
+.seed-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.seed-row .field-input { flex: 1; }
+.chip-btn {
+  width: auto;
+  min-width: 48px;
+  margin: 0;
+  padding: 0 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-size: 1.1rem;
 }
 
 .mode-row {
@@ -220,6 +294,9 @@ button.ghost {
   grid-template-columns: 1fr 1fr;
   gap: 6px;
   margin-bottom: 4px;
+}
+.mode-row-4 {
+  grid-template-columns: 1fr 1fr;
 }
 
 .mode-chip {
@@ -251,6 +328,60 @@ button.ghost {
   margin: 4px 0 8px;
   font-size: 0.8rem;
   color: var(--muted);
+  text-align: left;
+}
+
+/* World list */
+.world-list {
+  text-align: left;
+  max-height: min(280px, 42vh);
+  overflow-y: auto;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.28);
+  -webkit-overflow-scrolling: touch;
+}
+.world-empty {
+  margin: 16px 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.world-item {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 12px 12px;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+}
+.world-item:last-child { border-bottom: none; }
+.world-item:hover,
+.world-item:focus {
+  background: rgba(125, 255, 160, 0.08);
+}
+.world-item.selected {
+  background: rgba(125, 255, 160, 0.16);
+  box-shadow: inset 3px 0 0 var(--mint);
+}
+.world-item .w-name {
+  display: block;
+  font-size: 1rem;
+  font-weight: 700;
+  margin-bottom: 3px;
+}
+.world-item .w-meta {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--muted);
+  font-weight: 600;
+  line-height: 1.35;
 }
 
 .gen-overlay {
@@ -276,6 +407,34 @@ button.ghost {
   transition: width 0.12s ease;
 }
 .gen-pct { font-size: 0.78rem !important; color: var(--muted) !important; }
+
+/* Rename modal */
+.modal {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.55);
+  border-radius: 18px;
+  pointer-events: auto;
+  line-height: normal;
+}
+.modal-card {
+  width: min(300px, 100%);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 16px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+}
+.modal-card h3 {
+  margin: 0 0 12px;
+  font-size: 1.05rem;
+  text-align: center;
+}
 
 /* Play chrome sits ABOVE the hotbar on the left so it never covers HP bars */
 .icon-btn {
@@ -313,11 +472,26 @@ button.ghost {
   font-size: 1rem;
   padding: 8px 10px;
 }
+.creative-btn {
+  left: 146px;
+  bottom: max(72px, calc(env(safe-area-inset-bottom, 0px) + 68px));
+  font-size: 1rem;
+  padding: 8px 10px;
+  background: rgba(40, 90, 55, 0.92);
+  color: #7dffa0;
+  border-color: rgba(125, 255, 160, 0.4);
+}
 .use-btn {
   left: 146px;
   bottom: max(72px, calc(env(safe-area-inset-bottom, 0px) + 68px));
   font-size: 0.78rem;
   padding: 8px 9px;
+}
+body.has-creative .use-btn {
+  left: 194px;
+}
+body.has-creative .attack-btn {
+  left: 258px;
 }
 .attack-btn {
   left: 210px;
@@ -331,4 +505,54 @@ button.ghost {
   bottom: max(72px, calc(env(safe-area-inset-bottom, 0px) + 68px));
   font-size: 0.78rem;
   padding: 8px 9px;
+}
+
+/* ——— Landscape / wide stage ——— */
+body.landscape .menu-card {
+  width: min(480px, 94%);
+}
+body.landscape .worlds-card,
+body.landscape .create-card {
+  width: min(520px, 96%);
+}
+body.landscape .world-list {
+  max-height: min(200px, 38vh);
+}
+body.landscape .menu-screen {
+  padding: 10px 16px;
+}
+body.landscape .create-card {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 16px;
+  text-align: left;
+}
+body.landscape .create-card .menu-title {
+  grid-column: 1 / -1;
+  text-align: center;
+}
+body.landscape .create-card .menu-actions,
+body.landscape .create-card .gen-overlay {
+  grid-column: 1 / -1;
+}
+body.landscape .mode-row-4 {
+  grid-template-columns: 1fr 1fr;
+}
+
+/* Landscape play chrome: slightly tighter bottom inset */
+body.landscape #btnMenu,
+body.landscape .craft-btn,
+body.landscape .bag-btn,
+body.landscape .creative-btn,
+body.landscape .use-btn,
+body.landscape .attack-btn {
+  bottom: max(64px, calc(env(safe-area-inset-bottom, 0px) + 58px));
+}
+
+@media (orientation: landscape) and (max-height: 480px) {
+  body.landscape .menu-card {
+    padding: 12px 14px;
+  }
+  body.landscape h1 { font-size: 1.35rem; }
+  body.landscape .logo-icon { width: 52px; height: 52px; }
 }

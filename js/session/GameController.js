@@ -2,6 +2,7 @@ import {
   DAY_LEN, SURFACE_Y, WORLD_H, W, H,
 } from '../core/constants.js';
 import { WORLD_W, applyWorldSize, worldSizePreset } from '../core/worldSize.js';
+import { getDifficulty, applyStarterKit, creativeGiveCount } from '../core/difficulty.js';
 import { BLOCK, BLOCK_META } from '../content/blocks.js';
 import { TOOLS, isTool, isFood, isWeapon } from '../content/tools.js';
 import { isBlockItem, tileKey, itemName } from '../content/items.js';
@@ -13,7 +14,7 @@ import {
   makePlayer, updatePlayer, tryPlace, findSpawn, isAttachableBlock,
 } from '../player/index.js';
 import {
-  makeInventory, starterKit, addItem, removeItem, selectedSlot, selectHotbar,
+  makeInventory, addItem, removeItem, selectedSlot, selectHotbar,
   syncEquippedTool, toolPowerFor, canCraft, craft, deserializeInv,
   moveOrSwap, stowToBag, HOTBAR_SIZE, getMeleeWeapon, getHeldTool,
 } from '../inventory/inventory.js';
@@ -41,12 +42,15 @@ import { updateWorldServices } from '../systems/autosave.js';
 
 export let session = null;
 
-export function _finishSession(world, player, inv, timeOfDay, seed, ents, sharedInput) {
+export function _finishSession(world, player, inv, timeOfDay, seed, ents, sharedInput, difficultyId) {
   if (!world.meta) world.meta = makeWorldMeta();
   if (!ents) {
     ents = makeEntityState();
     seedCritters(ents, world);
   }
+  const diff = getDifficulty(difficultyId);
+  player.godMode = !!(diff.creative || diff.invincible);
+  player.canSprint = true;
   // Single InputState (DIP): app may inject the bound input; no dual-buffer sync.
   const input = sharedInput || makeInput();
   const ui = {
@@ -59,6 +63,9 @@ export function _finishSession(world, player, inv, timeOfDay, seed, ents, shared
     chestOpen: null, // { x, y, slots }
     chestHit: [],
     bagOpen: false,
+    creativeOpen: false,
+    creativeHit: [],
+    creativeScroll: 0,
     invPick: null, // { from: 'hotbar'|'bag'|'chest', i }
     toast: '',
     toastT: 0,
@@ -70,6 +77,10 @@ export function _finishSession(world, player, inv, timeOfDay, seed, ents, shared
     holdMining: false,
     weather: 0, // 0 clear, 1 rain intensity
     wasNight: false,
+    difficultyId: diff.id,
+    creative: !!diff.creative,
+    seedLabel: 'seed ' + ((save && save.seedString) || seed || ''),
+    worldName: (save && save.worldName) || '',
   };
   const stats = {
     blocksMined: save.blocksMined | 0,
@@ -82,6 +93,9 @@ export function _finishSession(world, player, inv, timeOfDay, seed, ents, shared
   const cam = { x: player.x, y: player.y - 0.5, zoom: 1 };
   return {
     world, player, inv, input, ui, cam, timeOfDay, stats, seed, ents,
+    difficultyId: diff.id,
+    worldName: (save && save.worldName) || 'World',
+    seedString: (save && save.seedString) || String(seed >>> 0),
     saveTimer: 0, lightTimer: 0, hungerTimer: 0,
     particles: makeParticleSystem(),
     paused: false, dead: false,
@@ -96,6 +110,7 @@ export async function createSession(opts) {
   let timeOfDay = 0.28;
   let seed = (Math.random() * 1e9) | 0;
   let ents = null;
+  let difficultyId = opts.difficultyId || save.difficultyId || 'normal';
 
   if (opts.continueSave && save.hasWorld && save.world) {
     world = deserializeWorld(save.world);
@@ -108,6 +123,7 @@ export async function createSession(opts) {
     inv = deserializeInv(save.inv);
     timeOfDay = save.timeOfDay != null ? save.timeOfDay : 0.28;
     ents = deserializeEntities(save.ents);
+    difficultyId = save.difficultyId || difficultyId;
     if (save.player) {
       player = makePlayer(save.player.x, save.player.y);
       player.x = save.player.x;
@@ -124,22 +140,20 @@ export async function createSession(opts) {
     }
     if (!ents.critters.length) seedCritters(ents, world);
   } else {
-    seed = opts.seed != null ? opts.seed : seed;
+    seed = opts.seed != null ? opts.seed : (save.seed != null ? save.seed : seed);
+    seed = (seed >>> 0) || 1;
     const size = worldSizePreset(opts.worldSizeId || save.worldSizeId || 'standard');
     applyWorldSize(size.w);
     world = await generateWorldAsync(seed, opts.onProgress);
     const sp = findSpawn(world);
     player = makePlayer(sp.x, sp.y);
     inv = makeInventory();
-    starterKit(inv);
-    addItem(inv, BLOCK.DIRT, 12);
-    addItem(inv, BLOCK.WOOD, 6);
-    addItem(inv, 'apple', 2);
+    applyStarterKit(inv, difficultyId);
     ents = makeEntityState();
     seedCritters(ents, world);
   }
 
-  return _finishSession(world, player, inv, timeOfDay, seed, ents, opts.input);
+  return _finishSession(world, player, inv, timeOfDay, seed, ents, opts.input, difficultyId);
 }
 
 export async function enterPlay(continueSave, extra) {
@@ -147,6 +161,8 @@ export async function enterPlay(continueSave, extra) {
   session = await createSession({
     continueSave: !!continueSave,
     worldSizeId: extra.worldSizeId,
+    difficultyId: extra.difficultyId,
+    seed: extra.seed,
     onProgress: extra.onProgress,
     input: extra.input,
   });
@@ -156,7 +172,10 @@ export async function enterPlay(continueSave, extra) {
 export function enterMenu() {
   if (session) {
     try {
-      persistSession(session.world, session.player, session.inv, session.timeOfDay, session.stats, session.ents);
+      persistSession(
+        session.world, session.player, session.inv, session.timeOfDay,
+        session.stats, session.ents, session.difficultyId
+      );
     } catch (_) {}
   }
   session = null;
@@ -184,8 +203,12 @@ export function gameUpdate(dt) {
     input.zoomDelta = 0;
   }
 
+  const diff = getDifficulty(s.difficultyId);
+  player.godMode = !!(diff.creative || diff.invincible);
+
   if (input.craftToggle) {
     if (ui.chestOpen) ui.chestOpen = null;
+    else if (ui.creativeOpen) ui.creativeOpen = false;
     else if (ui.bagOpen) ui.bagOpen = false;
     else {
       ui.craftOpen = !ui.craftOpen;
@@ -205,8 +228,20 @@ export function gameUpdate(dt) {
     ui.bagOpen = !ui.bagOpen;
     ui.craftOpen = false;
     ui.chestOpen = null;
+    ui.creativeOpen = false;
     ui.invPick = null;
     input.bagToggle = false;
+  }
+  if (input.creativeToggle) {
+    input.creativeToggle = false;
+    if (diff.creative) {
+      ui.creativeOpen = !ui.creativeOpen;
+      ui.craftOpen = false;
+      ui.bagOpen = false;
+      ui.chestOpen = null;
+      ui.invPick = null;
+      if (ui.creativeOpen) ui.creativeScroll = ui.creativeScroll || 0;
+    }
   }
   if (input.modeToggle) {
     // Legacy no-op (mine/place is tap vs hold now)
@@ -249,7 +284,7 @@ export function gameUpdate(dt) {
     input.jumpPressed = false;
   }
 
-  if (ui.craftOpen || ui.chestOpen || ui.bagOpen) {
+  if (ui.craftOpen || ui.chestOpen || ui.bagOpen || ui.creativeOpen) {
     // Don't mine/place while menus are open (keep pointer flags for UI)
     input.mineTx = null;
     input.mineTy = null;
@@ -327,7 +362,7 @@ export function gameUpdate(dt) {
       spawnDrop(ents, result.mined.tx + 0.5, result.mined.ty + 0.5, dropId, dropN);
     }
 
-    if (inv.tool !== 'hand') {
+    if (inv.tool !== 'hand' && !player.godMode) {
       const slot = selectedSlot(inv);
       if (slot && isTool(slot.id)) {
         slot.durability = (slot.durability != null ? slot.durability : 100) - 1;
@@ -367,7 +402,8 @@ export function gameUpdate(dt) {
     } else if (slot && isBlockItem(slot.id)) {
       const placed = tryPlace(player, world, ptx, pty, slot.id);
       if (placed) {
-        removeItem(inv, slot.id, 1);
+        // Creative: infinite blocks — do not consume
+        if (!player.godMode) removeItem(inv, slot.id, 1);
         sfxPlace();
         const m = BLOCK_META[slot.id];
         const bx = placed.tx;
@@ -412,9 +448,13 @@ export function gameUpdate(dt) {
   if (picked.length) sfxPickup();
   updateCritters(ents, world, dt);
 
-  // Hostiles at night
-  const hostHits = updateHostiles(ents, world, player, dt, s.timeOfDay, ui);
+  // Hostiles (skipped / harmless in creative)
+  const hostHits = updateHostiles(ents, world, player, dt, s.timeOfDay, ui, {
+    hostiles: diff.hostiles && !player.godMode,
+    damageMul: diff.mobDamageMul,
+  });
   for (const hh of hostHits) {
+    if (player.godMode) break;
     player.hp -= hh.dmg;
     player.invuln = 0.7;
     sfxHurt();
@@ -633,6 +673,44 @@ export function gameClickCraft(x, y) {
   const ui = session.ui;
   const inv = session.inv;
 
+  // Creative block picker
+  if (ui.creativeOpen) {
+    const hits = ui.creativeHit || [];
+    for (const h of hits) {
+      if (x < h.x || x > h.x + h.w || y < h.y || y > h.y + h.h) continue;
+      if (h.kind === 'close') {
+        ui.creativeOpen = false;
+        return true;
+      }
+      if (h.kind === 'scroll') {
+        ui.creativeScroll = Math.max(0, (ui.creativeScroll || 0) + h.dir);
+        return true;
+      }
+      if (h.kind === 'give') {
+        const count = creativeGiveCount(h.id);
+        const left = addItem(inv, h.id, count);
+        if (isTool(h.id)) {
+          for (const arr of [inv.hotbar, inv.bag]) {
+            for (const s of arr) {
+              if (s && s.id === h.id && s.durability == null && TOOLS[h.id]) {
+                s.durability = TOOLS[h.id].durability;
+              }
+            }
+          }
+        }
+        syncEquippedTool(inv);
+        if (left < count) {
+          sfxPickup();
+          toast(ui, '+ ' + itemName(h.id) + (count > 1 ? ' ×' + (count - left) : ''));
+        } else {
+          toast(ui, 'Inventory full');
+        }
+        return true;
+      }
+    }
+    return true;
+  }
+
   // Inventory (bag) UI
   if (ui.bagOpen) {
     const hits = ui.bagHit || [];
@@ -781,7 +859,8 @@ export function findMobAtTile(ents, player, tx, ty) {
 export function doPlayerAttack(s) {
   const { player, inv, ents, world, ui, stats } = s;
   if (player.attackCd > 0) return;
-  const result = tryMeleeAttack(player, inv, ents, world);
+  const diff = getDifficulty(s.difficultyId);
+  const result = tryMeleeAttack(player, inv, ents, world, diff.playerDamageMul);
   sfxMine();
   if (result.hits > 0) {
     const col = result.fist ? '#ffcc88' : '#fff';

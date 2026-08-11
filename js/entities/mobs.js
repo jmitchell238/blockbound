@@ -242,8 +242,23 @@ export function stepMobWalk(m, world, dt, targetVx) {
   }
 }
 
-/** Night hostiles + day wolves near player. */
-export function updateHostiles(ents, world, player, dt, timeOfDay, ui) {
+/**
+ * Night hostiles + day wolves near player.
+ * @param {object} [opts]
+ * @param {boolean} [opts.hostiles=true] when false (creative), clear and skip hostiles
+ * @param {number} [opts.damageMul=1] multiplies melee damage dealt to the player
+ */
+export function updateHostiles(ents, world, player, dt, timeOfDay, ui, opts) {
+  opts = opts || {};
+  const allowHostiles = opts.hostiles !== false;
+  const damageMul = opts.damageMul != null ? opts.damageMul : 1;
+
+  // Creative / peaceful: despawn and never attack
+  if (!allowHostiles || player.godMode) {
+    if (ents.hostiles && ents.hostiles.length) ents.hostiles.length = 0;
+    return [];
+  }
+
   const day = Math.sin(timeOfDay * Math.PI * 2 - Math.PI / 2) * 0.5 + 0.5;
   const night = day < 0.35;
   const sheltered = playerIsSheltered(world, player);
@@ -308,9 +323,10 @@ export function updateHostiles(ents, world, player, dt, timeOfDay, ui) {
     // Melee
     const reach = h.kind === 'skeleton' ? 1.35 : 1.2;
     if (canSee && !sheltered && dist < reach && h.atkCd <= 0 && player.invuln <= 0
-        && !(player.attackT > 0)) {
+        && !(player.attackT > 0) && damageMul > 0) {
       h.atkCd = h.kind === 'zombie' ? 1.25 : 1.0;
-      hits.push({ dmg: def.dmg, kind: h.kind });
+      const dmg = Math.max(1, Math.round(def.dmg * damageMul));
+      hits.push({ dmg, kind: h.kind });
     }
 
     if (Math.abs(dx) > 45 || (sheltered && dist > 8)) {
@@ -353,11 +369,15 @@ export function updateCritters(ents, world, dt) {
   }
 }
 
-export function tryMeleeAttack(player, inv, ents, world) {
+/**
+ * @param {number} [damageMul=1] difficulty player→mob damage multiplier
+ */
+export function tryMeleeAttack(player, inv, ents, world, damageMul) {
   if (!player || player.attackCd > 0) return { kills: 0, hits: 0, dmg: 0, fist: false };
   const tool = getMeleeWeapon(inv);
   const fist = !tool.weapon && tool.id === 'hand';
-  const dmg = tool.damage || (fist ? 9 : 5);
+  const mul = damageMul != null ? damageMul : 1;
+  const dmg = Math.max(1, Math.round((tool.damage || (fist ? 9 : 5)) * mul));
   const reach = tool.reach || 1.65;
   player.attackT = fist ? 0.18 : 0.22;
   player.attackCd = fist ? 0.28 : (tool.weapon ? 0.32 : 0.38);
@@ -415,7 +435,7 @@ export function tryMeleeAttack(player, inv, ents, world) {
     }
   }
 
-  if (hits > 0 && inv && !fist) {
+  if (hits > 0 && inv && !fist && !player.godMode) {
     const slot = selectedSlot(inv);
     if (slot && isTool(slot.id) && TOOLS[slot.id] && TOOLS[slot.id].durability < Infinity) {
       slot.durability = (slot.durability != null ? slot.durability : TOOLS[slot.id].durability) - 1;

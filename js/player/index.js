@@ -40,6 +40,11 @@ export function makePlayer(spawnTileX, spawnTileY) {
     attackT: 0,
     attackCd: 0,
     attackHit: false, // already applied damage this swing
+    /** Set by survival each frame from difficulty + hunger */
+    canSprint: true,
+    sprinting: false,
+    /** Creative / invincible flag (set from session difficulty) */
+    godMode: false,
   };
 }
 
@@ -73,7 +78,13 @@ export function updatePlayer(p, world, input, dt, toolPower) {
   const onLadder = isClimbable(world, Math.floor(p.x), Math.floor(p.y - 0.5));
   const wantClimb = onLadder && (input.up || input.down || Math.abs(input.stickY) > 0.3);
 
-  const targetVx = ix * MOVE_SPEED / TILE; // tiles/sec
+  // Sprint: Shift / stick full deflection when canSprint
+  const stickMag = Math.hypot(input.stickX || 0, input.stickY || 0);
+  const wantSprint = !!(input.sprint || stickMag > 0.88) && ix !== 0 && p.canSprint !== false
+    && (p.energy == null || p.energy >= 12);
+  p.sprinting = wantSprint;
+  const speedMul = wantSprint ? 1.48 : 1;
+  const targetVx = ix * (MOVE_SPEED * speedMul) / TILE; // tiles/sec
   const accel = p.onGround ? 40 : 22;
   if (Math.abs(targetVx - p.vx) < accel * dt) p.vx = targetVx;
   else p.vx += Math.sign(targetVx - p.vx) * accel * dt;
@@ -130,7 +141,7 @@ export function updatePlayer(p, world, input, dt, toolPower) {
   if (p.onGround && !wasGround) {
     const dist = p.fallDist || 0;
     const safeDist = 3.75; // tiles free-fall before hurt
-    if (dist > safeDist && p.invuln <= 0) {
+    if (!p.godMode && dist > safeDist && p.invuln <= 0) {
       const dmg = Math.floor((dist - safeDist) * 5);
       if (dmg > 0) {
         p.hp -= Math.min(40, dmg); // cap single hits
@@ -162,7 +173,7 @@ export function updatePlayer(p, world, input, dt, toolPower) {
   const feet = getTile(world, Math.floor(p.x), Math.floor(p.y - 0.05));
   const body = getTile(world, Math.floor(p.x), Math.floor(p.y - p.h * 0.5));
   if ((BLOCK_META[feet] && BLOCK_META[feet].hazard) || (BLOCK_META[body] && BLOCK_META[body].hazard)) {
-    if (p.invuln <= 0) {
+    if (!p.godMode && p.invuln <= 0) {
       p.hp -= 18;
       p.invuln = 0.8;
       p.vy = JUMP_VEL / TILE * 0.6;
@@ -188,7 +199,7 @@ export function updatePlayer(p, world, input, dt, toolPower) {
     if (input.jump || input.up) p.vy = Math.min(p.vy, -2.2);
   }
 
-  // Mining
+  // Mining (creative: near-instant break)
   if (input.mineTx != null && input.mineTy != null) {
     const tx = input.mineTx;
     const ty = input.mineTy;
@@ -196,8 +207,13 @@ export function updatePlayer(p, world, input, dt, toolPower) {
     if (dist <= REACH) {
       const id = getTile(world, tx, ty);
       const meta = BLOCK_META[id];
-      if (meta && meta.mine > 0 && meta.mine < 50 && id !== BLOCK.AIR) {
-        const need = meta.mine / Math.max(0.5, toolPower);
+      // Creative can break almost anything except bedrock/magma
+      const mineable = meta && meta.mine > 0 && id !== BLOCK.AIR
+        && (p.godMode ? meta.mine < 99 : meta.mine < 50);
+      if (mineable) {
+        const need = p.godMode
+          ? 0.05
+          : meta.mine / Math.max(0.5, toolPower);
         if (!p.mining || p.mining.tx !== wrapX(tx) || p.mining.ty !== ty) {
           p.mining = { tx: wrapX(tx), ty, progress: 0, need };
         }
@@ -218,10 +234,14 @@ export function updatePlayer(p, world, input, dt, toolPower) {
     p.mining = null;
   }
 
-  // Energy drain slowly while moving
-  const moving = Math.abs(p.vx) > 0.1 || Math.abs(p.vy) > 0.5;
-  if (moving) p.energy = Math.max(0, p.energy - dt * 1.2);
-  else p.energy = Math.min(p.maxEnergy, p.energy + dt * 4);
+  // Energy drain slowly while moving (creative keeps full energy)
+  if (!p.godMode) {
+    const moving = Math.abs(p.vx) > 0.1 || Math.abs(p.vy) > 0.5;
+    if (moving) p.energy = Math.max(0, p.energy - dt * (p.sprinting ? 2.4 : 1.2));
+    else p.energy = Math.min(p.maxEnergy, p.energy + dt * 4);
+  } else {
+    p.energy = p.maxEnergy;
+  }
 
   // Faster anim when moving so walk cycle reads clearly
   p.anim += dt * (p.onGround && Math.abs(p.vx) > 0.25 ? 14 : 5);

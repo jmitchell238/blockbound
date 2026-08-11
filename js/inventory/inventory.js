@@ -232,6 +232,7 @@ export function deserializeInv(data) {
   return inv;
 }
 
+/** @deprecated Prefer applyStarterKit from core/difficulty.js */
 export function starterKit(inv) {
   addItem(inv, BLOCK.TORCH, 4);
 }

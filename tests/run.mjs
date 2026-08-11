@@ -34,6 +34,11 @@ const ver = constants.match(/GAME_VERSION\s*=\s*['"]([^'"]+)['"]/);
 ok(!!ver, 'GAME_VERSION');
 if (ver) ok(sw.includes(`blockbound-${ver[1]}`), 'SW CACHE sync');
 ok(constants.includes('WORLD_H') && constants.includes('REACH'), 'core constants');
+ok(fs.existsSync(path.join(root, 'js/core/difficulty.js')), 'difficulty module exists');
+ok(sw.includes('difficulty.js'), 'SW caches difficulty.js');
+ok(fs.existsSync(path.join(root, 'js/core/seed.js')), 'seed module exists');
+ok(sw.includes('seed.js'), 'SW caches seed.js');
+ok(constants.includes('applyViewport') && constants.includes('export let W'), 'viewport mutable W/H');
 
 const worldSize = fs.readFileSync(path.join(root, 'js/core/worldSize.js'), 'utf8');
 ok(worldSize.includes('WORLD_SIZE_PRESETS') && worldSize.includes('16384') && worldSize.includes('applyWorldSize'), 'epic 16k preset');
@@ -48,6 +53,9 @@ ok(man.name === 'Blockbound', 'manifest name');
 const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 ok(html.includes('type="module"') && html.includes('js/main.js'), 'ESM entry main.js');
 ok(!html.includes('js/config.js'), 'no legacy script tags');
+ok(html.includes('data-screen="title"') && html.includes('data-screen="worlds"'), 'title + worlds screens');
+ok(html.includes('data-screen="create"') && html.includes('inputSeed'), 'create world + seed field');
+ok(html.includes('btnSingleplayer'), 'singleplayer entry');
 
 const tex = fs.readFileSync(path.join(root, 'js/textures/textures.js'), 'utf8');
 ok(tex.includes('loadTextures') && tex.includes('bakeCube'), 'texture loader + cube bake');
@@ -146,6 +154,74 @@ const w2 = BB.deserializeWorld(ser);
 ok(!!w2 && w2.w === 4096, 'deserialize world');
 ok(w2.tiles[100] === w4.tiles[100], 'tiles match after RLE');
 ok(typeof BB.wrapX === 'function' && BB.MAGMA_Y > 0, 'wrapping + magma in world');
+
+// Difficulty profiles
+ok(!!BB.DIFFICULTIES && BB.DIFFICULTY_IDS.length === 4, 'four difficulties');
+ok(BB.getDifficulty('creative').creative && BB.getDifficulty('creative').invincible, 'creative invincible');
+ok(BB.getDifficulty('easy').starveDamagesHp === false, 'easy hunger never kills');
+ok(BB.getDifficulty('normal').hungerDrainSec === 600, 'normal hunger ~10 min');
+ok(BB.getDifficulty('normal').starveHpSec === 600, 'normal starve HP ~10 min');
+ok(BB.getDifficulty('hard').hungerDrainSec === 300, 'hard hunger ~5 min');
+ok(BB.getDifficulty('hard').sprintMinHungerFrac === 0.25, 'hard sprint threshold 25%');
+ok(BB.canSprint(BB.getDifficulty('hard'), 30, 100) === true, 'hard can sprint at 30%');
+ok(BB.canSprint(BB.getDifficulty('hard'), 25, 100) === false, 'hard no sprint at 25%');
+ok(BB.canSprint(BB.getDifficulty('normal'), 0, 100) === false, 'normal no sprint empty');
+ok(BB.canSprint(BB.getDifficulty('easy'), 0.1, 100) === true, 'easy can sprint with any hunger');
+const hardRate = BB.hungerDrainPerSec(BB.getDifficulty('hard'), 100);
+ok(Math.abs(hardRate - 100 / 300) < 1e-6, 'hard hunger drain rate');
+const starveRate = BB.starveHpPerSec(BB.getDifficulty('normal'), 100);
+ok(Math.abs(starveRate - 100 / 600) < 1e-6, 'normal starve HP rate');
+const easyInv = BB.makeInventory();
+BB.applyStarterKit(easyInv, 'easy');
+ok(BB.countItem(easyInv, 'wood_pick') >= 1 && BB.countItem(easyInv, BB.BLOCK.DIRT) >= 1, 'easy starter kit');
+const hardInv = BB.makeInventory();
+BB.applyStarterKit(hardInv, 'hard');
+ok(BB.countItem(hardInv, 'wood_pick') === 0 && BB.countItem(hardInv, BB.BLOCK.WOOD) === 0, 'hard empty start');
+const normalInv = BB.makeInventory();
+BB.applyStarterKit(normalInv, 'normal');
+ok(BB.countItem(normalInv, 'wood_pick') === 1 && BB.countItem(normalInv, BB.BLOCK.WOOD) >= 1, 'normal pick + wood');
+ok(BB.creativeCatalog().length > 20, 'creative catalog has items');
+ok(BB.getDifficulty('easy').mobDamageMul < 1 && BB.getDifficulty('easy').playerDamageMul > 1, 'easy combat bias');
+ok(BB.getDifficulty('hard').mobDamageMul > 1 && BB.getDifficulty('hard').playerDamageMul < 1, 'hard combat bias');
+
+// Seeds
+const s1 = BB.parseSeed('42');
+ok(s1.seed === 42 && s1.random === false, 'numeric seed 42');
+const s2 = BB.parseSeed('hello');
+const s2b = BB.parseSeed('hello');
+ok(s2.seed === s2b.seed && s2.seed > 0, 'text seed stable hash');
+const s3 = BB.parseSeed('');
+ok(s3.random === true && s3.seed > 0, 'empty seed is random');
+ok(BB.hashStringToSeed('abc') === BB.hashStringToSeed('abc'), 'hash stable');
+
+// Same seed → same terrain strip
+BB.applyWorldSize(1024);
+const wa = BB.generateWorld(12345);
+const wb = BB.generateWorld(12345);
+const wc = BB.generateWorld(99999);
+ok(wa.seed === 12345 && wb.seed === 12345, 'world stores seed');
+let same = true;
+for (let i = 0; i < 200 && same; i++) {
+  if (wa.tiles[i] !== wb.tiles[i]) same = false;
+}
+ok(same, 'identical seed → identical tiles');
+let diffSeed = false;
+for (let i = 0; i < wa.tiles.length; i += 17) {
+  if (wa.tiles[i] !== wc.tiles[i]) { diffSeed = true; break; }
+}
+if (!diffSeed) {
+  for (let x = 0; x < 64; x++) {
+    if (wa.surface[x] !== wc.surface[x]) { diffSeed = true; break; }
+  }
+}
+ok(diffSeed, 'different seed → different terrain');
+
+// Viewport orientation
+const port = BB.applyViewport(390, 844);
+ok(port.ORIENTATION === 'portrait' && port.W === 390 && port.H >= 600, 'portrait viewport');
+const land = BB.applyViewport(900, 400);
+ok(land.ORIENTATION === 'landscape' && land.H === 400 && land.W >= 640, 'landscape viewport');
+ok(BB.W === land.W && BB.H === land.H, 'live W/H bindings');
 
 if (failed) {
   console.error(`\n${failed} failed`);

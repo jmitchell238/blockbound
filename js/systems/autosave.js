@@ -24,6 +24,6 @@ export function updateWorldServices(s, dt) {
   s.saveTimer += dt;
   if (s.saveTimer > 12) {
     s.saveTimer = 0;
-    persistSession(world, player, inv, s.timeOfDay, stats, ents);
+    persistSession(world, player, inv, s.timeOfDay, stats, ents, s.difficultyId);
   }
 }

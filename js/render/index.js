@@ -2,6 +2,7 @@ import {
   W, H, TILE, WORLD_H, SURFACE_Y,
 } from '../core/constants.js';
 import { WORLD_W } from '../core/worldSize.js';
+import { getDifficulty, creativeCatalog } from '../core/difficulty.js';
 import { BLOCK, BLOCK_META, isPlatform } from '../content/blocks.js';
 import { TOOLS, FOOD, isTool, isFood, isWeapon } from '../content/tools.js';
 import { itemName, isBlockItem } from '../content/items.js';
@@ -180,6 +181,7 @@ export function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particl
   drawHUD(ctx, player, inv, world, cam, ui, sky);
   if (ui.chestOpen) drawChestPanel(ctx, inv, ui);
   if (ui.bagOpen) drawBagPanel(ctx, inv, ui);
+  if (ui.creativeOpen) drawCreativePanel(ctx, inv, ui);
 }
 
 export function drawRain(ctx, intensity, cam, timeOfDay) {
@@ -728,29 +730,44 @@ export function drawHUD(ctx, player, inv, world, cam, ui, sky) {
   // Status bars — clear top-left (menu chrome lives above the hotbar now)
   const barX = 12;
   const barY = 10;
-  drawBar(ctx, barX, barY, 132, 14, player.hp / player.maxHp, '#e74c3c', '♥');
-  drawBar(ctx, barX, barY + 18, 132, 12, player.hunger != null ? player.hunger / player.maxHunger : 1, '#e67e22', '🍖');
-  drawBar(ctx, barX, barY + 34, 132, 12, player.energy / player.maxEnergy, '#f1c40f', '⚡');
+  const diff = getDifficulty(ui.difficultyId);
+  const isCreative = !!(ui.creative || diff.creative);
+
+  if (!isCreative) {
+    drawBar(ctx, barX, barY, 132, 14, player.hp / player.maxHp, '#e74c3c', '♥');
+    drawBar(ctx, barX, barY + 18, 132, 12, player.hunger != null ? player.hunger / player.maxHunger : 1, '#e67e22', '🍖');
+    drawBar(ctx, barX, barY + 34, 132, 12, player.energy / player.maxEnergy, '#f1c40f', '⚡');
+  } else {
+    // Compact creative badge instead of survival bars
+    ctx.fillStyle = 'rgba(6,14,10,0.55)';
+    roundRect(ctx, barX, barY, 132, 28, 8);
+    ctx.fill();
+    ctx.fillStyle = '#7dffa0';
+    ctx.font = '700 12px system-ui';
+    ctx.textAlign = 'left';
+    ctx.fillText('✦ Creative', barX + 10, barY + 18);
+  }
 
   // Coords + biome under bars
   const bx2 = wrapX(Math.floor(player.x));
   const by2 = Math.floor(player.y);
   const biome = biomeNameAt(world, player.x);
+  const infoTop = isCreative ? 46 : 62;
   ctx.fillStyle = 'rgba(6,14,10,0.55)';
-  roundRect(ctx, 12, 62, 150, 34, 8);
+  roundRect(ctx, 12, infoTop, 150, 34, 8);
   ctx.fill();
   ctx.fillStyle = '#c8e8d8';
   ctx.font = '600 11px system-ui';
   ctx.textAlign = 'left';
-  ctx.fillText(biome + ' · x' + bx2 + ' y' + by2, 20, 76);
+  ctx.fillText(biome + ' · x' + bx2 + ' y' + by2, 20, infoTop + 14);
   if (player.spawnX != null) {
     ctx.fillStyle = '#7dffa0';
     ctx.font = '10px system-ui';
-    ctx.fillText('Bed spawn set', 20, 90);
+    ctx.fillText('Bed spawn set', 20, infoTop + 28);
   } else {
     ctx.fillStyle = '#9ec5b0';
     ctx.font = '10px system-ui';
-    ctx.fillText(ui.weather > 0.3 ? '🌧 Raining' : (player.inBoat ? '⛵ Sailing' : 'Explore'), 20, 90);
+    ctx.fillText(ui.weather > 0.3 ? '🌧 Raining' : (player.inBoat ? '⛵ Sailing' : 'Explore'), 20, infoTop + 28);
   }
 
   // World loop panel — top right, leave room for version tag
@@ -829,19 +846,31 @@ export function drawHUD(ctx, player, inv, world, cam, ui, sky) {
     ctx.fillText(String(i + 1), x + 5, hy + 12);
   }
 
-  // Tool + bag fill under biome card
+  // Tool + bag + world/seed under biome card
+  const toolTop = infoTop + 40;
   ctx.fillStyle = 'rgba(6,14,10,0.5)';
-  roundRect(ctx, 12, 100, 150, 36, 8);
+  roundRect(ctx, 12, toolTop, 150, 58, 8);
   ctx.fill();
   ctx.fillStyle = '#e8fff0';
   ctx.font = '600 11px system-ui';
   ctx.textAlign = 'left';
   const tname = (TOOLS[inv.tool] && TOOLS[inv.tool].name) || 'Hands';
-  ctx.fillText('Tool: ' + tname, 20, 115);
+  ctx.fillText('Tool: ' + tname, 20, toolTop + 15);
   const bu = bagUsed(inv);
   ctx.fillStyle = bu >= BAG_SIZE ? '#ff8a80' : '#9ec5b0';
   ctx.font = '600 10px system-ui';
-  ctx.fillText('🎒 Backpack ' + bu + '/' + BAG_SIZE, 20, 130);
+  ctx.fillText('🎒 Backpack ' + bu + '/' + BAG_SIZE, 20, toolTop + 28);
+  ctx.fillStyle = isCreative ? '#7dffa0' : (player.sprinting ? '#f1c40f' : '#9ec5b0');
+  ctx.font = '600 10px system-ui';
+  const modeLine = diff.name
+    + (player.sprinting ? ' · sprinting' : (player.canSprint === false ? ' · no sprint' : ''));
+  ctx.fillText(modeLine, 20, toolTop + 41);
+  // Seed (tiny) — helps recreate worlds
+  if (ui.seedLabel) {
+    ctx.fillStyle = 'rgba(158,197,176,0.85)';
+    ctx.font = '600 9px system-ui';
+    ctx.fillText(ui.seedLabel, 20, toolTop + 53);
+  }
 
   if (ui.craftOpen) drawCraftPanel(ctx, inv, world, player, ui);
 
@@ -1145,6 +1174,111 @@ export function drawChestPanel(ctx, inv, ui) {
   ctx.font = '11px system-ui';
   ctx.textAlign = 'center';
   ctx.fillText(ui.invPick ? 'Tap a slot to move there · tap again to cancel' : 'Tap item to pick up · ⚒ to close', W / 2, py + ph - 14);
+}
+
+/** Creative mode: pick any block/item into inventory. */
+export function drawCreativePanel(ctx, inv, ui) {
+  const pw = 340;
+  const ph = 540;
+  const px = (W - pw) / 2;
+  const py = Math.max(6, (H - ph) / 2 - 4);
+  ui.creativeHit = [];
+
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.fillStyle = 'rgba(12, 28, 22, 0.98)';
+  roundRect(ctx, px, py, pw, ph, 18);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(125,255,160,0.45)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  ctx.fillStyle = '#7dffa0';
+  ctx.font = '700 18px system-ui';
+  ctx.textAlign = 'left';
+  ctx.fillText('✦ Creative inventory', px + 16, py + 28);
+
+  const closeX = px + pw - 44;
+  ctx.fillStyle = 'rgba(255,255,255,0.1)';
+  roundRect(ctx, closeX, py + 10, 32, 32, 10);
+  ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.font = '700 16px system-ui';
+  ctx.textAlign = 'center';
+  ctx.fillText('✕', closeX + 16, py + 32);
+  ui.creativeHit.push({ kind: 'close', x: closeX, y: py + 10, w: 32, h: 32 });
+
+  ctx.fillStyle = '#9ec5b0';
+  ctx.font = '12px system-ui';
+  ctx.textAlign = 'left';
+  ctx.fillText('Tap a block or item to add it to your inventory', px + 16, py + 50);
+
+  const catalog = creativeCatalog();
+  const cell = 40;
+  const gap = 6;
+  const cols = 7;
+  const rowsVisible = 9;
+  const maxScroll = Math.max(0, Math.ceil(catalog.length / cols) - rowsVisible);
+  const scroll = Math.max(0, Math.min(maxScroll, ui.creativeScroll | 0));
+  ui.creativeScroll = scroll;
+
+  // Scroll buttons
+  const scrY = py + 58;
+  ctx.fillStyle = 'rgba(125,255,160,0.15)';
+  roundRect(ctx, px + 16, scrY, 70, 28, 8);
+  ctx.fill();
+  roundRect(ctx, px + 94, scrY, 70, 28, 8);
+  ctx.fill();
+  ctx.fillStyle = '#c8f5d8';
+  ctx.font = '600 12px system-ui';
+  ctx.textAlign = 'center';
+  ctx.fillText('▲ Up', px + 51, scrY + 18);
+  ctx.fillText('▼ Down', px + 129, scrY + 18);
+  ui.creativeHit.push({ kind: 'scroll', dir: -1, x: px + 16, y: scrY, w: 70, h: 28 });
+  ui.creativeHit.push({ kind: 'scroll', dir: 1, x: px + 94, y: scrY, w: 70, h: 28 });
+
+  ctx.fillStyle = '#8899aa';
+  ctx.font = '11px system-ui';
+  ctx.textAlign = 'left';
+  ctx.fillText((scroll + 1) + '–' + Math.min(scroll + rowsVisible, Math.ceil(catalog.length / cols))
+    + ' / ' + Math.ceil(catalog.length / cols), px + 180, scrY + 18);
+
+  const gridY = scrY + 40;
+  const start = scroll * cols;
+  const end = Math.min(catalog.length, start + cols * rowsVisible);
+  for (let i = start; i < end; i++) {
+    const local = i - start;
+    const col = local % cols;
+    const row = Math.floor(local / cols);
+    const x = px + 14 + col * (cell + gap);
+    const y = gridY + row * (cell + gap);
+    const id = catalog[i];
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    roundRect(ctx, x, y, cell, cell, 8);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    drawItemIcon(ctx, x + 4, y + 4, cell - 8, id);
+    ui.creativeHit.push({ kind: 'give', id, x, y, w: cell, h: cell });
+  }
+
+  // Mini hotbar preview
+  const hy = py + ph - 58;
+  ctx.fillStyle = '#7dffa0';
+  ctx.font = '700 12px system-ui';
+  ctx.textAlign = 'left';
+  ctx.fillText('Hotbar', px + 16, hy - 6);
+  for (let i = 0; i < HOTBAR_SIZE; i++) {
+    const x = px + 12 + i * (cell + 4);
+    drawInvSlot(ctx, x, hy, cell - 2, inv.hotbar[i], i === inv.selected);
+  }
+
+  ctx.fillStyle = '#8899aa';
+  ctx.font = '11px system-ui';
+  ctx.textAlign = 'center';
+  ctx.fillText('G / V to toggle · infinite place while in Creative', W / 2, py + ph - 12);
 }
 
 export function drawBagPanel(ctx, inv, ui) {

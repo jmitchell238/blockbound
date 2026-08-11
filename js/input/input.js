@@ -40,6 +40,10 @@ export function makeInput() {
     pauseToggle: false,
     bagToggle: false,
     attackPressed: false,
+    /** Hold Shift (or full stick) to sprint when hunger allows */
+    sprint: false,
+    /** Creative mode: open block picker */
+    creativeToggle: false,
     zoomDelta: 0,
     hotbarTap: -1,
     keys: Object.create(null),
@@ -59,6 +63,7 @@ export function bindInput(input, canvas, getCam) {
       if (k === 'escape' || k === 'p') input.pauseToggle = true;
       if (k === 'i' || k === 'b') input.bagToggle = true;
       if (k === 'x' || k === 'j' || k === 'control') input.attackPressed = true;
+      if (k === 'g' || k === 'v') input.creativeToggle = true; // creative inventory
       if (k >= '1' && k <= '8') input.hotbarTap = parseInt(k, 10) - 1;
       if (k === ' ') input.jumpPressed = true;
       // Q no longer toggles mode — optional attack
@@ -255,5 +260,7 @@ export function pollInput(input, mode, cam) {
   // Space held OR on-screen JUMP held — never latch from previous frame
   // (old bug: jump = space || jump → infinite bunny-hop after one press)
   input.jump = !!(k[' '] || input._touchJump);
+  // Sprint: left/right Shift
+  input.sprint = !!(k['shift'] || k['shifts'] || k['shiftleft'] || k['shiftright']);
   updateHoldMine(input);
 }
