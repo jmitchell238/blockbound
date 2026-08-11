@@ -830,10 +830,10 @@ export function drawPlayer(ctx, p, cam, ts, inv) {
 
   const img = getPlayerFrame(p, inv) || textures.player;
   if (img) {
-    // Side-view sprites: fit height to player hitbox
-    const drawH = ph * (p.crouching ? 0.85 : 1.08);
-    const aspect = img.width / Math.max(1, img.height);
-    const drawW = drawH * aspect;
+    // Fixed draw size for ALL frames so jump/mine never shrink the character.
+    // Sprites are authored on a shared 96×176 canvas with feet on the bottom.
+    const drawH = ph * (p.crouching ? 0.92 : 1.12);
+    const drawW = drawH * (96 / 176); // fixed aspect of our sprite canvas
     const footY = sy + (p.inBoat ? -6 : 0);
     ctx.save();
     ctx.translate(sx, footY);

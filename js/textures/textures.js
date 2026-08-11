@@ -282,17 +282,21 @@ export function getPlayerFrame(player, inv) {
 
   if (player.inBoat) return A.boat || idle;
 
-  // Action overrides
+  // Action overrides — only show tool poses when that tool is equipped
   if (player.attackT > 0) {
-    const tool = inv && (inv.tool || '');
+    const tool = (inv && inv.tool) ? String(inv.tool) : 'hand';
     if (tool.indexOf('sword') >= 0) return A.sword || idle;
-    if (tool.indexOf('shovel') >= 0) return A.shovel || A.mine || idle;
+    if (tool.indexOf('shovel') >= 0) return A.shovel || idle;
     if (tool.indexOf('pick') >= 0 || tool.indexOf('axe') >= 0) return A.mine || idle;
-    return A.sword || A.mine || idle;
+    // bare hands / unknown: keep idle (no fake weapon sprite)
+    return idle;
   }
   if (player.mining) {
-    const tool = inv && (inv.tool || '');
+    const tool = (inv && inv.tool) ? String(inv.tool) : 'hand';
     if (tool.indexOf('shovel') >= 0) return A.shovel || A.mine || idle;
+    if (tool.indexOf('pick') >= 0 || tool.indexOf('axe') >= 0 || tool === 'hand') {
+      return A.mine || idle;
+    }
     return A.mine || idle;
   }
 
@@ -302,11 +306,11 @@ export function getPlayerFrame(player, inv) {
   // Airborne
   if (!player.onGround) return A.jump || idle;
 
-  // Walk cycle
+  // Walk cycle — player.anim advances in "frames" (see player update: ~10/s while walking)
   const walking = player.onGround && Math.abs(player.vx) > 0.2;
   if (walking && A.walk && A.walk.length) {
-    const fps = 8;
-    const fi = Math.floor(player.anim * fps) % A.walk.length;
+    // One full cycle uses walk.length frames; anim is already in frame units
+    const fi = Math.floor(Math.abs(player.anim)) % A.walk.length;
     return A.walk[fi] || idle;
   }
 

@@ -249,8 +249,13 @@ export function updatePlayer(p, world, input, dt, toolPower) {
     p.energy = p.maxEnergy;
   }
 
-  // Faster anim when moving so walk cycle reads clearly
-  p.anim += dt * (p.onGround && Math.abs(p.vx) > 0.25 ? 14 : 5);
+  // Walk cycle: ~10 frames/sec while moving (4-frame loop ≈ 2.5 cycles/sec)
+  // Idle/air: slow phase for subtle motion only
+  if (p.onGround && Math.abs(p.vx) > 0.25 && !p.crouching) {
+    p.anim += dt * 10;
+  } else {
+    p.anim += dt * 2;
+  }
   return result;
 }
 
