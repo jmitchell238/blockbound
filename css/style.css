@@ -117,6 +117,26 @@ input, textarea {
   pointer-events: auto;
   -webkit-overflow-scrolling: touch;
   box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+}
+.menu-card::-webkit-scrollbar {
+  width: 6px;
+}
+.menu-card::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 6px;
+}
+.menu-card::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Title menu: no scrollbar in the default state — only scroll when How-to is open */
+.title-card {
+  overflow-y: hidden;
+}
+.title-card:has(.how:not(.hidden)) {
+  overflow-y: auto;
 }
 
 .worlds-card,
@@ -678,7 +698,7 @@ body.landscape .menu-screen {
   place-items: center;
   place-content: center;
 }
-/* Title / options: wide enough on landscape so it doesn't look like a skinny pillar */
+/* Title / options: wide panel that still fits the short landscape stage (H≈400) */
 body.landscape .title-card,
 body.landscape .options-card {
   width: min(520px, 56vw, 94%);
@@ -686,7 +706,7 @@ body.landscape .options-card {
   margin: 0 auto;
   justify-self: center;
   align-self: center;
-  padding: 22px 28px 18px;
+  padding: 14px 28px 12px;
 }
 body.landscape .title-card .menu-stack,
 body.landscape .options-card .menu-stack {
@@ -695,15 +715,41 @@ body.landscape .options-card .menu-stack {
   margin-right: auto;
 }
 body.landscape .title-card h1 {
-  font-size: 1.85rem;
+  font-size: 1.55rem;
+  margin: 2px 0;
 }
 body.landscape .title-card .logo-icon {
-  width: 80px;
-  height: 80px;
+  width: 56px;
+  height: 56px;
+  margin-bottom: 2px;
+}
+body.landscape .title-card .tagline,
+body.landscape .title-card .splash-line {
+  margin: 0 0 8px;
+  font-size: 0.86rem;
+  min-height: 0;
+  line-height: 1.25;
+}
+body.landscape .title-card button {
+  margin-top: 6px;
+  padding: 10px 14px;
+  font-size: 0.94rem;
+}
+body.landscape .title-card button.ghost {
+  margin-top: 4px;
+  padding: 6px 10px;
+}
+body.landscape .title-card .ver {
+  margin-top: 8px;
 }
 body.landscape .title-card .how {
   text-align: left;
   max-width: 100%;
+  margin-top: 8px;
+  padding: 8px 10px;
+  font-size: 0.8rem;
+  max-height: min(200px, 42vh);
+  overflow-y: auto;
 }
 body.landscape .worlds-card,
 body.landscape .mc-worlds-panel {
@@ -757,8 +803,16 @@ body.landscape .attack-btn {
 
 @media (orientation: landscape) and (max-height: 480px) {
   body.landscape .menu-card {
-    padding: 12px 14px;
+    padding: 10px 16px 10px;
+  }
+  body.landscape .title-card,
+  body.landscape .options-card {
+    padding: 10px 24px 8px;
   }
   body.landscape h1 { font-size: 1.35rem; }
-  body.landscape .logo-icon { width: 52px; height: 52px; }
+  body.landscape .logo-icon { width: 48px; height: 48px; }
+  body.landscape .title-card button {
+    margin-top: 5px;
+    padding: 9px 12px;
+  }
 }
