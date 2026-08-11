@@ -251,14 +251,14 @@ export function nearestViewX(camX, tileX) {
   return best;
 }
 
-/** Soft ambient occlusion — keep light so seams don't look like a grid. */
+/** Soft ambient occlusion — very light so it doesn't outline every tile. */
 export function blockAO(world, x, y) {
   let s = 0;
-  if (isSolid(world, x - 1, y)) s += 0.04;
-  if (isSolid(world, x + 1, y)) s += 0.04;
-  if (isSolid(world, x, y - 1)) s += 0.03;
-  if (isSolid(world, x, y + 1)) s += 0.05;
-  return Math.min(0.18, s);
+  if (isSolid(world, x - 1, y)) s += 0.015;
+  if (isSolid(world, x + 1, y)) s += 0.015;
+  if (isSolid(world, x, y - 1)) s += 0.01;
+  if (isSolid(world, x, y + 1)) s += 0.02;
+  return Math.min(0.06, s);
 }
 
 export function drawCelestial(ctx, sky, timeOfDay) {
@@ -891,43 +891,53 @@ export function drawBlock(ctx, sx, sy, ts, id, lightMul, wx, ty, ao, world) {
   const cube = getCubeTex(id);
   const face = getTileTex(id);
   const soft = getSoftTex(id) || face;
+  const terrain = isTerrainBlock(id);
+
+  // Light as continuous brightness — NOT a black square overlay (that made a grid)
+  const shade = Math.max(0.04, Math.min(1.05, lightMul * (1 - ao * 0.25)));
 
   ctx.save();
-  ctx.globalAlpha = alpha;
 
-  const depth = Math.max(2, ts * 0.08);
   const useFlat = id === BLOCK.WATER || id === BLOCK.TORCH || id === BLOCK.LANTERN || id === BLOCK.LADDER
     || id === BLOCK.LEAVES || id === BLOCK.GLASS || id === BLOCK.PLATFORM || id === BLOCK.CAMPFIRE
-    || isTerrainBlock(id);
+    || terrain;
 
-  // Overlap neighbors slightly so grid lines disappear
-  const pad = isTerrainBlock(id) ? 0.75 : 0.35;
+  // Generous overlap so same-type neighbors bleed into each other (hides seams)
+  const pad = terrain ? Math.max(2.5, ts * 0.12) : 0.6;
 
   if (useFlat && soft && id !== BLOCK.WATER && id !== BLOCK.TORCH && id !== BLOCK.LANTERN
       && id !== BLOCK.LADDER && id !== BLOCK.LEAVES && id !== BLOCK.CAMPFIRE && id !== BLOCK.PLATFORM) {
-    // Seamless terrain: soft face, slight top highlight only if air above
+    // Seamless terrain: oversized soft face + light via alpha (fades into cave black)
     ctx.imageSmoothingEnabled = true;
+    // Dim unlit blocks by drawing more transparent — blends with smooth backdrop
+    ctx.globalAlpha = alpha * Math.min(1, 0.12 + shade * 0.92);
     ctx.drawImage(soft, sx - pad, sy - pad, ts + pad * 2, ts + pad * 2);
-    // Soft top edge only when open to sky (reads as ground without cube seams)
-    // (caller doesn't pass world here — lightMul high on surface is enough)
-    if (lightMul > 0.75 && (id === BLOCK.GRASS || id === BLOCK.SNOW || id === BLOCK.SAND)) {
-      ctx.globalAlpha = alpha * 0.18;
-      ctx.fillStyle = m.top || '#fff';
-      ctx.fillRect(sx - pad, sy - pad, ts + pad * 2, Math.max(2, ts * 0.12));
-      ctx.globalAlpha = alpha;
+    // Soft top highlight only on surface materials (very subtle, full width of pad)
+    if (shade > 0.7 && (id === BLOCK.GRASS || id === BLOCK.SNOW || id === BLOCK.SAND)) {
+      const topH = Math.max(2, ts * 0.1);
+      const tg = ctx.createLinearGradient(sx, sy - pad, sx, sy - pad + topH + 2);
+      tg.addColorStop(0, m.top || 'rgba(255,255,255,0.2)');
+      tg.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.globalAlpha = alpha * 0.14 * shade;
+      ctx.fillStyle = tg;
+      ctx.fillRect(sx - pad, sy - pad, ts + pad * 2, topH + 2);
     }
   } else if (cube && !useFlat) {
     ctx.imageSmoothingEnabled = true;
+    ctx.globalAlpha = alpha * Math.min(1, 0.15 + shade * 0.9);
     ctx.drawImage(cube, sx - pad, sy - pad, ts + pad * 2, ts + pad * 2);
   } else if (face && !useFlat) {
     ctx.imageSmoothingEnabled = true;
+    ctx.globalAlpha = alpha * Math.min(1, 0.15 + shade * 0.9);
     drawTexturedCube(ctx, sx, sy, ts, face, id);
   } else if (face && useFlat && id !== BLOCK.WATER && id !== BLOCK.TORCH && id !== BLOCK.LANTERN
       && id !== BLOCK.LADDER && id !== BLOCK.LEAVES) {
     ctx.imageSmoothingEnabled = true;
+    ctx.globalAlpha = alpha * Math.min(1, 0.12 + shade * 0.92);
     ctx.drawImage(face, sx - pad, sy - pad, ts + pad * 2, ts + pad * 2);
   } else if (!face && !cube) {
-    const base = shadeHex(m.color, 0.55 + 0.45 * lightMul);
+    const base = shadeHex(m.color, 0.55 + 0.45 * Math.min(1, shade));
+    ctx.globalAlpha = alpha;
     ctx.fillStyle = base;
     ctx.fillRect(sx - pad, sy - pad, ts + pad * 2, ts + pad * 2);
   }
@@ -940,14 +950,14 @@ export function drawBlock(ctx, sx, sy, ts, id, lightMul, wx, ty, ao, world) {
     lg.addColorStop(1, 'rgba(255,80,0,0)');
     ctx.globalAlpha = 1;
     ctx.fillStyle = lg;
-    ctx.fillRect(sx, sy, ts, ts);
+    ctx.fillRect(sx - 1, sy - 1, ts + 2, ts + 2);
   }
   if (id === BLOCK.WATER) {
     ctx.globalAlpha = 0.75;
-    if (face) ctx.drawImage(face, sx, sy, ts, ts);
+    if (face) ctx.drawImage(face, sx - 1, sy - 1, ts + 2, ts + 2);
     else {
       ctx.fillStyle = 'rgba(50,140,210,0.55)';
-      ctx.fillRect(sx, sy, ts, ts);
+      ctx.fillRect(sx - 1, sy - 1, ts + 2, ts + 2);
     }
     const wave = Math.sin(performance.now() / 350 + wx * 0.9) * 2;
     ctx.fillStyle = 'rgba(200,240,255,0.2)';
@@ -982,31 +992,23 @@ export function drawBlock(ctx, sx, sy, ts, id, lightMul, wx, ty, ao, world) {
     }
   }
   if (id === BLOCK.LEAVES && face) {
-    ctx.globalAlpha = 0.92;
-    ctx.drawImage(face, sx, sy, ts, ts);
+    ctx.globalAlpha = 0.92 * Math.min(1, 0.2 + shade * 0.85);
+    ctx.drawImage(face, sx - 1.5, sy - 1.5, ts + 3, ts + 3);
   }
   // Procedural furniture / specials
   if (id === BLOCK.DOOR || id === BLOCK.BED || id === BLOCK.CHEST || id === BLOCK.FURNACE
       || id === BLOCK.PLATFORM || id === BLOCK.CAMPFIRE) {
+    ctx.globalAlpha = Math.min(1, 0.2 + shade * 0.85);
     if (face && id !== BLOCK.PLATFORM && id !== BLOCK.CAMPFIRE) {
-      ctx.globalAlpha = 1;
       ctx.drawImage(face, sx, sy, ts, ts);
     } else {
       drawFurniture(ctx, sx, sy, ts, id, lightMul);
     }
   }
 
-  // Darkness multiply — unlit blocks go nearly black (need torches/lanterns)
-  const shade = Math.max(0.02, lightMul * (1 - ao * 0.4));
-  if (shade < 0.97 && id !== BLOCK.TORCH && id !== BLOCK.LANTERN && id !== BLOCK.LAVA && id !== BLOCK.CAMPFIRE) {
-    ctx.globalAlpha = Math.min(0.96, (1 - shade) * 0.98);
-    ctx.fillStyle = '#010308';
-    ctx.fillRect(sx - 0.5, sy - 0.5, ts + 1, ts + 1);
-  }
-
   // Subtle grass tufts only on surface grass (sparse)
-  if (id === BLOCK.GRASS && lightMul > 0.7 && ((wx * 5 + ty * 3) % 4 === 0)) {
-    ctx.globalAlpha = 0.55 * lightMul;
+  if (id === BLOCK.GRASS && shade > 0.65 && ((wx * 5 + ty * 3) % 4 === 0)) {
+    ctx.globalAlpha = 0.45 * shade;
     ctx.fillStyle = '#6fbf45';
     const bx = sx + ts * 0.35;
     ctx.fillRect(bx, sy - 2, 2, 4);

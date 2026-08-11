@@ -153,20 +153,41 @@ export function bakeCube(faceImg, transparent) {
   return c;
 }
 
-/** Flat soft tile for seamless terrain (slight padding for overlap). */
+/**
+ * Flat soft tile for seamless terrain.
+ * Edge-bleeds outward so overlapping neighbor draws don't show hard UV seams.
+ */
 export function bakeSoftFace(faceImg) {
-  const S = 68;
+  const S = 72;
   const c = document.createElement('canvas');
   c.width = S;
   c.height = S;
   const ctx = c.getContext('2d');
   ctx.imageSmoothingEnabled = true;
-  ctx.drawImage(faceImg, 0, 0, S, S);
-  // Micro noise to break perfect grid
+  // Draw face slightly inset, then bleed edges outward
+  const inset = 4;
+  ctx.drawImage(faceImg, inset, inset, S - inset * 2, S - inset * 2);
+  // Edge bleed: stretch edge strips into the margin
+  ctx.drawImage(c, inset, inset, S - inset * 2, 1, inset, 0, S - inset * 2, inset);
+  ctx.drawImage(c, inset, S - inset - 1, S - inset * 2, 1, inset, S - inset, S - inset * 2, inset);
+  ctx.drawImage(c, inset, 0, 1, S, 0, 0, inset, S);
+  ctx.drawImage(c, S - inset - 1, 0, 1, S, S - inset, 0, inset, S);
+  // Soft blur via temp canvas (same-canvas drawImage is unreliable)
+  const tmp = document.createElement('canvas');
+  tmp.width = S;
+  tmp.height = S;
+  const tctx = tmp.getContext('2d');
+  tctx.imageSmoothingEnabled = true;
+  tctx.filter = 'blur(0.55px)';
+  tctx.drawImage(c, 0, 0);
+  tctx.filter = 'none';
+  ctx.clearRect(0, 0, S, S);
+  ctx.drawImage(tmp, 0, 0);
+  // Micro noise to break perfect grid (sparse, mild)
   const img = ctx.getImageData(0, 0, S, S);
   const d = img.data;
-  for (let i = 0; i < d.length; i += 16) {
-    const n = ((i * 13) % 7) - 3;
+  for (let i = 0; i < d.length; i += 20) {
+    const n = ((i * 13) % 5) - 2;
     d[i] = Math.max(0, Math.min(255, d[i] + n));
     d[i + 1] = Math.max(0, Math.min(255, d[i + 1] + n));
     d[i + 2] = Math.max(0, Math.min(255, d[i + 2] + n));
