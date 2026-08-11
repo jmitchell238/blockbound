@@ -45,6 +45,8 @@ export function makePlayer(spawnTileX, spawnTileY) {
     sprinting: false,
     /** Creative / invincible flag (set from session difficulty) */
     godMode: false,
+    /** Hold down to crouch (reduces height slightly, uses crouch sprite) */
+    crouching: false,
   };
 }
 
@@ -78,9 +80,13 @@ export function updatePlayer(p, world, input, dt, toolPower) {
   const onLadder = isClimbable(world, Math.floor(p.x), Math.floor(p.y - 0.5));
   const wantClimb = onLadder && (input.up || input.down || Math.abs(input.stickY) > 0.3);
 
-  // Sprint: Shift / stick full deflection when canSprint
+  // Crouch: hold down while grounded (not climbing)
+  p.crouching = !!(p.onGround && !wantClimb && (input.down || (input.stickY != null && input.stickY > 0.55)));
+  if (p.crouching) ix *= 0.45; // slow crawl
+
+  // Sprint: Shift / stick full deflection when canSprint (not while crouching)
   const stickMag = Math.hypot(input.stickX || 0, input.stickY || 0);
-  const wantSprint = !!(input.sprint || stickMag > 0.88) && ix !== 0 && p.canSprint !== false
+  const wantSprint = !p.crouching && !!(input.sprint || stickMag > 0.88) && ix !== 0 && p.canSprint !== false
     && (p.energy == null || p.energy >= 12);
   p.sprinting = wantSprint;
   const speedMul = wantSprint ? 1.48 : 1;

@@ -36,9 +36,39 @@ export const textures = {
   /** Soft seamless face (no cube outline) for terrain blending */
   soft: Object.create(null),
   player: null,
+  /** Animation frames: idle, walk[4], jump, crouch, mine, sword, shovel, boat */
+  playerAnims: Object.create(null),
+  /** Item/tool icons by id string or block number */
+  items: Object.create(null),
   clouds: null,
   crack: [],
 };
+
+/** Player animation frame filenames under assets/player/ */
+export const PLAYER_ANIM_FILES = {
+  idle: 'hero_idle.png',
+  walk0: 'hero_walk_0.png',
+  walk1: 'hero_walk_1.png',
+  walk2: 'hero_walk_2.png',
+  walk3: 'hero_walk_3.png',
+  jump: 'hero_jump.png',
+  crouch: 'hero_crouch.png',
+  mine: 'hero_mine.png',
+  sword: 'hero_sword.png',
+  shovel: 'hero_shovel.png',
+  boat: 'hero_boat.png',
+};
+
+/** Inventory/tool icon files under assets/items/ */
+export const ITEM_ICON_FILES = [
+  'wood_pick', 'stone_pick', 'iron_pick', 'gold_pick',
+  'wood_axe', 'stone_axe', 'iron_axe',
+  'wood_shovel', 'stone_shovel', 'iron_shovel',
+  'wood_sword', 'stone_sword', 'iron_sword',
+  'stick', 'apple', 'bread', 'stew',
+  'iron_ingot', 'gold_ingot', 'copper_ingot',
+  'boat', 'bucket', 'bucket_water',
+];
 
 export function loadImage(src) {
   return new Promise((resolve, reject) => {
@@ -208,14 +238,86 @@ export async function loadTextures() {
     );
   }
   jobs.push(
-    loadImage('assets/player/hero.png').then(img => { textures.player = img; }).catch(() => { textures.player = null; })
+    loadImage('assets/player/hero_idle.png')
+      .then(img => { textures.player = img; textures.playerAnims.idle = img; })
+      .catch(() => loadImage('assets/player/hero.png')
+        .then(img => { textures.player = img; textures.playerAnims.idle = img; })
+        .catch(() => { textures.player = null; }))
   );
+  for (const [key, file] of Object.entries(PLAYER_ANIM_FILES)) {
+    if (key === 'idle') continue;
+    jobs.push(
+      loadImage('assets/player/' + file)
+        .then(img => { textures.playerAnims[key] = img; })
+        .catch(() => { /* fallback handled at draw time */ })
+    );
+  }
+  for (const name of ITEM_ICON_FILES) {
+    jobs.push(
+      loadImage('assets/items/' + name + '.png')
+        .then(img => { textures.items[name] = img; })
+        .catch(() => {})
+    );
+  }
   jobs.push(
     loadImage('assets/bg/clouds.png').then(img => { textures.clouds = img; }).catch(() => { textures.clouds = null; })
   );
   await Promise.all(jobs);
+  // Build walk array for convenience
+  textures.playerAnims.walk = [
+    textures.playerAnims.walk0 || textures.player,
+    textures.playerAnims.walk1 || textures.player,
+    textures.playerAnims.walk2 || textures.player,
+    textures.playerAnims.walk3 || textures.player,
+  ].filter(Boolean);
   textures.ready = true;
   return textures;
+}
+
+/** Best player frame for current action state. */
+export function getPlayerFrame(player, inv) {
+  const A = textures.playerAnims || {};
+  const idle = A.idle || textures.player;
+  if (!player) return idle;
+
+  if (player.inBoat) return A.boat || idle;
+
+  // Action overrides
+  if (player.attackT > 0) {
+    const tool = inv && (inv.tool || '');
+    if (tool.indexOf('sword') >= 0) return A.sword || idle;
+    if (tool.indexOf('shovel') >= 0) return A.shovel || A.mine || idle;
+    if (tool.indexOf('pick') >= 0 || tool.indexOf('axe') >= 0) return A.mine || idle;
+    return A.sword || A.mine || idle;
+  }
+  if (player.mining) {
+    const tool = inv && (inv.tool || '');
+    if (tool.indexOf('shovel') >= 0) return A.shovel || A.mine || idle;
+    return A.mine || idle;
+  }
+
+  // Crouch when holding down while grounded
+  if (player.onGround && player.crouching) return A.crouch || idle;
+
+  // Airborne
+  if (!player.onGround) return A.jump || idle;
+
+  // Walk cycle
+  const walking = player.onGround && Math.abs(player.vx) > 0.2;
+  if (walking && A.walk && A.walk.length) {
+    const fps = 8;
+    const fi = Math.floor(player.anim * fps) % A.walk.length;
+    return A.walk[fi] || idle;
+  }
+
+  return idle;
+}
+
+export function getItemIcon(id) {
+  if (id == null) return null;
+  if (textures.items[id]) return textures.items[id];
+  if (typeof id === 'number' && textures.tiles[id]) return textures.tiles[id];
+  return null;
 }
 
 export function getTileTex(id) {

@@ -7,7 +7,7 @@ import { BLOCK, BLOCK_META, isPlatform } from '../content/blocks.js';
 import { TOOLS, FOOD, isTool, isFood, isWeapon } from '../content/tools.js';
 import { itemName, isBlockItem } from '../content/items.js';
 import { wrapX, getTile, getLight, isSolid, biomeNameAt } from '../world/index.js';
-import { textures, getCubeTex, getTileTex, getSoftTex } from '../textures/textures.js';
+import { textures, getCubeTex, getTileTex, getSoftTex, getPlayerFrame, getItemIcon } from '../textures/textures.js';
 import { drawEntities } from '../entities/draw.js';
 import { drawParticles } from '../particles/particles.js';
 import { HOTBAR_SIZE, BAG_SIZE, canCraft, bagUsed, countItem } from '../inventory/inventory.js';
@@ -162,7 +162,7 @@ export function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particl
   if (ents) drawEntities(ctx, ents, cam, ts);
   if (particles) drawParticles(ctx, particles, cam, ts);
 
-  drawPlayer(ctx, player, cam, ts);
+  drawPlayer(ctx, player, cam, ts, inv);
 
   // Rain
   if (ui && ui.weather > 0.05) {
@@ -798,34 +798,28 @@ export function drawCrack(ctx, sx, sy, ts, p) {
   ctx.restore();
 }
 
-export function drawPlayer(ctx, p, cam, ts) {
+export function drawPlayer(ctx, p, cam, ts, inv) {
   const sx = (p.x - cam.x) * ts + W / 2;
   const sy = (p.y - cam.y) * ts + H / 2;
   const pw = p.w * ts;
   const ph = p.h * ts;
-  const walking = p.onGround && Math.abs(p.vx) > 0.25;
+  const walking = p.onGround && Math.abs(p.vx) > 0.25 && !p.crouching;
   const run = Math.min(1, Math.abs(p.vx) / 4);
-  // Faster walk cycle so motion is obvious
-  const phase = p.anim * (walking ? 1.8 : 1);
 
   ctx.save();
   if (p.invuln > 0 && Math.floor(p.invuln * 20) % 2 === 0) {
     ctx.globalAlpha = 0.45;
   }
 
-  // Soft ground shadow (moves with stride)
-  const shadowW = pw * (0.55 + run * 0.12);
+  // Soft ground shadow
+  const shadowW = pw * (0.55 + run * 0.1);
   ctx.fillStyle = 'rgba(0,0,0,0.28)';
   ctx.beginPath();
-  ctx.ellipse(sx + (walking ? Math.sin(phase) * 2 : 0), sy - 1, shadowW, 4.5, 0, 0, Math.PI * 2);
+  ctx.ellipse(sx, sy - 1, shadowW, 4.5, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  const bob = walking ? Math.abs(Math.sin(phase)) * 3.5 : (p.onGround ? 0 : 0);
-  const lean = walking ? Math.sin(phase) * 0.12 : 0; // radians
-  const img = textures.player;
-
-  // Boat under player
-  if (p.inBoat) {
+  // Procedural boat under sprite if boat frame is missing
+  if (p.inBoat && !(textures.playerAnims && textures.playerAnims.boat)) {
     ctx.fillStyle = '#8b5a2b';
     ctx.beginPath();
     ctx.ellipse(sx, sy - 4, pw * 1.1, 8, 0, 0, Math.PI * 2);
@@ -834,101 +828,29 @@ export function drawPlayer(ctx, p, cam, ts) {
     ctx.fillRect(sx - pw * 0.9, sy - 10, pw * 1.8, 6);
   }
 
-  // Animated legs under sprite (always visible when walking)
-  if (walking && !p.inBoat) {
-    const stride = Math.sin(phase) * 5;
-    const legH = ph * 0.28;
-    const legW = Math.max(3, pw * 0.18);
-    ctx.fillStyle = '#3d5a80';
-    // back leg
-    ctx.fillRect(sx - legW * 1.2, sy - legH + stride, legW, legH - Math.max(0, stride * 0.3));
-    // front leg
-    ctx.fillRect(sx + legW * 0.3, sy - legH - stride, legW, legH + Math.max(0, stride * 0.3));
-    // shoes
-    ctx.fillStyle = '#2a2a32';
-    ctx.fillRect(sx - legW * 1.2 - 1, sy - 3 + stride, legW + 2, 3);
-    ctx.fillRect(sx + legW * 0.3 - 1, sy - 3 - stride, legW + 2, 3);
-  }
-
-  // Swing / punch arc
-  if (p.attackT > 0) {
-    const maxT = 0.22;
-    const t = 1 - p.attackT / maxT;
-    const ang = (p.facing >= 0 ? -0.9 : Math.PI + 0.9) + p.facing * t * 1.8;
-    const len = ph * 0.5;
-    ctx.save();
-    ctx.translate(sx, sy - ph * 0.45);
-    // Fist blob when unarmed swing looks punchy
-    ctx.fillStyle = 'rgba(255,200,150,0.55)';
-    const fx = Math.cos(ang) * len * 0.9;
-    const fy = Math.sin(ang) * len * 0.9;
-    ctx.beginPath();
-    ctx.arc(fx, fy, 6 + t * 3, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-    ctx.lineWidth = 3;
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.lineTo(fx, fy);
-    ctx.stroke();
-    ctx.strokeStyle = 'rgba(255,220,180,0.3)';
-    ctx.lineWidth = 10;
-    ctx.beginPath();
-    ctx.arc(0, 0, len * 0.8, ang - 0.5, ang + 0.15);
-    ctx.stroke();
-    ctx.restore();
-  }
-
+  const img = getPlayerFrame(p, inv) || textures.player;
   if (img) {
-    const drawW = ph * 0.72;
-    const drawH = ph * (walking ? 0.88 : 1.0); // slightly shorter when legs drawn
+    // Side-view sprites: fit height to player hitbox
+    const drawH = ph * (p.crouching ? 0.85 : 1.08);
+    const aspect = img.width / Math.max(1, img.height);
+    const drawW = drawH * aspect;
+    const footY = sy + (p.inBoat ? -6 : 0);
     ctx.save();
-    ctx.translate(sx, sy - drawH + bob + (walking ? -2 : 2));
-    if (p.facing < 0) {
-      ctx.scale(-1, 1);
-      ctx.translate(-drawW / 2, 0);
-    } else {
-      ctx.translate(-drawW / 2, 0);
-    }
-    // lean + squash into run
-    ctx.translate(drawW / 2, drawH);
-    if (p.attackT > 0) {
-      ctx.rotate(p.facing * 0.25);
-    } else if (walking) {
-      ctx.rotate(lean * p.facing);
-      const sqY = 1 + Math.sin(phase * 2) * 0.06;
-      const sqX = 1 / sqY;
-      ctx.scale(sqX, sqY);
-    } else if (!p.onGround) {
-      ctx.rotate(p.facing * 0.08);
-    }
-    ctx.translate(-drawW / 2, -drawH);
-    ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(img, 0, 0, drawW, drawH);
+    ctx.translate(sx, footY);
+    if (p.facing < 0) ctx.scale(-1, 1);
+    ctx.imageSmoothingEnabled = false; // crisp pixel art
+    ctx.drawImage(img, -drawW / 2, -drawH, drawW, drawH);
     ctx.restore();
   } else {
-    // Procedural blockhead with stride
+    // Minimal procedural fallback
+    const bob = walking ? Math.abs(Math.sin(p.anim * 2)) * 2 : 0;
     const bodyTop = sy - ph + bob;
-    const legW = pw * 0.28;
-    const stride = walking ? Math.sin(phase) * 5 : 0;
-    ctx.fillStyle = '#3d5a80';
-    ctx.fillRect(sx - pw * 0.32, sy - ph * 0.35 + stride, legW, ph * 0.35);
-    ctx.fillRect(sx + pw * 0.05, sy - ph * 0.35 - stride, legW, ph * 0.35);
     ctx.fillStyle = '#ee6c4d';
-    roundRect(ctx, sx - pw * 0.42, bodyTop + ph * 0.28, pw * 0.84, ph * 0.42, 3);
+    roundRect(ctx, sx - pw * 0.4, bodyTop + ph * 0.25, pw * 0.8, ph * 0.45, 3);
     ctx.fill();
-    const hs = pw * 0.9;
     ctx.fillStyle = '#e8c49a';
-    roundRect(ctx, sx - hs / 2, bodyTop, hs, hs * 0.95, 3);
+    roundRect(ctx, sx - pw * 0.35, bodyTop, pw * 0.7, ph * 0.28, 4);
     ctx.fill();
-    ctx.fillStyle = '#5c3317';
-    roundRect(ctx, sx - hs / 2, bodyTop, hs, hs * 0.3, 3);
-    ctx.fill();
-    ctx.fillStyle = '#222';
-    const eyeX = p.facing >= 0 ? 0.1 : -0.25;
-    ctx.fillRect(sx + hs * eyeX, bodyTop + hs * 0.45, 3.5, 3.5);
-    ctx.fillRect(sx + hs * (eyeX + 0.32), bodyTop + hs * 0.45, 3.5, 3.5);
   }
 
   ctx.restore();
@@ -1142,93 +1064,16 @@ export function drawBar(ctx, x, y, w, h, pct, color, icon) {
 }
 
 export function drawItemIcon(ctx, x, y, s, id) {
-  if (isTool(id)) {
-    const metal = id.indexOf('gold') >= 0 ? '#ffd700' : id.indexOf('iron') >= 0 ? '#c5ced6' : id.indexOf('stone') >= 0 ? '#8a9098' : '#c4a060';
-    ctx.strokeStyle = '#6b4420';
-    ctx.lineWidth = 3;
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(x + s * 0.45, y + s * 0.95);
-    ctx.lineTo(x + s * 0.55, y + s * 0.35);
-    ctx.stroke();
-    ctx.fillStyle = metal;
-    ctx.beginPath();
-    if (id.indexOf('sword') >= 0) {
-      // Blade
-      ctx.moveTo(x + s * 0.5, y + s * 0.12);
-      ctx.lineTo(x + s * 0.62, y + s * 0.55);
-      ctx.lineTo(x + s * 0.5, y + s * 0.6);
-      ctx.lineTo(x + s * 0.38, y + s * 0.55);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = '#c4a060';
-      ctx.fillRect(x + s * 0.35, y + s * 0.58, s * 0.3, s * 0.08);
-      return;
-    }
-    if (id.indexOf('axe') >= 0) {
-      ctx.moveTo(x + s * 0.2, y + s * 0.25);
-      ctx.lineTo(x + s * 0.85, y + s * 0.15);
-      ctx.lineTo(x + s * 0.75, y + s * 0.5);
-      ctx.closePath();
-    } else {
-      ctx.moveTo(x + s * 0.15, y + s * 0.35);
-      ctx.lineTo(x + s * 0.85, y + s * 0.18);
-      ctx.lineTo(x + s * 0.85, y + s * 0.48);
-      ctx.closePath();
-    }
-    ctx.fill();
-    return;
-  }
-  if (id === 'stick') {
-    ctx.strokeStyle = '#a07040';
-    ctx.lineWidth = 4;
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(x + 5, y + s - 5);
-    ctx.lineTo(x + s - 5, y + 5);
-    ctx.stroke();
-    return;
-  }
-  if (isFood(id) && FOOD[id]) {
-    ctx.fillStyle = FOOD[id].color;
-    ctx.beginPath();
-    ctx.arc(x + s / 2, y + s / 2, s * 0.35, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = 'rgba(255,255,255,0.35)';
-    ctx.beginPath();
-    ctx.arc(x + s * 0.38, y + s * 0.38, s * 0.1, 0, Math.PI * 2);
-    ctx.fill();
-    return;
-  }
-  if (id === 'iron_ingot' || id === 'gold_ingot' || id === 'copper_ingot') {
-    ctx.fillStyle = id.indexOf('gold') >= 0 ? '#ffd700' : id.indexOf('copper') >= 0 ? '#e07a40' : '#b0b8c0';
-    roundRect(ctx, x + 4, y + s * 0.3, s - 8, s * 0.4, 4);
-    ctx.fill();
-    return;
-  }
-  if (id === 'boat') {
-    ctx.fillStyle = '#8b5a2b';
-    ctx.beginPath();
-    ctx.ellipse(x + s / 2, y + s * 0.6, s * 0.4, s * 0.18, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#c49a5a';
-    ctx.fillRect(x + s * 0.15, y + s * 0.4, s * 0.7, s * 0.15);
-    return;
-  }
-  if (id === 'bucket' || id === 'bucket_water') {
-    ctx.fillStyle = '#888';
-    ctx.fillRect(x + s * 0.25, y + s * 0.35, s * 0.5, s * 0.45);
-    ctx.fillStyle = id === 'bucket_water' ? '#3a8fd4' : '#aaa';
-    ctx.fillRect(x + s * 0.3, y + s * 0.4, s * 0.4, s * 0.25);
+  // Prefer real PNG icons when loaded
+  const icon = typeof getItemIcon === 'function' ? getItemIcon(id) : null;
+  if (icon) {
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(icon, x, y, s, s);
     return;
   }
   if (id === BLOCK.LANTERN || id === BLOCK.TORCH) {
-    // Compact icon (hanging lantern / upright torch)
-    if (id === BLOCK.LANTERN) {
-      drawLanternSprite(ctx, x - 2, y - 2, s + 4, 'hang', 0);
-    } else {
-      drawTorchSprite(ctx, x - 2, y - 2, s + 4, 'floor', 0);
-    }
+    if (id === BLOCK.LANTERN) drawLanternSprite(ctx, x - 2, y - 2, s + 4, 'hang', 0);
+    else drawTorchSprite(ctx, x - 2, y - 2, s + 4, 'floor', 0);
     return;
   }
   if (typeof id === 'number') {
