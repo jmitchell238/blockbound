@@ -154,8 +154,9 @@ export function bakeCube(faceImg, transparent) {
 }
 
 /**
- * Flat soft tile for seamless terrain — stays crisp (no blur/feather mush).
- * Mild edge bleed so 1px gaps between neighbors don't flash.
+ * Truly tileable terrain face (Blockheads-style continuous ground).
+ * Cross-blends opposite edges so same-type neighbors show no grid lines.
+ * Stays crisp — no blur, no alpha feather.
  */
 export function bakeSoftFace(faceImg) {
   const S = 64;
@@ -163,17 +164,61 @@ export function bakeSoftFace(faceImg) {
   c.width = S;
   c.height = S;
   const ctx = c.getContext('2d');
-  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingEnabled = false;
   ctx.drawImage(faceImg, 0, 0, S, S);
-  // Sparse micro-noise only — keeps texture readable
   const img = ctx.getImageData(0, 0, S, S);
   const d = img.data;
-  for (let i = 0; i < d.length; i += 24) {
-    const n = ((i * 13) % 5) - 2;
-    d[i] = Math.max(0, Math.min(255, d[i] + n));
-    d[i + 1] = Math.max(0, Math.min(255, d[i + 1] + n));
-    d[i + 2] = Math.max(0, Math.min(255, d[i + 2] + n));
+  const blend = Math.max(6, (S * 0.14) | 0); // ~9px edge blend
+
+  function pix(x, y) {
+    const i = (y * S + x) * 4;
+    return [d[i], d[i + 1], d[i + 2], d[i + 3]];
   }
+  function setPix(x, y, r, g, b, a) {
+    const i = (y * S + x) * 4;
+    d[i] = r; d[i + 1] = g; d[i + 2] = b; d[i + 3] = a;
+  }
+  function lerp4(a, b, t) {
+    return [
+      a[0] + (b[0] - a[0]) * t,
+      a[1] + (b[1] - a[1]) * t,
+      a[2] + (b[2] - a[2]) * t,
+      a[3] + (b[3] - a[3]) * t,
+    ];
+  }
+
+  // Horizontal seam kill: blend left ↔ right edges toward each other
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < blend; x++) {
+      const t = 1 - x / blend; // 1 at outer edge, 0 inside
+      const w = t * t * 0.55; // strong only at the rim
+      const L = pix(x, y);
+      const R = pix(S - 1 - x, y);
+      const mid = lerp4(L, R, 0.5);
+      const nL = lerp4(L, mid, w);
+      const nR = lerp4(R, mid, w);
+      setPix(x, y, nL[0], nL[1], nL[2], nL[3]);
+      setPix(S - 1 - x, y, nR[0], nR[1], nR[2], nR[3]);
+    }
+  }
+  // Vertical seam kill: blend top ↔ bottom
+  for (let x = 0; x < S; x++) {
+    for (let y = 0; y < blend; y++) {
+      const t = 1 - y / blend;
+      const w = t * t * 0.55;
+      const T = pix(x, y);
+      const B = pix(x, S - 1 - y);
+      const mid = lerp4(T, B, 0.5);
+      const nT = lerp4(T, mid, w);
+      const nB = lerp4(B, mid, w);
+      setPix(x, y, nT[0], nT[1], nT[2], nT[3]);
+      setPix(x, S - 1 - y, nB[0], nB[1], nB[2], nB[3]);
+    }
+  }
+
+  // Full opacity — never soft-alpha edges
+  for (let i = 3; i < d.length; i += 4) d[i] = 255;
+
   ctx.putImageData(img, 0, 0);
   return c;
 }
