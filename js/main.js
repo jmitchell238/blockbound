@@ -207,11 +207,28 @@ function frame(now) {
 
   if (screenName === 'play') {
     const s = getSession();
-    syncInput(s);
-    gameUpdate(dt);
+    if (s) syncInput(s);
+    try {
+      if (s) gameUpdate(dt);
+    } catch (err) {
+      console.error('[blockbound] update error', err);
+      // Keep loop alive — show toast if possible
+      if (s && s.ui) {
+        s.ui.toast = 'Update glitch (see console)';
+        s.ui.toastT = 2;
+      }
+    }
     if (ctx) {
-      ctx.clearRect(0, 0, W, H);
-      gameRender(ctx);
+      try {
+        ctx.clearRect(0, 0, W, H);
+        if (s) gameRender(ctx);
+        else {
+          // No session — bounce to menu instead of blank sky
+          drawMenuBackdrop(ctx, now);
+        }
+      } catch (err) {
+        console.error('[blockbound] render error', err);
+      }
     }
   } else if (ctx) {
     // Idle menu backdrop
