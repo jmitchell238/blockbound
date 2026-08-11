@@ -14,7 +14,7 @@ import { loadTextures } from './textures/textures.js';
 import {
   save, loadSave, writeSave, listWorlds, selectWorld, loadWorldData,
   createWorldEntry, renameWorld, deleteWorld, getWorldMeta, worldSummaryLine,
-  persistSession,
+  formatSeedDisplay, persistSession,
 } from './save/save.js';
 import { audioSetMuted, ensureAudio } from './audio/audio.js';
 import {
@@ -28,11 +28,15 @@ let last = performance.now();
 /** title | worlds | create | options | play */
 let screenName = 'title';
 
-/** Selected row on the world list (not necessarily loaded). */
+/** Selected world card id (not necessarily loaded). */
 let selectedListId = null;
+/** World currently open in the Edit screen */
+let editingWorldId = null;
 /** Draft difficulty/size on create screen */
 let draftDiff = 'normal';
 let draftSize = 'standard';
+/** Prefill seed on create (from Edit → New World From This Seed) */
+let prefillSeed = null;
 
 const SPLASH = [
   'Mine · build · walk the world around',
@@ -161,12 +165,77 @@ function renderSizeChips() {
   }
 }
 
+/**
+ * Paint a small Minecraft-ish landscape thumb from the world seed
+ * (deterministic, no need to load the full world).
+ */
+function paintWorldThumb(canvas, meta) {
+  if (!canvas) return;
+  const w = canvas.width;
+  const h = canvas.height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  const seed = (meta && meta.seed) ? (meta.seed >>> 0) : 1;
+  // simple LCG for local variation
+  let s = seed || 1;
+  const rnd = () => {
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
+
+  // Sky
+  const sky = ctx.createLinearGradient(0, 0, 0, h);
+  const dayish = (seed % 100) / 100;
+  sky.addColorStop(0, dayish > 0.55 ? '#3d7ec4' : '#1a2040');
+  sky.addColorStop(1, dayish > 0.55 ? '#9ec8e8' : '#3a4060');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, w, h);
+
+  // Distant hills
+  ctx.fillStyle = 'rgba(40, 70, 55, 0.55)';
+  ctx.beginPath();
+  ctx.moveTo(0, h);
+  for (let x = 0; x <= w; x += 4) {
+    const y = h * 0.45 + Math.sin(x * 0.04 + seed) * 10 + rnd() * 6;
+    ctx.lineTo(x, y);
+  }
+  ctx.lineTo(w, h);
+  ctx.closePath();
+  ctx.fill();
+
+  // Ground band
+  const groundY = h * 0.62;
+  ctx.fillStyle = '#5a9e3a';
+  ctx.fillRect(0, groundY, w, h - groundY);
+  ctx.fillStyle = '#8b5a2b';
+  ctx.fillRect(0, groundY + 8, w, h - groundY);
+
+  // Block-ish columns
+  const tiles = [ '#6fbf45', '#8b5a2b', '#7a7f88', '#c4a060', '#5a9e3a' ];
+  for (let i = 0; i < 10; i++) {
+    const bw = 8 + Math.floor(rnd() * 6);
+    const bx = Math.floor(rnd() * (w - bw));
+    const bh = 6 + Math.floor(rnd() * 14);
+    ctx.fillStyle = tiles[Math.floor(rnd() * tiles.length)];
+    ctx.fillRect(bx, groundY - bh, bw, bh);
+  }
+
+  // Mode accent strip
+  const diff = getDifficulty(meta && meta.difficultyId);
+  const accent = diff.id === 'creative' ? '#ffd60a'
+    : diff.id === 'easy' ? '#7dffa0'
+    : diff.id === 'hard' ? '#ff6a50'
+    : '#5a9ed4';
+  ctx.fillStyle = accent;
+  ctx.fillRect(0, h - 3, w, 3);
+}
+
 function renderWorldList() {
-  const list = document.getElementById('worldList');
+  const grid = document.getElementById('worldGrid');
   const empty = document.getElementById('worldEmpty');
-  if (!list) return;
+  if (!grid) return;
   const worlds = listWorlds();
-  list.innerHTML = '';
+  grid.innerHTML = '';
 
   if (!selectedListId || !worlds.some(w => w.id === selectedListId)) {
     selectedListId = worlds[0] ? worlds[0].id : null;
@@ -178,27 +247,97 @@ function renderWorldList() {
     if (empty) empty.classList.add('hidden');
   }
 
+  // Create New World tile (Minecraft-style first action)
+  const createCard = document.createElement('div');
+  createCard.className = 'world-card create-card-tile';
+  createCard.setAttribute('role', 'button');
+  createCard.tabIndex = 0;
+  createCard.innerHTML =
+    '<span class="create-plus" aria-hidden="true">+</span>' +
+    '<span class="create-label">Create New World</span>';
+  const openCreate = () => {
+    prefillSeed = null;
+    draftDiff = save.difficultyId || 'normal';
+    draftSize = save.worldSizeId || 'standard';
+    showCreate();
+  };
+  createCard.addEventListener('click', openCreate);
+  createCard.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openCreate(); }
+  });
+  grid.appendChild(createCard);
+
   worlds.forEach(w => {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'world-item' + (w.id === selectedListId ? ' selected' : '');
-    btn.setAttribute('role', 'option');
-    btn.setAttribute('aria-selected', w.id === selectedListId ? 'true' : 'false');
-    btn.innerHTML =
-      '<span class="w-name"></span><span class="w-meta"></span>';
-    btn.querySelector('.w-name').textContent = w.name;
-    btn.querySelector('.w-meta').textContent = worldSummaryLine(w);
-    btn.addEventListener('click', () => {
+    // div (not button) so Edit can be a real nested button
+    const card = document.createElement('div');
+    card.className = 'world-card' + (w.id === selectedListId ? ' selected' : '');
+    card.setAttribute('role', 'option');
+    card.setAttribute('aria-selected', w.id === selectedListId ? 'true' : 'false');
+    card.tabIndex = 0;
+    card.dataset.worldId = w.id;
+
+    const thumb = document.createElement('canvas');
+    thumb.className = 'world-card-thumb';
+    thumb.width = 160;
+    thumb.height = 100;
+    thumb.setAttribute('aria-hidden', 'true');
+    paintWorldThumb(thumb, w);
+
+    const body = document.createElement('div');
+    body.className = 'world-card-body';
+
+    const nameEl = document.createElement('span');
+    nameEl.className = 'world-card-name';
+    nameEl.textContent = w.name || 'World';
+
+    const modeEl = document.createElement('span');
+    const diff = getDifficulty(w.difficultyId);
+    modeEl.className = 'world-card-mode ' + diff.id;
+    modeEl.textContent = diff.name;
+
+    const metaEl = document.createElement('span');
+    metaEl.className = 'world-card-meta';
+    // size + last played only — no seed on the card
+    const summary = worldSummaryLine(w);
+    metaEl.textContent = summary.split(' · ').slice(1).join(' · ') || '';
+
+    body.appendChild(nameEl);
+    body.appendChild(modeEl);
+    body.appendChild(metaEl);
+
+    const editBtn = document.createElement('button');
+    editBtn.type = 'button';
+    editBtn.className = 'world-card-edit';
+    editBtn.textContent = '✎ Edit';
+    editBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      selectedListId = w.id;
+      selectWorld(w.id);
+      showEditWorld(w.id);
+    });
+
+    card.appendChild(thumb);
+    card.appendChild(body);
+    card.appendChild(editBtn);
+
+    const selectThis = () => {
       selectedListId = w.id;
       selectWorld(w.id);
       renderWorldList();
       updateWorldActionButtons();
-    });
-    btn.addEventListener('dblclick', () => {
+    };
+    card.addEventListener('click', selectThis);
+    card.addEventListener('dblclick', () => {
       selectedListId = w.id;
       playSelectedWorld();
     });
-    list.appendChild(btn);
+    card.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); playSelectedWorld(); }
+      else if (e.key === ' ') { e.preventDefault(); selectThis(); }
+    });
+
+    grid.appendChild(card);
   });
   updateWorldActionButtons();
 }
@@ -206,15 +345,91 @@ function renderWorldList() {
 function updateWorldActionButtons() {
   const has = !!selectedListId;
   const play = document.getElementById('btnPlayWorld');
-  const ren = document.getElementById('btnRenameWorld');
-  const del = document.getElementById('btnDeleteWorld');
-  if (play) play.disabled = !has;
-  if (ren) ren.disabled = !has;
-  if (del) del.disabled = !has;
-  if (play && has) {
-    const meta = getWorldMeta(selectedListId);
-    play.textContent = meta && meta.hasData ? '▶  Play Selected' : '▶  Enter World';
+  if (play) {
+    play.disabled = !has;
+    if (has) {
+      const meta = getWorldMeta(selectedListId);
+      play.textContent = meta && meta.hasData ? 'Play Selected World' : 'Enter Selected World';
+    } else {
+      play.textContent = 'Play Selected World';
+    }
   }
+}
+
+function showEditWorld(id) {
+  const meta = getWorldMeta(id);
+  if (!meta) return;
+  editingWorldId = id;
+  selectedListId = id;
+  const nameIn = document.getElementById('inputEditName');
+  const seedIn = document.getElementById('inputEditSeed');
+  const metaLine = document.getElementById('editMetaLine');
+  const hint = document.getElementById('copySeedHint');
+  if (nameIn) nameIn.value = meta.name || '';
+  if (seedIn) seedIn.value = formatSeedDisplay(meta.seed, meta.seedString);
+  if (metaLine) {
+    const diff = getDifficulty(meta.difficultyId);
+    const size = WORLD_SIZE_PRESETS.find(p => p.id === meta.worldSizeId);
+    metaLine.textContent = [
+      diff.name + ' mode',
+      size ? size.name + ' (' + size.w.toLocaleString() + ' wide)' : '',
+      worldSummaryLine(meta).split(' · ').pop() || '',
+    ].filter(Boolean).join(' · ');
+  }
+  if (hint) hint.textContent = 'Copy this seed to recreate the same terrain in a new world.';
+  setScreen('edit');
+}
+
+function saveEditName() {
+  if (!editingWorldId) return;
+  const nameIn = document.getElementById('inputEditName');
+  const name = nameIn ? nameIn.value : '';
+  if (renameWorld(editingWorldId, name)) {
+    hintFlash('Name saved');
+  }
+}
+
+function hintFlash(msg) {
+  const hint = document.getElementById('copySeedHint');
+  if (!hint) return false;
+  const prev = hint.textContent;
+  hint.textContent = msg;
+  setTimeout(() => { if (hint) hint.textContent = prev; }, 1400);
+  return true;
+}
+
+async function copyEditSeed() {
+  const seedIn = document.getElementById('inputEditSeed');
+  const text = seedIn ? seedIn.value : '';
+  if (!text) return;
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      seedIn.focus();
+      seedIn.select();
+      document.execCommand('copy');
+    }
+    hintFlash('Seed copied!');
+  } catch (_) {
+    // Fallback: select so user can Ctrl+C
+    if (seedIn) {
+      seedIn.focus();
+      seedIn.select();
+    }
+    hintFlash('Seed selected — press Ctrl+C / ⌘C to copy');
+  }
+}
+
+function cloneFromEditSeed() {
+  if (!editingWorldId) return;
+  const meta = getWorldMeta(editingWorldId);
+  if (!meta) return;
+  prefillSeed = formatSeedDisplay(meta.seed, meta.seedString);
+  // Match size/diff as convenience when cloning terrain
+  draftDiff = meta.difficultyId || 'normal';
+  draftSize = meta.worldSizeId || 'standard';
+  showCreate();
 }
 
 function setGenProgress(p) {
@@ -245,14 +460,22 @@ function showWorlds() {
 }
 
 function showCreate() {
-  draftDiff = save.difficultyId || 'normal';
-  draftSize = save.worldSizeId || 'standard';
+  const cloning = prefillSeed != null && String(prefillSeed).length > 0;
+  if (!cloning) {
+    draftDiff = save.difficultyId || 'normal';
+    draftSize = save.worldSizeId || 'standard';
+  }
   const nameIn = document.getElementById('inputWorldName');
   const seedIn = document.getElementById('inputSeed');
-  if (nameIn) nameIn.value = '';
-  if (seedIn) seedIn.value = '';
+  if (nameIn) nameIn.value = cloning ? 'World Copy' : '';
+  if (seedIn) seedIn.value = cloning ? String(prefillSeed) : '';
   const hint = document.getElementById('seedHint');
-  if (hint) hint.textContent = 'Same seed + size = same terrain';
+  if (hint) {
+    hint.textContent = cloning
+      ? 'Using seed from another world — same size recreates the same terrain'
+      : 'Same seed + size = same terrain';
+  }
+  prefillSeed = null;
   renderDiffChips();
   renderSizeChips();
   setGenProgress(null);
@@ -430,40 +653,17 @@ async function playSelectedWorld() {
   }
 }
 
-function openRenameModal() {
-  if (!selectedListId) return;
-  const meta = getWorldMeta(selectedListId);
-  if (!meta) return;
-  const modal = document.getElementById('renameModal');
-  const input = document.getElementById('inputRename');
-  if (input) input.value = meta.name;
-  if (modal) modal.classList.remove('hidden');
-  if (input) setTimeout(() => input.focus(), 50);
-}
-
-function closeRenameModal() {
-  const modal = document.getElementById('renameModal');
-  if (modal) modal.classList.add('hidden');
-}
-
-function confirmRename() {
-  const input = document.getElementById('inputRename');
-  const name = input ? input.value : '';
-  if (selectedListId && renameWorld(selectedListId, name)) {
-    renderWorldList();
-  }
-  closeRenameModal();
-}
-
-function confirmDelete() {
-  if (!selectedListId) return;
-  const meta = getWorldMeta(selectedListId);
+function confirmDeleteFromEdit() {
+  const id = editingWorldId || selectedListId;
+  if (!id) return;
+  const meta = getWorldMeta(id);
   if (!meta) return;
   const ok = confirm('Delete "' + meta.name + '" forever? This cannot be undone.');
   if (!ok) return;
-  deleteWorld(selectedListId);
+  deleteWorld(id);
+  editingWorldId = null;
   selectedListId = null;
-  renderWorldList();
+  showWorlds();
 }
 
 function frame(now) {
@@ -517,7 +717,6 @@ function drawMenuBackdrop(ctx, now) {
 function wireUI() {
   document.getElementById('btnSingleplayer').addEventListener('click', showWorlds);
   document.getElementById('btnWorldsBack').addEventListener('click', showTitle);
-  document.getElementById('btnCreateWorld').addEventListener('click', showCreate);
   document.getElementById('btnCreateCancel').addEventListener('click', showWorlds);
   document.getElementById('btnCreatePlay').addEventListener('click', () => {
     startNewWorldFromCreate();
@@ -525,10 +724,18 @@ function wireUI() {
   document.getElementById('btnPlayWorld').addEventListener('click', () => {
     playSelectedWorld();
   });
-  document.getElementById('btnRenameWorld').addEventListener('click', openRenameModal);
-  document.getElementById('btnDeleteWorld').addEventListener('click', confirmDelete);
-  document.getElementById('btnRenameOk').addEventListener('click', confirmRename);
-  document.getElementById('btnRenameCancel').addEventListener('click', closeRenameModal);
+
+  // Edit world screen
+  const editBack = document.getElementById('btnEditBack');
+  if (editBack) editBack.addEventListener('click', showWorlds);
+  const editSave = document.getElementById('btnEditSave');
+  if (editSave) editSave.addEventListener('click', saveEditName);
+  const editDel = document.getElementById('btnEditDelete');
+  if (editDel) editDel.addEventListener('click', confirmDeleteFromEdit);
+  const copySeed = document.getElementById('btnCopySeed');
+  if (copySeed) copySeed.addEventListener('click', () => { copyEditSeed(); });
+  const cloneSeed = document.getElementById('btnCloneSeed');
+  if (cloneSeed) cloneSeed.addEventListener('click', cloneFromEditSeed);
 
   document.getElementById('btnRandomSeed').addEventListener('click', () => {
     const seedIn = document.getElementById('inputSeed');

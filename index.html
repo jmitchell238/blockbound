@@ -52,23 +52,47 @@
       </div>
     </div>
 
-    <!-- WORLD SELECT -->
+    <!-- WORLD SELECT (Minecraft-style card grid) -->
     <div class="screen menu-screen hidden" data-screen="worlds" id="screenWorlds">
-      <div class="menu-card worlds-card">
-        <h2 class="menu-title">Select World</h2>
-        <p class="menu-sub">Play, create, rename, or delete saved worlds</p>
+      <div class="menu-card worlds-card mc-worlds-panel">
+        <header class="mc-worlds-header">
+          <h2 class="menu-title">Select World</h2>
+          <p class="menu-sub">Tap a world to select · double-tap to play</p>
+        </header>
 
-        <div id="worldList" class="world-list" role="listbox" aria-label="Saved worlds"></div>
+        <div id="worldGrid" class="world-grid" role="listbox" aria-label="Saved worlds"></div>
         <p id="worldEmpty" class="world-empty hidden">No worlds yet — create one to start mining.</p>
 
+        <div class="mc-worlds-footer">
+          <button id="btnPlayWorld" class="primary" type="button" disabled>Play Selected World</button>
+          <button id="btnWorldsBack" class="secondary" type="button">Back</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- EDIT WORLD -->
+    <div class="screen menu-screen hidden" data-screen="edit" id="screenEdit">
+      <div class="menu-card edit-card">
+        <h2 class="menu-title">Edit World</h2>
+
+        <label class="field-label" for="inputEditName">World name</label>
+        <input id="inputEditName" class="field-input" type="text" maxlength="40" autocomplete="off" spellcheck="false" />
+
+        <label class="field-label" for="inputEditSeed">Seed <span class="field-hint">(read-only)</span></label>
+        <div class="seed-row">
+          <input id="inputEditSeed" class="field-input" type="text" readonly tabindex="0" />
+          <button id="btnCopySeed" class="chip-btn" type="button" title="Copy seed">Copy</button>
+        </div>
+        <p class="size-hint" id="copySeedHint">Copy this seed to recreate the same terrain in a new world.</p>
+
+        <p class="mode-label">World info</p>
+        <p class="edit-meta" id="editMetaLine">—</p>
+
         <div class="menu-actions">
-          <button id="btnPlayWorld" class="primary" type="button" disabled>▶  Play Selected</button>
-          <button id="btnCreateWorld" class="secondary" type="button">✦  Create New World</button>
-          <div class="menu-actions-row">
-            <button id="btnRenameWorld" class="ghost" type="button" disabled>Rename</button>
-            <button id="btnDeleteWorld" class="ghost danger" type="button" disabled>Delete</button>
-          </div>
-          <button id="btnWorldsBack" class="ghost" type="button">← Back</button>
+          <button id="btnEditSave" class="primary" type="button">Save Name</button>
+          <button id="btnCloneSeed" class="secondary" type="button">New World From This Seed</button>
+          <button id="btnEditDelete" class="ghost danger" type="button">Delete World</button>
+          <button id="btnEditBack" class="ghost" type="button">← Back to Worlds</button>
         </div>
       </div>
     </div>
@@ -122,18 +146,6 @@
       </div>
     </div>
 
-    <!-- RENAME MODAL (overlay inside stage) -->
-    <div id="renameModal" class="modal hidden">
-      <div class="modal-card">
-        <h3>Rename World</h3>
-        <input id="inputRename" class="field-input" type="text" maxlength="40" autocomplete="off" spellcheck="false" />
-        <div class="menu-actions-row">
-          <button id="btnRenameCancel" class="ghost" type="button">Cancel</button>
-          <button id="btnRenameOk" class="primary" type="button">Save</button>
-        </div>
-      </div>
-    </div>
-
     <button id="btnMenu" class="icon-btn play-chrome hidden" type="button" title="Menu">☰</button>
     <button id="btnCraft" class="icon-btn play-chrome craft-btn hidden" type="button" title="Craft">⚒</button>
     <button id="btnBag" class="icon-btn play-chrome bag-btn hidden" type="button" title="Inventory">🎒</button>
@@ -143,6 +155,6 @@
   </div>
 
   <!-- ?v= busts sticky SW/browser caches when version bumps -->
-  <script type="module" src="js/main.js?v=1.8.001"></script>
+  <script type="module" src="js/main.js?v=1.8.002"></script>
 </body>
 </html>

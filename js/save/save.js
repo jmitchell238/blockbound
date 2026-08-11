@@ -498,16 +498,15 @@ export function persistSession(world, player, inv, timeOfDay, stats, ents, diffi
   }
 }
 
+/** Short line for world cards — never includes seed (seed lives in Edit). */
 export function worldSummaryLine(meta) {
   if (!meta) return '';
   const diff = getDifficulty(meta.difficultyId);
   const size = WORLD_SIZE_PRESETS.find(p => p.id === meta.worldSizeId);
-  const seed = formatSeedDisplay(meta.seed, meta.seedString);
   const when = meta.lastPlayed ? formatRelativeTime(meta.lastPlayed) : '';
   return [
     diff.name,
     size ? size.name : (meta.worldSize + 'w'),
-    'seed ' + seed,
     when,
   ].filter(Boolean).join(' · ');
 }

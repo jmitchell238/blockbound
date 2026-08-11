@@ -345,57 +345,208 @@ button.ghost.danger {
   text-align: left;
 }
 
-/* World list */
-.world-list {
-  text-align: left;
-  max-height: min(280px, 42vh);
-  overflow-y: auto;
-  border-radius: 14px;
-  border: 1px solid var(--line);
-  background: rgba(0, 0, 0, 0.28);
-  -webkit-overflow-scrolling: touch;
+/* ——— Minecraft-style world picker ——— */
+.mc-worlds-panel {
+  width: min(520px, 100%);
+  padding: 16px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100% - 8px);
 }
+.mc-worlds-header {
+  flex-shrink: 0;
+  margin-bottom: 10px;
+}
+.mc-worlds-header .menu-title { margin-bottom: 2px; }
+.mc-worlds-header .menu-sub { margin: 0; }
+
+.world-grid {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  overflow-y: auto;
+  padding: 4px 2px 8px;
+  -webkit-overflow-scrolling: touch;
+  align-content: start;
+}
+
 .world-empty {
-  margin: 16px 0;
+  margin: 12px 0;
   color: var(--muted);
   font-size: 0.9rem;
 }
 
-.world-item {
-  display: block;
-  width: 100%;
+/* Card (div, so nested Edit button is valid HTML) */
+.world-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
   margin: 0;
-  padding: 12px 12px;
-  border: none;
-  border-bottom: 1px solid var(--line);
-  border-radius: 0;
-  background: transparent;
+  padding: 0;
+  border: 2px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  background: rgba(8, 18, 14, 0.88);
   color: var(--text);
   text-align: left;
   cursor: pointer;
   font-family: inherit;
+  overflow: hidden;
+  min-height: 0;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease, transform 0.08s ease;
 }
-.world-item:last-child { border-bottom: none; }
-.world-item:hover,
-.world-item:focus {
-  background: rgba(125, 255, 160, 0.08);
+.world-card:hover,
+.world-card:focus {
+  border-color: rgba(125, 255, 160, 0.35);
+  outline: none;
 }
-.world-item.selected {
-  background: rgba(125, 255, 160, 0.16);
-  box-shadow: inset 3px 0 0 var(--mint);
+.world-card.selected {
+  border-color: #7dffa0;
+  box-shadow: 0 0 0 1px rgba(125, 255, 160, 0.35), 0 8px 20px rgba(0, 0, 0, 0.35);
 }
-.world-item .w-name {
+.world-card:active { transform: scale(0.98); }
+
+.world-card-thumb {
   display: block;
-  font-size: 1rem;
-  font-weight: 700;
-  margin-bottom: 3px;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  height: auto;
+  background: #1a3040;
+  object-fit: cover;
 }
-.world-item .w-meta {
+
+.world-card-body {
+  padding: 8px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+.world-card-name {
   display: block;
-  font-size: 0.72rem;
+  font-size: 0.92rem;
+  font-weight: 800;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.world-card-mode {
+  display: inline-block;
+  align-self: flex-start;
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #d0e8da;
+}
+.world-card-mode.creative {
+  background: rgba(255, 214, 10, 0.22);
+  color: #ffe566;
+}
+.world-card-mode.easy {
+  background: rgba(125, 255, 160, 0.18);
+  color: #9dffb8;
+}
+.world-card-mode.normal {
+  background: rgba(90, 158, 212, 0.22);
+  color: #9ec5e8;
+}
+.world-card-mode.hard {
+  background: rgba(255, 100, 80, 0.2);
+  color: #ffb0a0;
+}
+.world-card-meta {
+  display: block;
+  font-size: 0.68rem;
   color: var(--muted);
   font-weight: 600;
-  line-height: 1.35;
+  line-height: 1.3;
+}
+
+.world-card-edit {
+  margin: 6px 10px 10px;
+  width: auto;
+  padding: 7px 10px;
+  border-radius: 8px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--line);
+  color: #e8fff0;
+}
+.world-card-edit:hover {
+  background: rgba(125, 255, 160, 0.14);
+  border-color: rgba(125, 255, 160, 0.35);
+}
+
+/* Create card (first tile, like Minecraft) */
+.world-card.create-card-tile {
+  border-style: dashed;
+  border-color: rgba(125, 255, 160, 0.4);
+  background: linear-gradient(180deg, rgba(40, 90, 55, 0.55), rgba(14, 36, 28, 0.92));
+  align-items: center;
+  justify-content: center;
+  min-height: 160px;
+  text-align: center;
+  padding: 16px 12px;
+}
+.world-card.create-card-tile .create-plus {
+  font-size: 2rem;
+  font-weight: 800;
+  color: #7dffa0;
+  line-height: 1;
+  margin-bottom: 8px;
+}
+.world-card.create-card-tile .create-label {
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #e8fff0;
+}
+.world-card.create-card-tile:hover,
+.world-card.create-card-tile.selected {
+  border-color: #7dffa0;
+  background: linear-gradient(180deg, rgba(50, 120, 70, 0.65), rgba(14, 36, 28, 0.95));
+}
+
+.mc-worlds-footer {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin-top: 8px;
+  padding-top: 4px;
+}
+.mc-worlds-footer .primary { margin-top: 0; }
+.mc-worlds-footer .secondary { margin-top: 8px; }
+
+/* Edit world panel */
+.edit-card {
+  width: min(380px, 100%);
+  text-align: left;
+}
+.edit-card .menu-title { text-align: center; }
+.edit-meta {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid var(--line);
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #d0e8da;
+  line-height: 1.4;
+}
+#inputEditSeed {
+  opacity: 0.95;
+  color: var(--mint);
+  font-variant-numeric: tabular-nums;
 }
 
 .gen-overlay {
@@ -536,11 +687,20 @@ body.landscape .options-card {
   justify-self: center;
   align-self: center;
 }
-body.landscape .worlds-card {
-  width: min(440px, 92%);
-  max-width: 480px;
+body.landscape .worlds-card,
+body.landscape .mc-worlds-panel {
+  width: min(720px, 96%);
+  max-width: 760px;
   margin: 0 auto;
   justify-self: center;
+}
+body.landscape .world-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  max-height: min(280px, 48vh);
+}
+body.landscape .edit-card {
+  width: min(420px, 92%);
 }
 body.landscape .create-card {
   width: min(560px, 94%);
