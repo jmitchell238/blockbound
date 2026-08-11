@@ -24,6 +24,7 @@ export {
 } from '../world/index.js';
 export {
   isRoofSolidId, isCaveOpenTile, isShelteredAir, caveAirColor,
+  inferCaveWallId, caveWallColor, normalizeWallId, wallNoise2D,
   skyLooksBlue, skyLooksGray,
 } from '../world/shelter.js';
 export { skyColors } from '../render/index.js';

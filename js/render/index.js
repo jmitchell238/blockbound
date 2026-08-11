@@ -11,9 +11,13 @@ import {
 } from '../world/index.js';
 import {
   isRoofSolidId, isCaveOpenTile, isShelteredAir, caveAirColor,
+  inferCaveWallId, caveWallColor, wallNoise2D, normalizeWallId,
 } from '../world/shelter.js';
 // re-export for tests / tooling
-export { isRoofSolidId, isCaveOpenTile, isShelteredAir, caveAirColor } from '../world/shelter.js';
+export {
+  isRoofSolidId, isCaveOpenTile, isShelteredAir, caveAirColor,
+  inferCaveWallId, caveWallColor, wallNoise2D, normalizeWallId,
+} from '../world/shelter.js';
 import { textures, getCubeTex, getTileTex, getSoftTex, getPlayerPose, getItemIcon } from '../textures/textures.js';
 import { drawEntities } from '../entities/draw.js';
 import { drawParticles } from '../particles/particles.js';
@@ -759,10 +763,36 @@ function dynamicEmitterBoost(fx, fy, emitters, now) {
   return Math.min(2.8, boost);
 }
 
+/** Cached ImageData for soft wall textures (sampled in cave backdrop). */
+const _wallTexCache = new Map();
+
+function getWallTexPixels(wallId) {
+  if (_wallTexCache.has(wallId)) return _wallTexCache.get(wallId);
+  let tex = null;
+  try {
+    tex = getSoftTex(wallId) || getTileTex(wallId);
+  } catch (_) { /* textures not ready */ }
+  if (!tex || !tex.width) {
+    _wallTexCache.set(wallId, null);
+    return null;
+  }
+  // Sample into a small canvas once
+  const S = Math.min(64, tex.width || 64);
+  const c = document.createElement('canvas');
+  c.width = S;
+  c.height = S;
+  const cctx = c.getContext('2d', { willReadFrequently: true });
+  cctx.imageSmoothingEnabled = false;
+  cctx.drawImage(tex, 0, 0, S, S);
+  const pix = { w: S, h: S, data: cctx.getImageData(0, 0, S, S).data };
+  _wallTexCache.set(wallId, pix);
+  return pix;
+}
+
 /**
- * Paint dark cave air over the sky for open cells that are sheltered
- * (below surface or under terrain roof). Open sky air stays transparent.
- * Colors stay near-black — never pale/white.
+ * Paint dug-out cave walls over the sky for sheltered open cells.
+ * Walls use the material that was there (dirt near surface, stone deeper,
+ * or neighbor majority) — textured when soft tiles are available, never sky-white.
  */
 function drawSmoothCaveBackdrop(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY, emitters, now) {
   const RES = 4;
@@ -785,6 +815,16 @@ function drawSmoothCaveBackdrop(ctx, world, cam, ts, startTX, startTY, tilesX, t
   const lctx = _caveLightCtx;
   const img = lctx.createImageData(bw, bh);
   const data = img.data;
+
+  // Per-tile wall id cache for this pass
+  const wallAt = new Map();
+  function wallIdAt(wx, tileY) {
+    const key = wx + ',' + tileY;
+    if (wallAt.has(key)) return wallAt.get(key);
+    const id = inferCaveWallId(world, wx, tileY);
+    wallAt.set(key, id);
+    return id;
+  }
 
   for (let j = 0; j < bh; j++) {
     for (let i = 0; i < bw; i++) {
@@ -809,10 +849,32 @@ function drawSmoothCaveBackdrop(ctx, world, cam, ts, startTX, startTY, tilesX, t
       const fl = emitterFlickerAt(fx, fy, emitters, now);
       if (dyn > 0.02) lvl = Math.min(15, lvl + dyn * (0.85 + 0.15 * fl));
 
-      const col = caveAirColor(lvl, 0.95 + 0.05 * fl);
-      data[p] = col.r;
-      data[p + 1] = col.g;
-      data[p + 2] = col.b;
+      const wallId = wallIdAt(wx, tileY);
+      const noise = wallNoise2D(fx * 3.1, fy * 3.1) * 2 - 1;
+      let r; let g; let b;
+
+      // Sample block texture when ready — real dirt/stone grain as backdrop
+      const pix = getWallTexPixels(wallId);
+      if (pix) {
+        const u = Math.floor((((fx % 1) + 1) % 1) * pix.w) % pix.w;
+        const v = Math.floor((((fy % 1) + 1) % 1) * pix.h) % pix.h;
+        const ti = (v * pix.w + u) * 4;
+        const t = Math.max(0, Math.min(15, lvl)) / 15;
+        const smooth = t * t * (3 - 2 * t);
+        // Walls stay dimmer than foreground blocks even at full light
+        const bri = (0.16 + 0.38 * Math.pow(smooth, 1.1)) * (0.95 + 0.05 * fl);
+        const grain = 1 + noise * 0.08;
+        r = Math.min(115, pix.data[ti] * bri * grain);
+        g = Math.min(110, pix.data[ti + 1] * bri * grain);
+        b = Math.min(105, pix.data[ti + 2] * bri * grain);
+      } else {
+        const col = caveWallColor(wallId, lvl, 0.95 + 0.05 * fl, noise);
+        r = col.r; g = col.g; b = col.b;
+      }
+
+      data[p] = r | 0;
+      data[p + 1] = g | 0;
+      data[p + 2] = b | 0;
       data[p + 3] = 255;
     }
   }

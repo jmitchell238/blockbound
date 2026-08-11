@@ -285,13 +285,58 @@ BB.setTile(caveWorld, treeX, treeSurf - 2, BB.BLOCK.WOOD);
 BB.setTile(caveWorld, treeX, treeSurf - 3, BB.BLOCK.LEAVES);
 ok(!BB.isShelteredAir(caveWorld, treeX, treeSurf - 1), 'tree/leaves overhead still outdoor (not sheltered)');
 
-// Cave air color never white — even at full light + max flicker
+// Wall material inference — dug air should look like surrounding stone/dirt
+ok(BB.normalizeWallId(BB.BLOCK.GRASS) === BB.BLOCK.DIRT, 'grass walls normalize to dirt');
+ok(BB.normalizeWallId(BB.BLOCK.STONE) === BB.BLOCK.STONE, 'stone stays stone');
+ok(BB.normalizeWallId(BB.BLOCK.TORCH) == null, 'torch is not a wall material');
+// Stone pocket → stone walls
+const stoneWall = BB.inferCaveWallId(caveWorld, cx, deepY);
+ok(stoneWall === BB.BLOCK.STONE, `stone pocket air walls are stone (got ${stoneWall})`);
+// Dirt-lined pocket near surface
+const dirtX = 160;
+const dirtSurf = caveWorld.surface[dirtX];
+const dirtY = dirtSurf + 2;
+for (let dy = -1; dy <= 1; dy++) {
+  for (let dx = -1; dx <= 1; dx++) {
+    BB.setTile(caveWorld, dirtX + dx, dirtY + dy, BB.BLOCK.DIRT);
+  }
+}
+BB.setTile(caveWorld, dirtX, dirtY, BB.BLOCK.AIR);
+const dirtWall = BB.inferCaveWallId(caveWorld, dirtX, dirtY);
+ok(dirtWall === BB.BLOCK.DIRT, `dirt pocket air walls are dirt (got ${dirtWall})`);
+// Deep with no neighbors → depth fallback to stone
+const deepX = 180;
+const deepSurf = caveWorld.surface[deepX];
+const veryDeep = Math.min(BB.WORLD_H - 5, deepSurf + 20);
+// clear a lone air cell with air neighbors but deep
+for (let dy = -2; dy <= 2; dy++) {
+  for (let dx = -2; dx <= 2; dx++) {
+    BB.setTile(caveWorld, deepX + dx, veryDeep + dy, BB.BLOCK.AIR);
+  }
+}
+// restore surface array depth meaning still deep
+const deepWall = BB.inferCaveWallId(caveWorld, deepX, veryDeep);
+ok(deepWall === BB.BLOCK.STONE, `deep air without solids → stone (got ${deepWall})`);
+
+// Material wall colors: stone is gray-ish, dirt is brown, never sky-white
+const stoneDark = BB.caveWallColor(BB.BLOCK.STONE, 0, 1, 0);
+const stoneLit = BB.caveWallColor(BB.BLOCK.STONE, 15, 1.1, 0);
+const dirtLit = BB.caveWallColor(BB.BLOCK.DIRT, 15, 1, 0);
+ok(stoneDark.sum < 70, `unlit stone wall dark (sum=${stoneDark.sum})`);
+ok(stoneLit.sum < 280, `lit stone wall not white (sum=${stoneLit.sum})`);
+ok(stoneLit.r <= 115 && stoneLit.g <= 110 && stoneLit.b <= 105, 'stone wall RGB hard-capped');
+ok(stoneLit.r >= stoneDark.r && stoneLit.g >= stoneDark.g, 'torch brightens stone wall');
+// Stone ≈ neutral gray (low chroma); dirt warmer (r > b)
+const stoneChroma = Math.max(stoneLit.r, stoneLit.g, stoneLit.b) - Math.min(stoneLit.r, stoneLit.g, stoneLit.b);
+ok(stoneChroma < 25, `stone wall low chroma/gray (chroma=${stoneChroma})`);
+ok(dirtLit.r > dirtLit.b + 5, `dirt wall is brownish (r=${dirtLit.r} b=${dirtLit.b})`);
+// Legacy caveAirColor still never white
 const dark = BB.caveAirColor(0, 1);
 const lit = BB.caveAirColor(15, 1.1);
-ok(dark.sum < 40, `unlit cave air very dark (sum=${dark.sum})`);
-ok(lit.sum < 80, `max-lit cave air still dim (sum=${lit.sum}, not white)`);
-ok(lit.r <= 30 && lit.g <= 24 && lit.b <= 18, 'cave air RGB hard-capped low');
-ok(lit.r >= dark.r && lit.g >= dark.g, 'torch light does brighten cave air slightly');
+ok(dark.sum < 70, `unlit cave air dark (sum=${dark.sum})`);
+ok(lit.sum < 280, `max-lit cave air not white (sum=${lit.sum})`);
+ok(lit.r >= dark.r, 'torch light brightens cave air');
+ok(typeof BB.wallNoise2D(1.5, 2.5) === 'number' && BB.wallNoise2D(1.5, 2.5) >= 0 && BB.wallNoise2D(1.5, 2.5) < 1, 'wall noise in 0..1');
 
 // lightToBrightness monotonic + soft
 const b0 = BB.lightToBrightness(0);
@@ -326,7 +371,8 @@ ok(nearL > 5, 'light spreads to adjacent cave air');
 const renSrc = fs.readFileSync(path.join(root, 'js/render/index.js'), 'utf8');
 ok(renSrc.includes('Always draw outdoor sky first') || renSrc.includes('sky.top'), 'renderer draws sky base');
 ok(!renSrc.includes("fillStyle = '#020106'") && !renSrc.includes("fillStyle = '#030208'"), 'no full-screen cave black mode');
-ok(renSrc.includes('isShelteredAir') && renSrc.includes('caveAirColor'), 'renderer uses shelter helpers');
+ok(renSrc.includes('isShelteredAir') && renSrc.includes('inferCaveWallId'), 'renderer uses material cave walls');
+ok(renSrc.includes('caveWallColor') || renSrc.includes('getWallTexPixels'), 'renderer paints material wall color/texture');
 // HUD must not lecture about weather
 ok(!renSrc.includes('🌧 Raining') && !renSrc.includes("'Explore'"), 'no weather HUD text');
 

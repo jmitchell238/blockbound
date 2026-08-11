@@ -46,26 +46,122 @@ export function isShelteredAir(world, wx, fromY) {
 }
 
 /**
- * RGB for cave open-air fill given 0–15 light and optional flicker (0.9–1.1).
- * Hard-capped dim warm brown — NEVER pale/white.
+ * Map a solid block to the wall material that should appear behind dug air.
+ * Grass → dirt; ores stay as themselves (dark flecks) or fold into stone.
  */
-export function caveAirColor(lightLevel, flicker) {
-  const voidR = 2, voidG = 2, voidB = 5;
-  const litR = 22, litG = 16, litB = 10;
+export function normalizeWallId(id) {
+  if (id == null || id === BLOCK.AIR) return null;
+  if (id === BLOCK.GRASS) return BLOCK.DIRT;
+  if (id === BLOCK.SNOW) return BLOCK.DIRT; // snow surface walls still earthy
+  if (id === BLOCK.LAVA || id === BLOCK.BEDROCK) return BLOCK.STONE;
+  if (id === BLOCK.WATER || id === BLOCK.LEAVES || id === BLOCK.WOOD) return null;
+  if (id === BLOCK.TORCH || id === BLOCK.LANTERN || id === BLOCK.LADDER) return null;
+  if (id === BLOCK.CAMPFIRE || id === BLOCK.GLASS || id === BLOCK.PLATFORM) return null;
+  if (id === BLOCK.DOOR || id === BLOCK.BED || id === BLOCK.CHEST) return null;
+  if (id === BLOCK.WORKBENCH || id === BLOCK.FURNACE) return null;
+  // Terrain / built solids that read as cave walls
+  if (id === BLOCK.DIRT || id === BLOCK.STONE || id === BLOCK.SAND
+    || id === BLOCK.CLAY || id === BLOCK.COAL || id === BLOCK.IRON
+    || id === BLOCK.GOLD || id === BLOCK.COPPER || id === BLOCK.PLANKS
+    || id === BLOCK.BRICK) {
+    return id;
+  }
+  const m = BLOCK_META[id];
+  if (m && m.solid && m.color) return id;
+  return null;
+}
+
+/**
+ * Infer what material the dug-out wall should show at (wx, y).
+ * Prefers neighboring solids (what you actually mined through),
+ * then falls back to depth band matching world gen (dirt near surface, stone deeper).
+ */
+export function inferCaveWallId(world, wx, y) {
+  y = Math.floor(y);
+  const counts = Object.create(null);
+  let best = null;
+  let bestN = 0;
+
+  // Cardinal + diagonal neighbors, then one tile further on cardinals
+  const offsets = [
+    [1, 0], [-1, 0], [0, 1], [0, -1],
+    [1, 1], [1, -1], [-1, 1], [-1, -1],
+    [2, 0], [-2, 0], [0, 2], [0, -2],
+  ];
+  for (let i = 0; i < offsets.length; i++) {
+    const [dx, dy] = offsets[i];
+    const id = getTile(world, wx + dx, y + dy);
+    const wall = normalizeWallId(id);
+    if (wall == null) continue;
+    // Closer neighbors weigh more
+    const w = (Math.abs(dx) + Math.abs(dy) <= 1) ? 3 : (Math.abs(dx) <= 1 && Math.abs(dy) <= 1) ? 2 : 1;
+    counts[wall] = (counts[wall] || 0) + w;
+    if (counts[wall] > bestN) {
+      bestN = counts[wall];
+      best = wall;
+    }
+  }
+  if (best != null && bestN >= 2) return best;
+
+  // Depth fallback — mirrors generateWorld layers
+  const surf = (world.surface && world.surface[wx] != null) ? world.surface[wx] : SURFACE_Y;
+  const depth = y - surf;
+  const bio = world.biome ? world.biome[wx] : 0;
+  if (depth < 5) {
+    if (bio === 1) return BLOCK.SAND;
+    return BLOCK.DIRT;
+  }
+  return BLOCK.STONE;
+}
+
+function parseHexRgb(hex) {
+  if (!hex || hex[0] !== '#') return { r: 80, g: 84, b: 90 };
+  const n = parseInt(hex.slice(1), 16);
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+}
+
+/**
+ * Dim wall color for cave open-air fill, tinted by material.
+ * Walls stay clearly darker than foreground blocks — never pale/white sky.
+ * @param {number} wallId BLOCK id
+ * @param {number} lightLevel 0–15
+ * @param {number} [flicker=1]
+ * @param {number} [noise=0] -1…1 grain
+ */
+export function caveWallColor(wallId, lightLevel, flicker, noise) {
+  const meta = BLOCK_META[wallId] || BLOCK_META[BLOCK.STONE];
+  const base = parseHexRgb(meta.color || '#7a7f88');
   const fl = flicker != null ? flicker : 1;
   const t = Math.max(0, Math.min(15, Number(lightLevel) || 0)) / 15;
   const smooth = t * t * (3 - 2 * t);
-  const bri = Math.pow(smooth, 1.25);
-  const r = Math.min(litR, (voidR + (litR - voidR) * bri) * fl);
-  const g = Math.min(litG, (voidG + (litG - voidG) * bri) * fl);
-  const b = Math.min(litB, (voidB + (litB - voidB) * bri));
+  // Unlit walls ~14% of material; fully lit walls ~48% — still clearly "wall" not sky
+  const bri = (0.14 + 0.34 * Math.pow(smooth, 1.1)) * fl;
+  const n = noise != null ? noise : 0;
+  const grain = 1 + n * 0.12; // subtle speckles
+  // Slight warm lift near light so torch doesn't turn stone green-gray wrong
+  const warm = smooth * 0.06;
+  let r = base.r * bri * grain + warm * 18;
+  let g = base.g * bri * grain + warm * 10;
+  let b = base.b * bri * grain;
+  // Hard cap — never approach white/sky
+  r = Math.min(115, Math.max(0, r));
+  g = Math.min(110, Math.max(0, g));
+  b = Math.min(105, Math.max(0, b));
   return {
     r: r | 0,
     g: g | 0,
     b: b | 0,
-    /** Channel sum — must stay well below “white” (~765) */
     sum: (r | 0) + (g | 0) + (b | 0),
+    wallId: wallId || BLOCK.STONE,
   };
+}
+
+/**
+ * Legacy flat cave air (stone-tinted). Prefer caveWallColor + inferCaveWallId.
+ * Kept so older call sites / tests stay stable on "never white".
+ */
+export function caveAirColor(lightLevel, flicker) {
+  return caveWallColor(BLOCK.STONE, lightLevel, flicker, 0);
 }
 
 /** Rough “is this sky color blue-ish by day?” helper for tests. */
@@ -89,4 +185,10 @@ export function skyLooksGray(hex) {
   const max = Math.max(r, g, b);
   const min = Math.min(r, g, b);
   return max - min < 45; // low chroma
+}
+
+/** Cheap 0–1 hash for wall grain (stable per world pixel). */
+export function wallNoise2D(x, y) {
+  const n = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
+  return n - Math.floor(n);
 }
