@@ -1181,21 +1181,46 @@ export function drawChestPanel(ctx, inv, ui) {
   ctx.fillText(ui.invPick ? 'Tap a slot to move there · tap again to cancel' : 'Tap item to pick up · ⚒ to close', W / 2, py + ph - 14);
 }
 
-/** Creative mode: catalog + full inventory (hotbar & backpack). */
+/**
+ * Creative mode: catalog + full inventory, non-overlapping zones.
+ * Landscape: catalog LEFT | inventory RIGHT
+ * Portrait:  catalog TOP  | inventory BOTTOM
+ */
 export function drawCreativePanel(ctx, inv, ui) {
   const landscape = W > H;
-  const pw = Math.min(landscape ? 560 : 360, W - 16);
-  const ph = Math.min(landscape ? Math.min(H - 12, 380) : Math.min(H - 16, 620), H - 12);
-  const px = (W - pw) / 2;
-  const py = Math.max(4, (H - ph) / 2);
+  const cell = landscape ? 34 : 36;
+  const gap = 5;
+  const pad = 12;
+  const headerH = 52;
+  const footerH = 22;
+  const scrollH = 28;
+
+  // Inventory block needs: title + hotbar + bag label + 4 bag rows
+  const bagCols = 6;
+  const bagRows = Math.ceil(BAG_SIZE / bagCols); // 4
+  const invInnerH = 18 + cell + 18 + bagRows * (cell + gap) + 8;
+
+  let pw, ph, px, py;
+  if (landscape) {
+    pw = Math.min(720, W - 20);
+    ph = Math.min(H - 16, Math.max(320, invInnerH + headerH + footerH + 24));
+    px = (W - pw) / 2;
+    py = Math.max(6, (H - ph) / 2);
+  } else {
+    pw = Math.min(360, W - 16);
+    // Catalog gets at least 3 rows, inv gets full backpack
+    const catMinH = scrollH + 3 * (cell + gap) + 16;
+    ph = Math.min(H - 16, headerH + catMinH + 12 + invInnerH + footerH + 16);
+    px = (W - pw) / 2;
+    py = Math.max(4, (H - ph) / 2);
+  }
+
   ui.creativeHit = [];
 
-  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
   ctx.fillRect(0, 0, W, H);
 
-  // Whole panel is a "void" drop target (delete held items)
-  ui.creativeHit.push({ kind: 'void', x: px, y: py, w: pw, h: ph });
-
+  // Panel chrome
   ctx.fillStyle = 'rgba(12, 28, 22, 0.98)';
   roundRect(ctx, px, py, pw, ph, 18);
   ctx.fill();
@@ -1203,72 +1228,125 @@ export function drawCreativePanel(ctx, inv, ui) {
   ctx.lineWidth = 2;
   ctx.stroke();
 
+  // Void target = full panel (hit-tested last / under controls)
+  ui.creativeHit.push({ kind: 'void', x: px, y: py, w: pw, h: ph });
+
+  // Header
   ctx.fillStyle = '#7dffa0';
   ctx.font = '700 17px system-ui';
   ctx.textAlign = 'left';
-  ctx.fillText('✦ Creative', px + 16, py + 26);
+  ctx.fillText('✦ Creative', px + 16, py + 24);
 
-  const closeX = px + pw - 44;
+  const closeX = px + pw - 42;
   ctx.fillStyle = 'rgba(255,255,255,0.1)';
-  roundRect(ctx, closeX, py + 8, 32, 32, 10);
+  roundRect(ctx, closeX, py + 8, 30, 30, 10);
   ctx.fill();
   ctx.fillStyle = '#fff';
-  ctx.font = '700 16px system-ui';
+  ctx.font = '700 15px system-ui';
   ctx.textAlign = 'center';
-  ctx.fillText('✕', closeX + 16, py + 30);
-  ui.creativeHit.push({ kind: 'close', x: closeX, y: py + 8, w: 32, h: 32 });
+  ctx.fillText('✕', closeX + 15, py + 28);
+  ui.creativeHit.push({ kind: 'close', x: closeX, y: py + 8, w: 30, h: 30 });
 
   ctx.fillStyle = '#9ec5b0';
-  ctx.font = '11px system-ui';
+  ctx.font = '10px system-ui';
   ctx.textAlign = 'left';
-  ctx.fillText('Hover for names · drag or click-click · dbl-click moves', px + 16, py + 46);
+  ctx.fillText('Hover for names · drag · dbl-click moves · drop here to delete', px + 16, py + 42);
 
+  // ——— Zone rectangles (no overlap) ———
+  const bodyTop = py + headerH;
+  const bodyBot = py + ph - footerH;
+  const bodyH = bodyBot - bodyTop;
+
+  let catX, catY, catW, catH;
+  let invX, invY, invW, invH;
+
+  if (landscape) {
+    // Split ~55% catalog / 45% inventory
+    const split = Math.floor(pw * 0.55);
+    catX = px + pad;
+    catY = bodyTop;
+    catW = split - pad * 1.5;
+    catH = bodyH;
+    invX = px + split + 4;
+    invY = bodyTop;
+    invW = pw - split - pad - 4;
+    invH = bodyH;
+
+    // Divider
+    ctx.strokeStyle = 'rgba(125,255,160,0.3)';
+    ctx.beginPath();
+    ctx.moveTo(px + split, bodyTop + 4);
+    ctx.lineTo(px + split, bodyBot - 4);
+    ctx.stroke();
+  } else {
+    // Stack: catalog top, inventory bottom (inventory height fixed)
+    invH = invInnerH;
+    invY = bodyBot - invH;
+    invX = px + pad;
+    invW = pw - pad * 2;
+    catX = px + pad;
+    catY = bodyTop;
+    catW = pw - pad * 2;
+    catH = invY - catY - 10;
+
+    // Divider
+    ctx.strokeStyle = 'rgba(125,255,160,0.3)';
+    ctx.beginPath();
+    ctx.moveTo(px + 12, invY - 5);
+    ctx.lineTo(px + pw - 12, invY - 5);
+    ctx.stroke();
+  }
+
+  // ——— CATALOG zone ———
   const catalog = creativeCatalog();
-  const cell = landscape ? 36 : 38;
-  const gap = 5;
-  const cols = landscape ? 10 : 8;
-  // Leave room for hotbar + bag at bottom
-  const invBlockH = cell + 14 + 4 * (cell + gap) + 52;
-  const catalogBottom = py + ph - invBlockH - 8;
-  const scrY = py + 54;
-  const rowsVisible = Math.max(3, Math.floor((catalogBottom - scrY - 36) / (cell + gap)));
-  const maxScroll = Math.max(0, Math.ceil(catalog.length / cols) - rowsVisible);
-  const scroll = Math.max(0, Math.min(maxScroll, ui.creativeScroll | 0));
-  ui.creativeScroll = scroll;
+  const catCols = Math.max(4, Math.floor((catW + gap) / (cell + gap)));
+  const scrY = catY + 2;
 
-  // Scroll buttons
   ctx.fillStyle = 'rgba(125,255,160,0.15)';
-  roundRect(ctx, px + 16, scrY, 64, 26, 8);
+  roundRect(ctx, catX, scrY, 56, scrollH - 2, 8);
   ctx.fill();
-  roundRect(ctx, px + 88, scrY, 64, 26, 8);
+  roundRect(ctx, catX + 62, scrY, 56, scrollH - 2, 8);
   ctx.fill();
   ctx.fillStyle = '#c8f5d8';
-  ctx.font = '600 11px system-ui';
+  ctx.font = '600 12px system-ui';
   ctx.textAlign = 'center';
-  ctx.fillText('▲', px + 48, scrY + 17);
-  ctx.fillText('▼', px + 120, scrY + 17);
-  ui.creativeHit.push({ kind: 'scroll', dir: -1, x: px + 16, y: scrY, w: 64, h: 26 });
-  ui.creativeHit.push({ kind: 'scroll', dir: 1, x: px + 88, y: scrY, w: 64, h: 26 });
+  ctx.fillText('▲', catX + 28, scrY + 17);
+  ctx.fillText('▼', catX + 90, scrY + 17);
+  ui.creativeHit.push({ kind: 'scroll', dir: -1, x: catX, y: scrY, w: 56, h: scrollH - 2 });
+  ui.creativeHit.push({ kind: 'scroll', dir: 1, x: catX + 62, y: scrY, w: 56, h: scrollH - 2 });
+
+  const gridTop = scrY + scrollH + 4;
+  const gridH = catY + catH - gridTop - 2;
+  const rowsVisible = Math.max(1, Math.floor((gridH + gap) / (cell + gap)));
+  const maxScroll = Math.max(0, Math.ceil(catalog.length / catCols) - rowsVisible);
+  const scroll = Math.max(0, Math.min(maxScroll, ui.creativeScroll | 0));
+  ui.creativeScroll = scroll;
 
   ctx.fillStyle = '#8899aa';
   ctx.font = '10px system-ui';
   ctx.textAlign = 'left';
+  const totalPages = Math.max(1, Math.ceil(catalog.length / catCols));
   ctx.fillText(
-    'Blocks ' + (scroll + 1) + '–' + Math.min(scroll + rowsVisible, Math.ceil(catalog.length / cols))
-      + ' / ' + Math.ceil(catalog.length / cols),
-    px + 164,
+    'Blocks ' + (scroll + 1) + '–' + Math.min(scroll + rowsVisible, totalPages) + ' / ' + totalPages,
+    catX + 128,
     scrY + 17
   );
 
-  const gridY = scrY + 32;
-  const start = scroll * cols;
-  const end = Math.min(catalog.length, start + cols * rowsVisible);
+  // Clip catalog so it never paints over inventory
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(catX - 1, gridTop - 1, catW + 2, gridH + 2);
+  ctx.clip();
+
+  const start = scroll * catCols;
+  const end = Math.min(catalog.length, start + catCols * rowsVisible);
   for (let i = start; i < end; i++) {
     const local = i - start;
-    const col = local % cols;
-    const row = Math.floor(local / cols);
-    const x = px + 14 + col * (cell + gap);
-    const y = gridY + row * (cell + gap);
+    const col = local % catCols;
+    const row = Math.floor(local / catCols);
+    const x = catX + col * (cell + gap);
+    const y = gridTop + row * (cell + gap);
+    if (y + cell > gridTop + gridH) break;
     const id = catalog[i];
     ctx.fillStyle = 'rgba(0,0,0,0.4)';
     roundRect(ctx, x, y, cell, cell, 8);
@@ -1276,26 +1354,26 @@ export function drawCreativePanel(ctx, inv, ui) {
     ctx.strokeStyle = 'rgba(255,255,255,0.12)';
     ctx.lineWidth = 1;
     ctx.stroke();
-    drawItemIcon(ctx, x + 4, y + 4, cell - 8, id);
+    drawItemIcon(ctx, x + 3, y + 3, cell - 6, id);
     ui.creativeHit.push({ kind: 'give', id, x, y, w: cell, h: cell });
   }
+  ctx.restore();
 
-  // ——— Player inventory (interactive) ———
-  const invTop = catalogBottom + 4;
-  ctx.strokeStyle = 'rgba(125,255,160,0.25)';
-  ctx.beginPath();
-  ctx.moveTo(px + 12, invTop);
-  ctx.lineTo(px + pw - 12, invTop);
-  ctx.stroke();
-
+  // ——— INVENTORY zone ———
   ctx.fillStyle = '#7dffa0';
   ctx.font = '700 12px system-ui';
   ctx.textAlign = 'left';
-  ctx.fillText('Your inventory', px + 16, invTop + 16);
+  ctx.fillText('Your inventory', invX, invY + 14);
 
-  const hy = invTop + 24;
+  // Hotbar — center within inv zone if wide enough
+  const hotbarW = HOTBAR_SIZE * (cell + 4) - 4;
+  let hy = invY + 22;
+  let hx = invX + Math.max(0, Math.floor((invW - hotbarW) / 2));
+  if (hx + hotbarW > invX + invW) hx = invX;
+
   for (let i = 0; i < HOTBAR_SIZE; i++) {
-    const x = px + 14 + i * (cell + 4);
+    const x = hx + i * (cell + 4);
+    if (x + cell > invX + invW + 2) break;
     const sel = ui.invPick && ui.invPick.from === 'hotbar' && ui.invPick.i === i;
     drawInvSlot(ctx, x, hy, cell, inv.hotbar[i], sel);
     ui.creativeHit.push({ kind: 'slot', from: 'hotbar', i, x, y: hy, w: cell, h: cell });
@@ -1304,28 +1382,34 @@ export function drawCreativePanel(ctx, inv, ui) {
   const used = bagUsed(inv);
   ctx.fillStyle = '#9ec5b0';
   ctx.font = '600 11px system-ui';
-  ctx.fillText('Backpack ' + used + '/' + BAG_SIZE, px + 16, hy + cell + 16);
+  ctx.fillText('Backpack ' + used + '/' + BAG_SIZE, invX, hy + cell + 16);
 
   const by = hy + cell + 22;
-  const bagCols = landscape ? 8 : 6;
+  const bagCell = cell;
+  const bagGap = gap;
+  // Fit as many bag columns as the inv zone allows (cap 6)
+  const fitBagCols = Math.min(bagCols, Math.max(4, Math.floor((invW + bagGap) / (bagCell + bagGap))));
   for (let i = 0; i < inv.bag.length; i++) {
-    const col = i % bagCols;
-    const row = Math.floor(i / bagCols);
-    const x = px + 14 + col * (cell + gap);
-    const y = by + row * (cell + gap);
-    if (y + cell > py + ph - 18) break;
+    const col = i % fitBagCols;
+    const row = Math.floor(i / fitBagCols);
+    const x = invX + col * (bagCell + bagGap);
+    const y = by + row * (bagCell + bagGap);
+    // Strictly stay inside inventory zone
+    if (y + bagCell > invY + invH - 4) break;
+    if (x + bagCell > invX + invW + 2) continue;
     const sel = ui.invPick && ui.invPick.from === 'bag' && ui.invPick.i === i;
-    drawInvSlot(ctx, x, y, cell, inv.bag[i], sel);
-    ui.creativeHit.push({ kind: 'slot', from: 'bag', i, x, y, w: cell, h: cell });
+    drawInvSlot(ctx, x, y, bagCell, inv.bag[i], sel);
+    ui.creativeHit.push({ kind: 'slot', from: 'bag', i, x, y, w: bagCell, h: bagCell });
   }
 
+  // Footer tip
   ctx.fillStyle = '#8899aa';
   ctx.font = '10px system-ui';
   ctx.textAlign = 'center';
   const tip = ui.invPick
     ? 'Click a slot to place · click catalog / empty to delete'
     : 'Click catalog to take · drag items · dbl-click hotbar↔bag';
-  ctx.fillText(tip, W / 2, py + ph - 10);
+  ctx.fillText(tip, px + pw / 2, py + ph - 8);
 }
 
 export function drawHoverTip(ctx, ui) {
