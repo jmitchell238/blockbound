@@ -7,7 +7,7 @@ import { BLOCK, BLOCK_META, isPlatform } from '../content/blocks.js';
 import { TOOLS, FOOD, isTool, isFood, isWeapon } from '../content/tools.js';
 import { itemName, isBlockItem } from '../content/items.js';
 import {
-  wrapX, getTile, getLight, getRenderLight, lightToBrightness, isSolid, biomeNameAt,
+  wrapX, wrapDeltaX, getTile, getLight, getRenderLight, lightToBrightness, isSolid, biomeNameAt,
 } from '../world/index.js';
 import { textures, getCubeTex, getTileTex, getSoftTex, getPlayerPose, getItemIcon } from '../textures/textures.js';
 import { drawEntities } from '../entities/draw.js';
@@ -900,6 +900,27 @@ const ITEM_GRIP = {
   copper_ingot: { gx: 0.50, gy: 0.53 },
 };
 
+/**
+ * Aim from player chest toward the block being mined.
+ * World y increases downward. Returns local aim after facing flip:
+ *   ang = 0 forward, negative = up, positive = down.
+ */
+function getMiningAim(p) {
+  if (!p.mining || p.mining.tx == null || p.mining.ty == null) return null;
+  const chestY = p.y - p.h * 0.55;
+  const dx = wrapDeltaX(p.x, p.mining.tx + 0.5);
+  const dy = (p.mining.ty + 0.5) - chestY;
+  const face = p.facing >= 0 ? 1 : -1;
+  // After scale(-1) for left face, +X is always "forward"
+  let lx = dx * face;
+  // Straight above/below: keep a tiny forward component so atan2 is stable
+  if (lx < 0.08) lx = 0.08;
+  const ly = dy;
+  const ang = Math.atan2(ly, lx);
+  const len = Math.hypot(dx, dy) || 1;
+  return { dx, dy, lx, ly, ang, len };
+}
+
 export function drawPlayer(ctx, p, cam, ts, inv) {
   const sx = (p.x - cam.x) * ts + W / 2;
   const sy = (p.y - cam.y) * ts + H / 2;
@@ -907,6 +928,7 @@ export function drawPlayer(ctx, p, cam, ts, inv) {
   const ph = p.h * ts;
   const walking = p.onGround && Math.abs(p.vx) > 0.25 && !p.crouching;
   const run = Math.min(1, Math.abs(p.vx) / 4);
+  const mineAim = getMiningAim(p);
 
   ctx.save();
   if (p.invuln > 0 && Math.floor(p.invuln * 20) % 2 === 0) {
@@ -941,6 +963,12 @@ export function drawPlayer(ctx, p, cam, ts, inv) {
   // Face +X locally; flip whole character (and held item) when facing left
   if (p.facing < 0) ctx.scale(-1, 1);
 
+  // Lean body toward the mined block (look up / down / forward)
+  if (mineAim) {
+    const lean = Math.max(-0.42, Math.min(0.42, mineAim.ang * 0.38));
+    ctx.rotate(lean);
+  }
+
   if (img) {
     // Fixed draw size for ALL frames so jump/mine never shrink the character.
     // Original hero sprites are 96×176 with feet on the bottom edge.
@@ -957,8 +985,8 @@ export function drawPlayer(ctx, p, cam, ts, inv) {
     ctx.fill();
   }
 
-  // Pin selected hotbar item to this frame's hand tip via tool-handle grip
-  drawHeldItem(ctx, p, inv, drawW, drawH, pose.key);
+  // Pin selected hotbar item to hand; swing toward mine target when mining
+  drawHeldItem(ctx, p, inv, drawW, drawH, pose.key, mineAim);
 
   ctx.restore();
   ctx.restore();
@@ -982,15 +1010,16 @@ function itemGrip(id) {
 /**
  * Draw the selected hotbar item with its handle grip pinned to the pose hand tip.
  * Origin is feet; character faces +X (caller flips for left).
+ * When mineAim is set, arm + tool swing toward the mined block (up/down/forward).
  */
-function drawHeldItem(ctx, p, inv, drawW, drawH, poseKey) {
+function drawHeldItem(ctx, p, inv, drawW, drawH, poseKey, mineAim) {
   if (!inv || p.inBoat) return;
   const slot = inv.hotbar && inv.hotbar[inv.selected];
   if (!slot || slot.id == null || slot.id === 'hand') return;
 
   const id = slot.id;
   const walking = p.onGround && Math.abs(p.vx) > 0.25 && !p.crouching;
-  const mining = !!(p.mining && p.mining.progress != null);
+  const mining = !!(mineAim && p.mining);
   const swinging = (p.attackT || 0) > 0;
   const tool = isTool(id);
   const weapon = isWeapon(id);
@@ -998,66 +1027,84 @@ function drawHeldItem(ctx, p, inv, drawW, drawH, poseKey) {
   const isPickOrAxe = tool && (sid.indexOf('pick') >= 0 || sid.indexOf('axe') >= 0);
   const isShovel = tool && sid.indexOf('shovel') >= 0;
 
-  // Base hand from current body frame (walk/idle/jump/crouch)
-  let hand = handTipDraw(poseKey || 'idle', drawW, drawH);
+  let handX;
+  let handY;
+  let angle;
 
-  // During mine/attack, blend toward the action-pose hand (from baked sprites)
-  let actionKey = null;
-  if (mining) actionKey = isShovel ? 'shovel' : 'mine';
-  else if (swinging) actionKey = weapon ? 'sword' : (isShovel ? 'shovel' : 'mine');
-
-  if (actionKey) {
-    const target = handTipDraw(actionKey, drawW, drawH);
-    let blend = 1;
-    if (swinging) {
-      // Attack wind-up peels hand toward strike pose
-      const atk = Math.min(1, (p.attackT || 0) / 0.22);
-      blend = Math.sin((1 - atk) * Math.PI); // 0 → 1 → 0
-    } else if (mining) {
-      const t = (p.mining.progress || 0) * 9;
-      blend = 0.55 + 0.45 * Math.abs(Math.sin(t));
-    }
-    hand = {
-      x: hand.x + (target.x - hand.x) * blend,
-      y: hand.y + (target.y - hand.y) * blend,
-    };
-  }
-
-  // Rest angles (canvas: + = clockwise). Icons have handles near bottom;
-  // clockwise tips the blade forward (+X) so it stays out of the head.
-  let angle = 0.35;
-  if (weapon) angle = 0.70;
-  else if (isPickOrAxe) angle = 0.55;
-  else if (isShovel) angle = 0.85;
-  else if (tool) angle = 0.50;
-  else angle = 0.15; // block / food
-
-  if (walking && !mining && !swinging) {
-    // Subtle walk bob already in hand tip; tiny angle wiggle
-    angle += Math.sin((p.anim || 0) * 2.2) * 0.12;
-  }
   if (mining) {
-    const t = (p.mining.progress || 0) * 9;
-    // Raise (less clockwise) then strike forward (more clockwise)
-    angle = 0.15 + Math.sin(t) * 0.95;
-  } else if (swinging) {
-    const atk = Math.min(1, (p.attackT || 0) / 0.22);
-    const swing = Math.sin((1 - atk) * Math.PI);
-    angle = 0.2 + swing * 1.15;
+    // Shoulder pivot → arm extends toward mined tile; chop swings along that ray
+    const shoulderX = drawW * 0.06;
+    const shoulderY = -drawH * 0.56;
+    const armLen = drawH * 0.40;
+    const aim = mineAim.ang; // 0 forward, -up, +down
+    const t = (p.mining.progress || 0) * 10;
+    // -1 = wound up (pulled back), +1 = strike (fully extended toward target)
+    const strike = Math.sin(t);
+    const reach = armLen * (0.52 + 0.48 * (0.5 + 0.5 * strike));
+    // Wind-up is opposite the aim a bit (raise behind), strike along aim
+    const windAng = aim - 0.85 + strike * 0.95;
+    const dirX = Math.cos(windAng);
+    const dirY = Math.sin(windAng);
+    handX = shoulderX + dirX * reach;
+    handY = shoulderY + dirY * reach;
+
+    // Icon tip points along -Y at angle 0 → aim tip at (cos a, sin a) needs:
+    // rotate θ where tip dir (sin θ, -cos θ) = (cos aim, sin aim)
+    // ⇒ θ = atan2(cos(aim), -sin(aim))
+    const tipAng = Math.atan2(Math.cos(aim), -Math.sin(aim));
+    // Extra chop rotation along the swing
+    angle = tipAng + strike * 0.55;
+  } else {
+    // Base hand from current body frame (walk/idle/jump/crouch)
+    let hand = handTipDraw(poseKey || 'idle', drawW, drawH);
+
+    // Attack: blend toward sword/mine hand pose
+    if (swinging) {
+      const actionKey = weapon ? 'sword' : (isShovel ? 'shovel' : 'mine');
+      const target = handTipDraw(actionKey, drawW, drawH);
+      const atk = Math.min(1, (p.attackT || 0) / 0.22);
+      const blend = Math.sin((1 - atk) * Math.PI);
+      hand = {
+        x: hand.x + (target.x - hand.x) * blend,
+        y: hand.y + (target.y - hand.y) * blend,
+      };
+    }
+
+    handX = hand.x;
+    handY = hand.y;
+
+    // Rest angles (canvas: + = clockwise). Icons have handles near bottom.
+    angle = 0.35;
+    if (weapon) angle = 0.70;
+    else if (isPickOrAxe) angle = 0.55;
+    else if (isShovel) angle = 0.85;
+    else if (tool) angle = 0.50;
+    else angle = 0.15;
+
+    if (walking && !swinging) {
+      angle += Math.sin((p.anim || 0) * 2.2) * 0.12;
+    }
+    if (swinging) {
+      const atk = Math.min(1, (p.attackT || 0) / 0.22);
+      const swing = Math.sin((1 - atk) * Math.PI);
+      angle = 0.2 + swing * 1.15;
+    }
   }
 
   // World size of the icon
   let size = drawH * 0.30;
   if (weapon) size = drawH * 0.36;
-  else if (isPickOrAxe) size = drawH * 0.34;
+  else if (isPickOrAxe) size = drawH * 0.36;
   else if (isShovel) size = drawH * 0.34;
   else if (tool) size = drawH * 0.32;
-  else size = drawH * 0.26; // blocks / food
+  else size = drawH * 0.26;
+
+  if (mining) size *= 1.08;
 
   const grip = itemGrip(id);
 
   ctx.save();
-  ctx.translate(hand.x, hand.y);
+  ctx.translate(handX, handY);
   ctx.rotate(angle);
   ctx.imageSmoothingEnabled = false;
 

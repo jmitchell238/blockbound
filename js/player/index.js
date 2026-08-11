@@ -224,6 +224,11 @@ export function updatePlayer(p, world, input, dt, toolPower) {
           p.mining = { tx: wrapX(tx), ty, progress: 0, need };
         }
         p.mining.progress += dt;
+        // Face the block being mined (look left/right toward it)
+        const aimDx = wrapDeltaX(p.x, p.mining.tx + 0.5);
+        if (Math.abs(aimDx) > 0.12) {
+          p.facing = aimDx > 0 ? 1 : -1;
+        }
         if (p.mining.progress >= p.mining.need) {
           const drop = meta.drops;
           setTile(world, tx, ty, BLOCK.AIR);
