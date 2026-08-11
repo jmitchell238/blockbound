@@ -1,5 +1,6 @@
 export {
   makeWorldMeta, isDoorOpen, toggleDoor, getChest, removeChest,
+  setTorchFacing, getTorchFacing, clearTorchFacing,
   serializeMeta, deserializeMeta,
 } from './meta.js';
 export {

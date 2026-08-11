@@ -22,6 +22,7 @@ import {
   makeWorldMeta, getChest, removeChest, nearInteract, isDoorOpen, toggleDoor,
   tryEat, trySleep, tryBucket, tryMountBoat, tryDismountBoat,
   unlockMilestone, recipesInTab, stationAvailable, missingMaterials, stationHint,
+  setTorchFacing, clearTorchFacing,
 } from '../interact/index.js';
 import {
   makeEntityState, seedCritters, deserializeEntities, updateDrops, updateCritters,
@@ -364,6 +365,9 @@ export function gameUpdate(dt) {
     if (result.mined.id === BLOCK.DOOR) {
       delete world.meta.openDoors[tileKey(result.mined.tx, result.mined.ty)];
     }
+    if (result.mined.id === BLOCK.TORCH) {
+      clearTorchFacing(world.meta, result.mined.tx, result.mined.ty);
+    }
     if (dropId != null) {
       spawnDrop(ents, result.mined.tx + 0.5, result.mined.ty + 0.5, dropId, dropN);
     }
@@ -417,7 +421,10 @@ export function gameUpdate(dt) {
         spawnBurst(s.particles, bx + 0.5, by + 0.5, (m && m.color) || '#fff', 5);
         if (slot.id === BLOCK.BED) unlockMilestone(world.meta, stats, ui, 'first_bed');
         if (slot.id === BLOCK.FURNACE) unlockMilestone(world.meta, stats, ui, 'first_furnace');
-        if (slot.id === BLOCK.TORCH) unlockMilestone(world.meta, stats, ui, 'first_torch');
+        if (slot.id === BLOCK.TORCH) {
+          unlockMilestone(world.meta, stats, ui, 'first_torch');
+          setTorchFacing(world.meta, bx, by, placed.attach || 'floor');
+        }
         if (slot.id === BLOCK.CAMPFIRE) unlockMilestone(world.meta, stats, ui, 'first_campfire');
         if (slot.id === BLOCK.PLATFORM) unlockMilestone(world.meta, stats, ui, 'first_platform');
         if (slot.id === BLOCK.CHEST) getChest(world.meta, bx, by);

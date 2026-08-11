@@ -344,7 +344,7 @@ export function nearestTileX(playerX, tileX) {
 /**
  * When the player taps a solid block with an attachable item (torch, ladder, campfire),
  * place into the adjacent empty cell on the face toward the player.
- * @returns {{tx:number,ty:number}|null}
+ * @returns {{tx:number,ty:number,solidTx:number,solidTy:number}|null}
  */
 export function adjacentPlaceCell(p, world, solidTx, solidTy) {
   const scx = nearestTileX(p.x, solidTx) + 0.5;
@@ -374,9 +374,34 @@ export function adjacentPlaceCell(p, world, solidTx, solidTy) {
     if (t !== BLOCK.AIR && t !== BLOCK.WATER) continue;
     const dist = Math.hypot(wrapDeltaX(p.x, c.tx + 0.5), pcy - (c.ty + 0.5));
     if (dist > REACH) continue;
-    return c;
+    return { tx: c.tx, ty: c.ty, solidTx, solidTy };
   }
   return null;
+}
+
+/**
+ * Which face a torch is mounted on.
+ * @returns {'floor'|'ceil'|'left'|'right'}
+ */
+export function resolveTorchAttach(world, placeTx, placeTy, solidTx, solidTy) {
+  if (solidTx != null && solidTy != null) {
+    const dx = wrapDeltaX(solidTx + 0.5, placeTx + 0.5); // solid → torch
+    const dy = placeTy - solidTy;
+    if (Math.abs(dx) >= Math.abs(dy)) {
+      // solid left of torch → mount on left wall
+      return dx > 0 ? 'left' : 'right';
+    }
+    // solid above torch → hanging from ceiling
+    return dy > 0 ? 'ceil' : 'floor';
+  }
+  // Infer from neighbors (prefer walls so standing next to a wall looks mounted)
+  if (isSolid(world, placeTx - 1, placeTy)) return 'left';
+  if (isSolid(world, placeTx + 1, placeTy)) return 'right';
+  if (isSolid(world, placeTx, placeTy + 1) || isPlatform(getTile(world, placeTx, placeTy + 1))) {
+    return 'floor';
+  }
+  if (isSolid(world, placeTx, placeTy - 1)) return 'ceil';
+  return 'floor';
 }
 
 /** Non-solid attachables: tap a solid face to place against it (torch, ladder, campfire). */
@@ -402,12 +427,16 @@ export function tryPlace(p, world, tx, ty, blockId) {
   let placeTx = tx;
   let placeTy = ty;
   let cur = getTile(world, placeTx, placeTy);
+  let solidTx = null;
+  let solidTy = null;
 
   // Tap solid/occupied: attachables go on the face toward the player
   if (cur !== BLOCK.AIR && cur !== BLOCK.WATER) {
     if (!isAttachableBlock(blockId)) return false;
     const adj = adjacentPlaceCell(p, world, placeTx, placeTy);
     if (!adj) return false;
+    solidTx = adj.solidTx;
+    solidTy = adj.solidTy;
     placeTx = adj.tx;
     placeTy = adj.ty;
     cur = getTile(world, placeTx, placeTy);
@@ -437,7 +466,11 @@ export function tryPlace(p, world, tx, ty, blockId) {
 
   setTile(world, placeTx, placeTy, blockId);
   p.placeCooldown = 0.12;
-  return { tx: wrapX(placeTx), ty: placeTy };
+  const out = { tx: wrapX(placeTx), ty: placeTy };
+  if (blockId === BLOCK.TORCH) {
+    out.attach = resolveTorchAttach(world, placeTx, placeTy, solidTx, solidTy);
+  }
+  return out;
 }
 
 export function findSpawn(world, player) {

@@ -5,6 +5,8 @@ export function makeWorldMeta() {
     openDoors: Object.create(null),
     chests: Object.create(null),
     milestones: Object.create(null),
+    /** tileKey → 'floor'|'ceil'|'left'|'right' — wall torches angle off the mount */
+    torchFacing: Object.create(null),
   };
 }
 
@@ -31,11 +33,27 @@ export function removeChest(meta, x, y) {
   delete meta.openDoors[tileKey(x, y)];
 }
 
+/** @param {'floor'|'ceil'|'left'|'right'} facing */
+export function setTorchFacing(meta, x, y, facing) {
+  if (!meta.torchFacing) meta.torchFacing = Object.create(null);
+  meta.torchFacing[tileKey(x, y)] = facing || 'floor';
+}
+
+export function getTorchFacing(meta, x, y) {
+  if (!meta || !meta.torchFacing) return null;
+  return meta.torchFacing[tileKey(x, y)] || null;
+}
+
+export function clearTorchFacing(meta, x, y) {
+  if (meta && meta.torchFacing) delete meta.torchFacing[tileKey(x, y)];
+}
+
 export function serializeMeta(meta) {
   return {
     openDoors: Object.assign({}, meta.openDoors),
     chests: Object.assign({}, meta.chests),
     milestones: Object.assign({}, meta.milestones || {}),
+    torchFacing: Object.assign({}, meta.torchFacing || {}),
   };
 }
 
@@ -45,5 +63,6 @@ export function deserializeMeta(data) {
   if (data.openDoors) meta.openDoors = Object.assign(Object.create(null), data.openDoors);
   if (data.chests) meta.chests = Object.assign(Object.create(null), data.chests);
   if (data.milestones) meta.milestones = Object.assign(Object.create(null), data.milestones);
+  if (data.torchFacing) meta.torchFacing = Object.assign(Object.create(null), data.torchFacing);
   return meta;
 }

@@ -13,7 +13,7 @@ import { drawParticles } from '../particles/particles.js';
 import { HOTBAR_SIZE, BAG_SIZE, canCraft, bagUsed, countItem } from '../inventory/inventory.js';
 import {
   CRAFT_TABS, recipesInTab, missingMaterials, stationHint,
-  stationAvailable, getChest,
+  stationAvailable, getChest, getTorchFacing,
 } from '../interact/index.js';
 
 /**
@@ -127,12 +127,12 @@ export function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particl
       if (meta && !meta.solid && id !== BLOCK.WORKBENCH) {
         deferred.push({ sx, sy, id, dayMul, wx, ty, ao });
       } else {
-        drawBlock(ctx, sx, sy, ts, id, dayMul, wx, ty, ao);
+        drawBlock(ctx, sx, sy, ts, id, dayMul, wx, ty, ao, world);
       }
     }
   }
   for (const d of deferred) {
-    drawBlock(ctx, d.sx, d.sy, ts, d.id, d.dayMul, d.wx, d.ty, d.ao);
+    drawBlock(ctx, d.sx, d.sy, ts, d.id, d.dayMul, d.wx, d.ty, d.ao, world);
   }
 
   // Hover outline
@@ -332,7 +332,105 @@ export function isTerrainBlock(id) {
     || id === BLOCK.BRICK || id === BLOCK.WOOD;
 }
 
-export function drawBlock(ctx, sx, sy, ts, id, lightMul, wx, ty, ao) {
+/**
+ * Infer torch mount face from neighboring solids (for old saves without meta).
+ * Prefers walls so a torch next to a tree/wall angles off it.
+ */
+export function inferTorchFacing(world, tx, ty) {
+  if (!world) return 'floor';
+  const left = isSolid(world, tx - 1, ty);
+  const right = isSolid(world, tx + 1, ty);
+  const floor = isSolid(world, tx, ty + 1) || isPlatform(getTile(world, tx, ty + 1));
+  const ceil = isSolid(world, tx, ty - 1);
+  // Prefer walls over floor when both exist (the case in the user's screenshot)
+  if (left && !right) return 'left';
+  if (right && !left) return 'right';
+  if (left && right) return 'left';
+  if (floor) return 'floor';
+  if (ceil) return 'ceil';
+  return 'floor';
+}
+
+/** Procedural torch — upright on floor, angled off walls, hanging from ceiling. */
+export function drawTorchSprite(ctx, sx, sy, ts, facing, seed) {
+  const flicker = 0.62 + 0.38 * Math.sin(performance.now() / 85 + (seed || 0));
+  let baseX;
+  let baseY;
+  let tipX;
+  let tipY;
+
+  if (facing === 'left') {
+    // Mounted on left wall → stick angles up-right out of the wall
+    baseX = sx + ts * 0.1;
+    baseY = sy + ts * 0.62;
+    tipX = sx + ts * 0.68;
+    tipY = sy + ts * 0.22;
+  } else if (facing === 'right') {
+    // Mounted on right wall → stick angles up-left
+    baseX = sx + ts * 0.9;
+    baseY = sy + ts * 0.62;
+    tipX = sx + ts * 0.32;
+    tipY = sy + ts * 0.22;
+  } else if (facing === 'ceil') {
+    // Hanging from ceiling
+    baseX = sx + ts * 0.5;
+    baseY = sy + ts * 0.08;
+    tipX = sx + ts * 0.5;
+    tipY = sy + ts * 0.58;
+  } else {
+    // Floor / standing
+    baseX = sx + ts * 0.5;
+    baseY = sy + ts * 0.9;
+    tipX = sx + ts * 0.5;
+    tipY = sy + ts * 0.3;
+  }
+
+  // Stick
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = '#3d2812';
+  ctx.lineWidth = Math.max(2.5, ts * 0.14);
+  ctx.beginPath();
+  ctx.moveTo(baseX, baseY);
+  ctx.lineTo(tipX, tipY);
+  ctx.stroke();
+  ctx.strokeStyle = '#6b4420';
+  ctx.lineWidth = Math.max(1.8, ts * 0.1);
+  ctx.beginPath();
+  ctx.moveTo(baseX, baseY);
+  ctx.lineTo(tipX, tipY);
+  ctx.stroke();
+
+  // Ember band near tip
+  const midX = baseX * 0.25 + tipX * 0.75;
+  const midY = baseY * 0.25 + tipY * 0.75;
+  ctx.strokeStyle = '#8a4a18';
+  ctx.lineWidth = Math.max(2, ts * 0.12);
+  ctx.beginPath();
+  ctx.moveTo(midX, midY);
+  ctx.lineTo(tipX, tipY);
+  ctx.stroke();
+
+  // Flame core
+  ctx.fillStyle = '#ffcc44';
+  ctx.beginPath();
+  ctx.arc(tipX, tipY, ts * 0.15, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = `rgba(255, 240, 120, ${0.75 * flicker})`;
+  ctx.beginPath();
+  ctx.arc(tipX, tipY - ts * 0.03, ts * 0.09, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Soft glow
+  const g = ctx.createRadialGradient(tipX, tipY, 1, tipX, tipY, ts * 0.55);
+  g.addColorStop(0, `rgba(255, 170, 40, ${0.4 * flicker})`);
+  g.addColorStop(1, 'rgba(255, 120, 20, 0)');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(tipX, tipY, ts * 0.55, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+export function drawBlock(ctx, sx, sy, ts, id, lightMul, wx, ty, ao, world) {
   const m = BLOCK_META[id];
   if (!m || !m.color) return;
   ao = ao || 0;
@@ -401,21 +499,15 @@ export function drawBlock(ctx, sx, sy, ts, id, lightMul, wx, ty, ao) {
     ctx.fillRect(sx + 2, sy + 4 + wave, ts - 4, 3);
   }
   if (id === BLOCK.TORCH) {
-    if (face) ctx.drawImage(face, sx, sy, ts, ts);
-    else {
-      ctx.fillStyle = '#5a3a1a';
-      ctx.fillRect(sx + ts * 0.42, sy + ts * 0.4, ts * 0.16, ts * 0.5);
-      ctx.fillStyle = '#ffcc44';
-      ctx.beginPath();
-      ctx.arc(sx + ts * 0.5, sy + ts * 0.32, ts * 0.16, 0, Math.PI * 2);
-      ctx.fill();
+    // Prefer stored mount face; else infer from neighbors (walls → angled)
+    let facing = 'floor';
+    if (world && world.meta) {
+      facing = getTorchFacing(world.meta, wx, ty) || inferTorchFacing(world, wx, ty);
+    } else if (world) {
+      facing = inferTorchFacing(world, wx, ty);
     }
-    const flicker = 0.7 + 0.3 * Math.sin(performance.now() / 90 + wx);
-    ctx.globalAlpha = 0.35 * flicker;
-    ctx.fillStyle = '#ffaa33';
-    ctx.beginPath();
-    ctx.arc(sx + ts * 0.5, sy + ts * 0.3, ts * 0.55, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.globalAlpha = 1;
+    drawTorchSprite(ctx, sx, sy, ts, facing, wx * 3 + (ty || 0));
   }
   if (id === BLOCK.LADDER) {
     if (face) {
