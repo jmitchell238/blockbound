@@ -266,13 +266,12 @@ export async function loadTextures() {
     loadImage('assets/bg/clouds.png').then(img => { textures.clouds = img; }).catch(() => { textures.clouds = null; })
   );
   await Promise.all(jobs);
-  // Build walk array for convenience
-  textures.playerAnims.walk = [
-    textures.playerAnims.walk0 || textures.player,
-    textures.playerAnims.walk1 || textures.player,
-    textures.playerAnims.walk2 || textures.player,
-    textures.playerAnims.walk3 || textures.player,
-  ].filter(Boolean);
+  // Walk cycle: 0 / 1 / 2 are clean side-view strides; bounce back through
+  // mid (1) instead of walk3 (which was a front-facing / jump-ish pose).
+  const w0 = textures.playerAnims.walk0 || textures.player;
+  const w1 = textures.playerAnims.walk1 || w0;
+  const w2 = textures.playerAnims.walk2 || w0;
+  textures.playerAnims.walk = [w0, w1, w2, w1].filter(Boolean);
   textures.ready = true;
   return textures;
 }

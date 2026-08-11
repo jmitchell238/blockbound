@@ -9,7 +9,7 @@ import { itemName, isBlockItem } from '../content/items.js';
 import {
   wrapX, getTile, getLight, getRenderLight, lightToBrightness, isSolid, biomeNameAt,
 } from '../world/index.js';
-import { textures, getCubeTex, getTileTex, getSoftTex, getItemIcon } from '../textures/textures.js';
+import { textures, getCubeTex, getTileTex, getSoftTex, getPlayerFrame, getItemIcon } from '../textures/textures.js';
 import { drawEntities } from '../entities/draw.js';
 import { drawParticles } from '../particles/particles.js';
 import { HOTBAR_SIZE, BAG_SIZE, canCraft, bagUsed, countItem } from '../inventory/inventory.js';
@@ -859,221 +859,47 @@ export function drawPlayer(ctx, p, cam, ts, inv) {
     ctx.globalAlpha = 0.45;
   }
 
-  ctx.fillStyle = 'rgba(0,0,0,0.30)';
+  // Soft ground shadow
+  const shadowW = pw * (0.55 + run * 0.1);
+  ctx.fillStyle = 'rgba(0,0,0,0.28)';
   ctx.beginPath();
-  ctx.ellipse(sx, sy - 1, pw * (0.5 + run * 0.12), 4.2, 0, 0, Math.PI * 2);
+  ctx.ellipse(sx, sy - 1, shadowW, 4.5, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  if (p.inBoat) {
+  // Procedural boat under sprite if boat frame is missing
+  if (p.inBoat && !(textures.playerAnims && textures.playerAnims.boat)) {
     ctx.fillStyle = '#8b5a2b';
     ctx.beginPath();
-    ctx.ellipse(sx, sy - 4, pw * 1.15, 8, 0, 0, Math.PI * 2);
+    ctx.ellipse(sx, sy - 4, pw * 1.1, 8, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = '#c49a5a';
     ctx.fillRect(sx - pw * 0.9, sy - 10, pw * 1.8, 6);
   }
 
-  const footY = sy + (p.inBoat ? -6 : 0);
-  const drawH = ph * (p.crouching ? 0.88 : 1.05);
-  ctx.save();
-  ctx.translate(sx, footY);
-  if (p.facing < 0) ctx.scale(-1, 1);
-  drawHeroSide(ctx, p, drawH);
-  ctx.restore();
-
-  ctx.restore();
-}
-
-/**
- * Original Blockbound hero (orange hoodie, curly hair, jeans) —
- * side view, feet at origin, faces +X.
- * Limbs pivot from hips/shoulders for a real forward/back stride.
- */
-function drawHeroSide(ctx, p, H) {
-  const crouch = !!p.crouching;
-  const walking = p.onGround && Math.abs(p.vx) > 0.25 && !crouch;
-  const airborne = !p.onGround;
-  const mining = !!(p.mining && p.mining.progress > 0);
-  const swinging = (p.attackT || 0) > 0;
-
-  const sprint = p.sprinting ? 1.18 : 1;
-  const phase = p.anim * 2.55 * sprint;
-  const step = walking ? Math.sin(phase) : airborne ? 0.5 : 0;
-  const bob = walking ? Math.abs(Math.sin(phase)) * (H * 0.03) : 0;
-
-  // Slightly taller/softer proportions than pure Steve (matches original art)
-  const u = H / 34;
-  const headS = 9.2 * u;
-  const torsoH = (crouch ? 10 : 12.5) * u;
-  const torsoW = 9 * u;
-  const limbW = 3.8 * u;
-  const legH = (crouch ? 8 : 12.5) * u;
-  const armH = 12 * u;
-
-  const maxLeg = walking ? 0.78 : airborne ? 0.4 : 0.06;
-  const maxArm = walking ? 0.82 : 0.1;
-  const legA = step * maxLeg;
-  const legB = -step * maxLeg;
-  let armA = step * maxArm;
-  let armB = -step * maxArm;
-
-  if (mining || swinging) {
-    const t = mining ? p.mining.progress * 8 : (p.attackT || 0) * 14;
-    armB = -0.4 - Math.sin(t) * 1.2;
-  }
-
-  // Original character palette (orange hoodie boy)
-  const skin = '#e8b896';
-  const skinSh = '#d49a72';
-  const hoodie = '#e85d3a';
-  const hoodieSh = '#c44a2c';
-  const hoodieHi = '#f07855';
-  const jeans = '#3a5fad';
-  const jeansSh = '#2a4688';
-  const hair = '#6b4423';
-  const hairSh = '#4a2e16';
-  const hairHi = '#8a5a32';
-  const boot = '#3d2918';
-  const bootHi = '#5a3d24';
-
-  const hipY = -bob - legH;
-  const shoulderY = hipY - torsoH;
-  const headY = shoulderY - headS + u * 0.4;
-  const lean = walking ? step * 0.05 : 0;
-
-  function limb(px, py, angle, w, h, fill, isLeg) {
+  const img = getPlayerFrame(p, inv) || textures.player;
+  if (img) {
+    // Fixed draw size for ALL frames so jump/mine never shrink the character.
+    // Original hero sprites are 96×176 with feet on the bottom edge.
+    const drawH = ph * (p.crouching ? 0.92 : 1.12);
+    const drawW = drawH * (96 / 176);
+    const footY = sy + (p.inBoat ? -6 : 0);
     ctx.save();
-    ctx.translate(px, py);
-    ctx.rotate(angle);
-    ctx.fillStyle = fill;
-    // Slightly rounded look via double rect (blocky but soft edge)
-    ctx.fillRect(-w / 2, 0, w, h);
-    if (isLeg) {
-      // boot
-      ctx.fillStyle = boot;
-      ctx.fillRect(-w / 2 - u * 0.2, h - u * 1.5, w + u * 0.7, u * 1.65);
-      ctx.fillStyle = bootHi;
-      ctx.fillRect(-w / 2 - u * 0.1, h - u * 1.5, w + u * 0.35, u * 0.45);
-    } else {
-      // hand
-      ctx.fillStyle = skin;
-      ctx.fillRect(-w / 2 + u * 0.1, h - w * 0.92, w * 0.9, w * 0.9);
-    }
+    ctx.translate(sx, footY);
+    if (p.facing < 0) ctx.scale(-1, 1);
+    ctx.imageSmoothingEnabled = false; // crisp pixel art
+    ctx.drawImage(img, -drawW / 2, -drawH, drawW, drawH);
     ctx.restore();
+  } else {
+    // Minimal procedural fallback (orange hoodie)
+    const bob = walking ? Math.abs(Math.sin(p.anim * 2)) * 2 : 0;
+    const bodyTop = sy - ph + bob;
+    ctx.fillStyle = '#ee6c4d';
+    roundRect(ctx, sx - pw * 0.4, bodyTop + ph * 0.25, pw * 0.8, ph * 0.45, 3);
+    ctx.fill();
+    ctx.fillStyle = '#e8c49a';
+    roundRect(ctx, sx - pw * 0.35, bodyTop, pw * 0.7, ph * 0.28, 4);
+    ctx.fill();
   }
-
-  const farHipX = -limbW * 0.4;
-  const nearHipX = limbW * 0.4;
-  const farShX = -torsoW / 2 + limbW * 0.2;
-  const nearShX = torsoW / 2 - limbW * 0.2;
-
-  // FAR limbs (behind)
-  limb(farHipX, hipY, legA, limbW, legH, jeansSh, true);
-  limb(farShX, shoulderY, armA, limbW * 0.95, armH, hoodieSh, false);
-
-  // Torso / hoodie
-  ctx.save();
-  ctx.translate(0, hipY);
-  ctx.rotate(lean);
-  // hoodie body
-  ctx.fillStyle = hoodie;
-  ctx.fillRect(-torsoW / 2, -torsoH, torsoW, torsoH);
-  // shade
-  ctx.fillStyle = hoodieSh;
-  ctx.fillRect(torsoW / 2 - u * 1.6, -torsoH, u * 1.6, torsoH);
-  // hood/collar fold at top of torso
-  ctx.fillStyle = hoodieHi;
-  ctx.fillRect(-torsoW / 2, -torsoH, torsoW, u * 1.4);
-  ctx.fillStyle = hoodieSh;
-  ctx.fillRect(-torsoW / 2 + u * 0.5, -torsoH + u * 0.3, torsoW - u, u * 0.9);
-  // pocket
-  ctx.fillStyle = hoodieSh;
-  ctx.fillRect(-u * 1.6, -torsoH * 0.45, u * 3.2, u * 2.2);
-  // waist / jeans peek
-  ctx.fillStyle = jeans;
-  ctx.fillRect(-torsoW / 2 + u * 0.3, -u * 1.4, torsoW - u * 0.6, u * 1.5);
-  ctx.restore();
-
-  // NEAR limbs (front)
-  limb(nearHipX, hipY, legB, limbW, legH, jeans, true);
-  limb(nearShX, shoulderY, armB, limbW * 0.95, armH, hoodie, false);
-
-  // Tool while mining / attacking
-  if (mining || swinging) {
-    ctx.save();
-    ctx.translate(nearShX, shoulderY);
-    ctx.rotate(armB);
-    ctx.translate(0, armH * 0.9);
-    ctx.rotate(-0.4);
-    ctx.fillStyle = '#6b3f1a';
-    ctx.fillRect(-u * 0.55, -u * 0.3, u * 1.1, armH * 0.55);
-    ctx.fillStyle = '#9aa3ab';
-    ctx.fillRect(-u * 2.5, -u * 2.0, u * 5.0, u * 2.2);
-    ctx.fillStyle = '#6d757c';
-    ctx.fillRect(-u * 2.5, -u * 0.35, u * 5.0, u * 0.65);
-    ctx.restore();
-  }
-
-  // ── Head: original hero face (curly hair, friendly — not googly) ──
-  ctx.save();
-  ctx.translate(lean * torsoH * 0.35, 0);
-
-  // neck
-  ctx.fillStyle = skinSh;
-  ctx.fillRect(-u * 1.4, shoulderY - u * 0.8, u * 2.8, u * 1.2);
-
-  // face block (slightly rounded via layered rects)
-  ctx.fillStyle = skin;
-  ctx.fillRect(-headS / 2, headY, headS, headS * 0.95);
-  ctx.fillStyle = skinSh;
-  ctx.fillRect(headS / 2 - u * 1.3, headY + headS * 0.35, u * 1.3, headS * 0.5);
-
-  // ear
-  ctx.fillStyle = skinSh;
-  ctx.fillRect(-headS / 2 - u * 1.0, headY + headS * 0.36, u * 1.2, headS * 0.26);
-
-  // curly hair mass (messy top + side + fringe)
-  ctx.fillStyle = hair;
-  // main cap
-  ctx.fillRect(-headS / 2 - u * 0.4, headY - u * 1.2, headS + u * 0.8, headS * 0.42);
-  // curls / tufts
-  ctx.fillRect(-headS / 2 - u * 0.8, headY - u * 0.3, u * 2.2, u * 2.0);
-  ctx.fillRect(headS / 2 - u * 1.4, headY - u * 0.6, u * 2.0, u * 1.6);
-  ctx.fillRect(-u * 1.2, headY - u * 2.0, u * 2.4, u * 1.6);
-  ctx.fillRect(u * 0.4, headY - u * 1.8, u * 2.0, u * 1.4);
-  // side hair over ear
-  ctx.fillRect(-headS / 2 - u * 0.5, headY + headS * 0.2, u * 1.8, headS * 0.55);
-  // fringe
-  ctx.fillStyle = hairHi;
-  ctx.fillRect(-headS / 2 + u * 0.3, headY + u * 0.2, headS * 0.55, u * 1.3);
-  ctx.fillStyle = hairSh;
-  ctx.fillRect(-headS / 2 - u * 0.2, headY - u * 0.4, headS * 0.4, u * 1.8);
-
-  // Eyes — dark ovals like the original sprite (small, not googly white discs)
-  const eyeY = headY + headS * 0.42;
-  // white of eye (thin)
-  ctx.fillStyle = '#f4efe8';
-  ctx.fillRect(headS * 0.02, eyeY, headS * 0.32, headS * 0.2);
-  // iris / pupil
-  ctx.fillStyle = '#2a1a10';
-  ctx.fillRect(headS * 0.12, eyeY + u * 0.25, headS * 0.16, headS * 0.14);
-  // tiny specular
-  ctx.fillStyle = '#fff';
-  ctx.fillRect(headS * 0.2, eyeY + u * 0.35, u * 0.45, u * 0.4);
-
-  // brow
-  ctx.fillStyle = hairSh;
-  ctx.fillRect(headS * 0.0, eyeY - u * 0.55, headS * 0.34, u * 0.45);
-
-  // nose
-  ctx.fillStyle = skinSh;
-  ctx.fillRect(headS * 0.26, headY + headS * 0.54, headS * 0.16, headS * 0.12);
-
-  // small smile
-  ctx.fillStyle = '#b07050';
-  ctx.fillRect(headS * 0.04, headY + headS * 0.72, headS * 0.28, u * 0.55);
-  ctx.fillStyle = skin;
-  ctx.fillRect(headS * 0.06, headY + headS * 0.72, headS * 0.24, u * 0.28);
 
   ctx.restore();
 }
