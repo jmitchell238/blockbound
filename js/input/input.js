@@ -108,6 +108,7 @@ export function bindInput(input, canvas, getCam) {
     input.stickX = 0;
     input.stickY = 0;
     input.jump = false;
+    input._touchJump = false;
     input.pointerDown = false;
     input.holdMining = false;
     input.mineTx = null;
