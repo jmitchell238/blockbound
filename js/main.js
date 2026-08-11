@@ -57,8 +57,16 @@ function resizeCanvas() {
   document.body.classList.toggle('portrait', ORIENTATION === 'portrait');
 
   const scale = Math.min(vw / W, vh / H);
-  cv.style.width = Math.floor(W * scale) + 'px';
-  cv.style.height = Math.floor(H * scale) + 'px';
+  const cssW = Math.floor(W * scale);
+  const cssH = Math.floor(H * scale);
+  cv.style.width = cssW + 'px';
+  cv.style.height = cssH + 'px';
+  // Keep stage box in sync so absolute menu screens cover the full canvas and center correctly
+  const stage = document.getElementById('stage');
+  if (stage) {
+    stage.style.width = cssW + 'px';
+    stage.style.height = cssH + 'px';
+  }
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   cv.width = Math.floor(W * dpr);
   cv.height = Math.floor(H * dpr);
