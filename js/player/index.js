@@ -404,6 +404,36 @@ export function resolveTorchAttach(world, placeTx, placeTy, solidTx, solidTy) {
   return 'floor';
 }
 
+function hasHangSupport(world, tx, ty) {
+  // Ceiling / underside of block or platform above
+  return isSolid(world, tx, ty - 1) || isPlatform(getTile(world, tx, ty - 1));
+}
+
+function hasFloorSupport(world, tx, ty) {
+  return isSolid(world, tx, ty + 1) || isPlatform(getTile(world, tx, ty + 1));
+}
+
+/**
+ * Lanterns hang from something above, or sit on the floor.
+ * Prefer hang when both possible (especially when attaching under a solid).
+ * @returns {'hang'|'floor'|null} null = no valid support
+ */
+export function resolveLanternMode(world, placeTx, placeTy, solidTx, solidTy) {
+  const hang = hasHangSupport(world, placeTx, placeTy);
+  const floor = hasFloorSupport(world, placeTx, placeTy);
+  if (solidTx != null && solidTy != null) {
+    const dy = placeTy - solidTy;
+    // Placed under the solid we tapped → hang
+    if (dy > 0 && hang) return 'hang';
+    // Placed on top of solid → floor
+    if (dy < 0 && floor) return 'floor';
+  }
+  if (hang && floor) return 'hang'; // prefer hanging
+  if (hang) return 'hang';
+  if (floor) return 'floor';
+  return null;
+}
+
 /** Non-solid attachables: tap a solid face to place against it (torch, ladder, campfire). */
 export function isAttachableBlock(blockId) {
   const meta = BLOCK_META[blockId];
@@ -454,7 +484,12 @@ export function tryPlace(p, world, tx, ty, blockId) {
 
   // Full blocks need a neighbor; attachables need support too (no floating mid-air torches)
   const skipSupport = meta && meta.platform;
-  if (!skipSupport) {
+  let lanternMode = null;
+  if (blockId === BLOCK.LANTERN) {
+    // Lanterns only hang from above or rest on a floor — not free-floating on walls alone
+    lanternMode = resolveLanternMode(world, placeTx, placeTy, solidTx, solidTy);
+    if (!lanternMode) return false;
+  } else if (!skipSupport) {
     const hasSupport =
       isSolid(world, placeTx - 1, placeTy) ||
       isSolid(world, placeTx + 1, placeTy) ||
@@ -469,6 +504,9 @@ export function tryPlace(p, world, tx, ty, blockId) {
   const out = { tx: wrapX(placeTx), ty: placeTy };
   if (blockId === BLOCK.TORCH) {
     out.attach = resolveTorchAttach(world, placeTx, placeTy, solidTx, solidTy);
+  }
+  if (blockId === BLOCK.LANTERN) {
+    out.attach = lanternMode;
   }
   return out;
 }

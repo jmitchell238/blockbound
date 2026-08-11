@@ -22,7 +22,7 @@ import {
   makeWorldMeta, getChest, removeChest, nearInteract, isDoorOpen, toggleDoor,
   tryEat, trySleep, tryBucket, tryMountBoat, tryDismountBoat,
   unlockMilestone, recipesInTab, stationAvailable, missingMaterials, stationHint,
-  setTorchFacing, clearTorchFacing,
+  setTorchFacing, clearTorchFacing, setLanternMode, clearLanternMode,
 } from '../interact/index.js';
 import {
   makeEntityState, seedCritters, deserializeEntities, updateDrops, updateCritters,
@@ -368,6 +368,9 @@ export function gameUpdate(dt) {
     if (result.mined.id === BLOCK.TORCH) {
       clearTorchFacing(world.meta, result.mined.tx, result.mined.ty);
     }
+    if (result.mined.id === BLOCK.LANTERN) {
+      clearLanternMode(world.meta, result.mined.tx, result.mined.ty);
+    }
     if (dropId != null) {
       spawnDrop(ents, result.mined.tx + 0.5, result.mined.ty + 0.5, dropId, dropN);
     }
@@ -424,6 +427,10 @@ export function gameUpdate(dt) {
         if (slot.id === BLOCK.TORCH) {
           unlockMilestone(world.meta, stats, ui, 'first_torch');
           setTorchFacing(world.meta, bx, by, placed.attach || 'floor');
+        }
+        if (slot.id === BLOCK.LANTERN) {
+          unlockMilestone(world.meta, stats, ui, 'first_lantern');
+          setLanternMode(world.meta, bx, by, placed.attach || 'hang');
         }
         if (slot.id === BLOCK.CAMPFIRE) unlockMilestone(world.meta, stats, ui, 'first_campfire');
         if (slot.id === BLOCK.PLATFORM) unlockMilestone(world.meta, stats, ui, 'first_platform');

@@ -7,6 +7,8 @@ export function makeWorldMeta() {
     milestones: Object.create(null),
     /** tileKey → 'floor'|'ceil'|'left'|'right' — wall torches angle off the mount */
     torchFacing: Object.create(null),
+    /** tileKey → 'hang'|'floor' — lanterns hang from ceilings or sit on the ground */
+    lanternMode: Object.create(null),
   };
 }
 
@@ -48,12 +50,28 @@ export function clearTorchFacing(meta, x, y) {
   if (meta && meta.torchFacing) delete meta.torchFacing[tileKey(x, y)];
 }
 
+/** @param {'hang'|'floor'} mode */
+export function setLanternMode(meta, x, y, mode) {
+  if (!meta.lanternMode) meta.lanternMode = Object.create(null);
+  meta.lanternMode[tileKey(x, y)] = mode === 'floor' ? 'floor' : 'hang';
+}
+
+export function getLanternMode(meta, x, y) {
+  if (!meta || !meta.lanternMode) return null;
+  return meta.lanternMode[tileKey(x, y)] || null;
+}
+
+export function clearLanternMode(meta, x, y) {
+  if (meta && meta.lanternMode) delete meta.lanternMode[tileKey(x, y)];
+}
+
 export function serializeMeta(meta) {
   return {
     openDoors: Object.assign({}, meta.openDoors),
     chests: Object.assign({}, meta.chests),
     milestones: Object.assign({}, meta.milestones || {}),
     torchFacing: Object.assign({}, meta.torchFacing || {}),
+    lanternMode: Object.assign({}, meta.lanternMode || {}),
   };
 }
 
@@ -64,5 +82,6 @@ export function deserializeMeta(data) {
   if (data.chests) meta.chests = Object.assign(Object.create(null), data.chests);
   if (data.milestones) meta.milestones = Object.assign(Object.create(null), data.milestones);
   if (data.torchFacing) meta.torchFacing = Object.assign(Object.create(null), data.torchFacing);
+  if (data.lanternMode) meta.lanternMode = Object.assign(Object.create(null), data.lanternMode);
   return meta;
 }

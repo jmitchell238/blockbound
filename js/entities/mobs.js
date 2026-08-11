@@ -178,7 +178,7 @@ export function hasLineOfSight(world, x0, y0, x1, y1) {
     const ty = Math.floor(y);
     const tile = getTile(world, tx, ty);
     if (tile === BLOCK.AIR || tile === BLOCK.WATER || tile === BLOCK.LADDER
-        || tile === BLOCK.TORCH || tile === BLOCK.LEAVES || tile === BLOCK.GLASS
+        || tile === BLOCK.TORCH || tile === BLOCK.LANTERN || tile === BLOCK.LEAVES || tile === BLOCK.GLASS
         || tile === BLOCK.CAMPFIRE || isPlatform(tile)) {
       continue;
     }

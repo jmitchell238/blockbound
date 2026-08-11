@@ -29,6 +29,7 @@ export const BLOCK = {
   FURNACE: 25,
   PLATFORM: 26,
   CAMPFIRE: 27,
+  LANTERN: 28,
 };
 
 export const BLOCK_META = {
@@ -60,6 +61,8 @@ export const BLOCK_META = {
   [BLOCK.FURNACE]:   { name: 'Furnace', solid: true, mine: 0.7, drops: BLOCK.FURNACE, color: '#5a5a62', top: '#6e6e78', interact: 'furnace', light: 4 },
   [BLOCK.PLATFORM]:  { name: 'Platform', solid: true, mine: 0.25, drops: BLOCK.PLATFORM, color: '#c4a060', top: '#d4b070', platform: true },
   [BLOCK.CAMPFIRE]:  { name: 'Campfire', solid: false, mine: 0.3, drops: BLOCK.CAMPFIRE, color: '#8b4513', light: 10, interact: 'campfire' },
+  /** Hangs from ceilings / platforms, or sits on the floor — bright light. */
+  [BLOCK.LANTERN]:   { name: 'Lantern', solid: false, mine: 0.2, drops: BLOCK.LANTERN, color: '#ffc866', light: 12, hang: true },
 };
 
 export const BIOME_NAMES = ['Forest', 'Desert', 'Snow', 'Plains'];

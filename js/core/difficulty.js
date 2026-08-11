@@ -178,6 +178,7 @@ export function applyStarterKit(inv, diffOrId) {
     addItem(inv, 'gold_pick', 1);
     addItem(inv, 'iron_sword', 1);
     addItem(inv, BLOCK.TORCH, 64);
+    addItem(inv, BLOCK.LANTERN, 16);
     addItem(inv, BLOCK.DIRT, 64);
     addItem(inv, BLOCK.STONE, 64);
     addItem(inv, BLOCK.WOOD, 64);

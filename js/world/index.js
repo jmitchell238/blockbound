@@ -483,7 +483,7 @@ export function ensureSpawn(world, sx) {
 
 export function isLightTransparent(t) {
   return t === BLOCK.AIR || t === BLOCK.WATER || t === BLOCK.LADDER
-    || t === BLOCK.TORCH || t === BLOCK.LEAVES || t === BLOCK.GLASS;
+    || t === BLOCK.TORCH || t === BLOCK.LANTERN || t === BLOCK.LEAVES || t === BLOCK.GLASS;
 }
 
 export function emitLight(t) {

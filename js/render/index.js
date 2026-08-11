@@ -13,7 +13,7 @@ import { drawParticles } from '../particles/particles.js';
 import { HOTBAR_SIZE, BAG_SIZE, canCraft, bagUsed, countItem } from '../inventory/inventory.js';
 import {
   CRAFT_TABS, recipesInTab, missingMaterials, stationHint,
-  stationAvailable, getChest, getTorchFacing,
+  stationAvailable, getChest, getTorchFacing, getLanternMode,
 } from '../interact/index.js';
 
 /**
@@ -351,6 +351,114 @@ export function inferTorchFacing(world, tx, ty) {
   return 'floor';
 }
 
+/**
+ * Hanging / floor lantern — chain + metal cage + warm glow.
+ * @param {'hang'|'floor'} mode
+ */
+export function drawLanternSprite(ctx, sx, sy, ts, mode, seed) {
+  const flicker = 0.7 + 0.3 * Math.sin(performance.now() / 110 + (seed || 0));
+  const hang = mode !== 'floor';
+  const cx = sx + ts * 0.5;
+
+  // Body position: hang lower from ceiling; floor sits near ground
+  const cageTop = hang ? sy + ts * 0.28 : sy + ts * 0.22;
+  const cageH = ts * 0.42;
+  const cageW = ts * 0.38;
+  const cageX = cx - cageW / 2;
+
+  if (hang) {
+    // Chain links from ceiling
+    ctx.strokeStyle = '#8a9098';
+    ctx.lineWidth = Math.max(1.2, ts * 0.06);
+    ctx.lineCap = 'round';
+    const chainTop = sy + ts * 0.04;
+    const chainBot = cageTop + 2;
+    // two small oval links
+    const mid = (chainTop + chainBot) / 2;
+    ctx.beginPath();
+    ctx.ellipse(cx, chainTop + (mid - chainTop) * 0.35, ts * 0.07, ts * 0.09, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.ellipse(cx, mid, ts * 0.07, ts * 0.09, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(cx, mid + ts * 0.08);
+    ctx.lineTo(cx, chainBot);
+    ctx.stroke();
+    // Ceiling hook
+    ctx.strokeStyle = '#6a7078';
+    ctx.lineWidth = Math.max(1.5, ts * 0.08);
+    ctx.beginPath();
+    ctx.moveTo(cx - ts * 0.12, sy + 2);
+    ctx.lineTo(cx + ts * 0.12, sy + 2);
+    ctx.stroke();
+  } else {
+    // Short post for floor lantern
+    ctx.fillStyle = '#5a6068';
+    ctx.fillRect(cx - ts * 0.05, cageTop + cageH - 2, ts * 0.1, ts * 0.28);
+    ctx.fillStyle = '#3a4048';
+    ctx.fillRect(cx - ts * 0.14, sy + ts * 0.88, ts * 0.28, ts * 0.08);
+  }
+
+  // Metal cap
+  ctx.fillStyle = '#7a828c';
+  ctx.beginPath();
+  ctx.moveTo(cageX - 2, cageTop + 4);
+  ctx.lineTo(cx, cageTop - ts * 0.08);
+  ctx.lineTo(cageX + cageW + 2, cageTop + 4);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#9aa2ac';
+  ctx.fillRect(cageX - 1, cageTop + 2, cageW + 2, 3);
+
+  // Glass body
+  const glass = ctx.createLinearGradient(cageX, cageTop, cageX + cageW, cageTop + cageH);
+  glass.addColorStop(0, `rgba(255, 210, 100, ${0.55 + 0.2 * flicker})`);
+  glass.addColorStop(0.5, `rgba(255, 160, 50, ${0.45 + 0.2 * flicker})`);
+  glass.addColorStop(1, `rgba(200, 100, 30, ${0.35 + 0.15 * flicker})`);
+  ctx.fillStyle = glass;
+  roundRect(ctx, cageX, cageTop + 4, cageW, cageH - 4, 3);
+  ctx.fill();
+
+  // Frame bars
+  ctx.strokeStyle = '#5a626c';
+  ctx.lineWidth = Math.max(1.2, ts * 0.05);
+  ctx.strokeRect(cageX, cageTop + 4, cageW, cageH - 4);
+  ctx.beginPath();
+  ctx.moveTo(cx, cageTop + 4);
+  ctx.lineTo(cx, cageTop + cageH);
+  ctx.moveTo(cageX, cageTop + 4 + cageH * 0.45);
+  ctx.lineTo(cageX + cageW, cageTop + 4 + cageH * 0.45);
+  ctx.stroke();
+
+  // Inner flame
+  const fy = cageTop + cageH * 0.55;
+  ctx.fillStyle = `rgba(255, 240, 140, ${0.9 * flicker})`;
+  ctx.beginPath();
+  ctx.arc(cx, fy, ts * 0.07, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = `rgba(255, 180, 60, ${0.7 * flicker})`;
+  ctx.beginPath();
+  ctx.moveTo(cx, fy - ts * 0.14);
+  ctx.lineTo(cx - ts * 0.06, fy + ts * 0.02);
+  ctx.lineTo(cx + ts * 0.06, fy + ts * 0.02);
+  ctx.fill();
+
+  // Bottom plate
+  ctx.fillStyle = '#6a727c';
+  ctx.fillRect(cageX - 1, cageTop + cageH - 2, cageW + 2, 4);
+
+  // Glow
+  const gy = hang ? fy : fy;
+  const g = ctx.createRadialGradient(cx, gy, 2, cx, gy, ts * 0.7);
+  g.addColorStop(0, `rgba(255, 190, 60, ${0.38 * flicker})`);
+  g.addColorStop(1, 'rgba(255, 140, 20, 0)');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(cx, gy, ts * 0.7, 0, Math.PI * 2);
+  ctx.fill();
+}
+
 /** Procedural torch — upright on floor, angled off walls, hanging from ceiling. */
 export function drawTorchSprite(ctx, sx, sy, ts, facing, seed) {
   const flicker = 0.62 + 0.38 * Math.sin(performance.now() / 85 + (seed || 0));
@@ -443,14 +551,15 @@ export function drawBlock(ctx, sx, sy, ts, id, lightMul, wx, ty, ao, world) {
   ctx.globalAlpha = alpha;
 
   const depth = Math.max(2, ts * 0.08);
-  const useFlat = id === BLOCK.WATER || id === BLOCK.TORCH || id === BLOCK.LADDER
+  const useFlat = id === BLOCK.WATER || id === BLOCK.TORCH || id === BLOCK.LANTERN || id === BLOCK.LADDER
     || id === BLOCK.LEAVES || id === BLOCK.GLASS || id === BLOCK.PLATFORM || id === BLOCK.CAMPFIRE
     || isTerrainBlock(id);
 
   // Overlap neighbors slightly so grid lines disappear
   const pad = isTerrainBlock(id) ? 0.75 : 0.35;
 
-  if (useFlat && soft && id !== BLOCK.WATER && id !== BLOCK.TORCH && id !== BLOCK.LADDER && id !== BLOCK.LEAVES && id !== BLOCK.CAMPFIRE && id !== BLOCK.PLATFORM) {
+  if (useFlat && soft && id !== BLOCK.WATER && id !== BLOCK.TORCH && id !== BLOCK.LANTERN
+      && id !== BLOCK.LADDER && id !== BLOCK.LEAVES && id !== BLOCK.CAMPFIRE && id !== BLOCK.PLATFORM) {
     // Seamless terrain: soft face, slight top highlight only if air above
     ctx.imageSmoothingEnabled = true;
     ctx.drawImage(soft, sx - pad, sy - pad, ts + pad * 2, ts + pad * 2);
@@ -468,7 +577,8 @@ export function drawBlock(ctx, sx, sy, ts, id, lightMul, wx, ty, ao, world) {
   } else if (face && !useFlat) {
     ctx.imageSmoothingEnabled = true;
     drawTexturedCube(ctx, sx, sy, ts, face, id);
-  } else if (face && useFlat && id !== BLOCK.WATER && id !== BLOCK.TORCH && id !== BLOCK.LADDER && id !== BLOCK.LEAVES) {
+  } else if (face && useFlat && id !== BLOCK.WATER && id !== BLOCK.TORCH && id !== BLOCK.LANTERN
+      && id !== BLOCK.LADDER && id !== BLOCK.LEAVES) {
     ctx.imageSmoothingEnabled = true;
     ctx.drawImage(face, sx - pad, sy - pad, ts + pad * 2, ts + pad * 2);
   } else if (!face && !cube) {
@@ -509,6 +619,17 @@ export function drawBlock(ctx, sx, sy, ts, id, lightMul, wx, ty, ao, world) {
     ctx.globalAlpha = 1;
     drawTorchSprite(ctx, sx, sy, ts, facing, wx * 3 + (ty || 0));
   }
+  if (id === BLOCK.LANTERN) {
+    let mode = 'hang';
+    if (world && world.meta) {
+      mode = getLanternMode(world.meta, wx, ty)
+        || (isSolid(world, wx, ty - 1) || isPlatform(getTile(world, wx, ty - 1)) ? 'hang' : 'floor');
+    } else if (world) {
+      mode = (isSolid(world, wx, ty - 1) || isPlatform(getTile(world, wx, ty - 1))) ? 'hang' : 'floor';
+    }
+    ctx.globalAlpha = 1;
+    drawLanternSprite(ctx, sx, sy, ts, mode, wx * 5 + (ty || 0));
+  }
   if (id === BLOCK.LADDER) {
     if (face) {
       ctx.globalAlpha = 1;
@@ -532,7 +653,7 @@ export function drawBlock(ctx, sx, sy, ts, id, lightMul, wx, ty, ao, world) {
 
   // Soft light multiply (no hard grid darkening)
   const shade = Math.max(0.22, lightMul * (1 - ao * 0.55));
-  if (shade < 0.96 && id !== BLOCK.TORCH && id !== BLOCK.LAVA && id !== BLOCK.CAMPFIRE) {
+  if (shade < 0.96 && id !== BLOCK.TORCH && id !== BLOCK.LANTERN && id !== BLOCK.LAVA && id !== BLOCK.CAMPFIRE) {
     ctx.globalAlpha = (1 - shade) * 0.85;
     ctx.fillStyle = '#0a1018';
     ctx.fillRect(sx - 0.5, sy - 0.5, ts + 1, ts + 1);
@@ -1099,6 +1220,15 @@ export function drawItemIcon(ctx, x, y, s, id) {
     ctx.fillRect(x + s * 0.25, y + s * 0.35, s * 0.5, s * 0.45);
     ctx.fillStyle = id === 'bucket_water' ? '#3a8fd4' : '#aaa';
     ctx.fillRect(x + s * 0.3, y + s * 0.4, s * 0.4, s * 0.25);
+    return;
+  }
+  if (id === BLOCK.LANTERN || id === BLOCK.TORCH) {
+    // Compact icon (hanging lantern / upright torch)
+    if (id === BLOCK.LANTERN) {
+      drawLanternSprite(ctx, x - 2, y - 2, s + 4, 'hang', 0);
+    } else {
+      drawTorchSprite(ctx, x - 2, y - 2, s + 4, 'floor', 0);
+    }
     return;
   }
   if (typeof id === 'number') {

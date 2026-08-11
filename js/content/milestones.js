@@ -3,6 +3,7 @@ export const MILESTONES = {
   first_craft: 'First craft!',
   first_tool: 'Tool time!',
   first_torch: 'Let there be light!',
+  first_lantern: 'Hanging lantern!',
   first_bed: 'Home sweet bed!',
   first_furnace: 'Fired up the furnace!',
   deep_dig: 'Deep underground…',

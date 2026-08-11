@@ -14,6 +14,7 @@ export const RECIPES = [
   { id: 'planks', name: 'Planks ×4', station: 'hand', in: [[BLOCK.WOOD, 1]], out: [BLOCK.PLANKS, 4] },
   { id: 'stick', name: 'Sticks ×4', station: 'hand', in: [[BLOCK.PLANKS, 1]], out: ['stick', 4] },
   { id: 'torch', name: 'Torch ×4', station: 'hand', in: [['stick', 1], [BLOCK.COAL, 1]], out: [BLOCK.TORCH, 4] },
+  { id: 'lantern', name: 'Lantern', station: 'workbench', in: [['iron_ingot', 1], [BLOCK.TORCH, 1], [BLOCK.GLASS, 1]], out: [BLOCK.LANTERN, 1] },
   { id: 'ladder', name: 'Ladder ×4', station: 'hand', in: [['stick', 3]], out: [BLOCK.LADDER, 4] },
   { id: 'platform', name: 'Platform ×4', station: 'hand', in: [[BLOCK.PLANKS, 1]], out: [BLOCK.PLATFORM, 4] },
   { id: 'workbench', name: 'Workbench', station: 'hand', in: [[BLOCK.PLANKS, 4]], out: [BLOCK.WORKBENCH, 1] },

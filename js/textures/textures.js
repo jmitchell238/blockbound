@@ -194,7 +194,8 @@ export async function loadTextures() {
         .then(img => {
           textures.tiles[id] = img;
           const alpha = !!(BLOCK_META[id] && BLOCK_META[id].alpha != null && BLOCK_META[id].alpha < 1)
-            || id === BLOCK.LADDER || id === BLOCK.TORCH || id === BLOCK.LEAVES || id === BLOCK.GLASS || id === BLOCK.WATER;
+            || id === BLOCK.LADDER || id === BLOCK.TORCH || id === BLOCK.LANTERN
+            || id === BLOCK.LEAVES || id === BLOCK.GLASS || id === BLOCK.WATER;
           textures.cube[id] = bakeCube(img, alpha);
           textures.soft[id] = bakeSoftFace(img);
         })
