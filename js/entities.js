@@ -1,14 +1,22 @@
 'use strict';
 
 /**
- * Floating item drops + ambient critters (dodos).
+ * Grounded walking mobs + item drops.
+ * y = feet position (same as player). Bodies draw upward from the feet.
  */
+
+const MOB = {
+  rabbit:   { hostile: false, hp: 8,  speed: 1.4, w: 0.55, h: 0.55, dmg: 0,  nightOnly: false },
+  wolf:     { hostile: true,  hp: 22, speed: 2.1, w: 0.75, h: 0.7,  dmg: 11, nightOnly: false, aggroRange: 9 },
+  zombie:   { hostile: true,  hp: 30, speed: 1.15, w: 0.6, h: 1.45, dmg: 12, nightOnly: true, aggroRange: 12 },
+  skeleton: { hostile: true,  hp: 20, speed: 1.55, w: 0.55, h: 1.5,  dmg: 14, nightOnly: true, aggroRange: 14 },
+};
 
 function makeEntityState() {
   return {
     drops: [],
-    critters: [],
-    hostiles: [],
+    critters: [], // rabbits (passive)
+    hostiles: [], // wolf / zombie / skeleton
   };
 }
 
@@ -26,31 +34,89 @@ function spawnDrop(ents, x, y, id, count) {
   });
 }
 
-function spawnCritter(ents, x, y) {
-  ents.critters.push({
+/** Snap feet to the top of the solid/platform under (x, preferY). */
+function groundFeetY(world, x, preferY) {
+  const tx = Math.floor(x);
+  let y = Math.floor(preferY);
+  y = Math.max(SKY_LIMIT + 1, Math.min(WORLD_H - 2, y));
+
+  // If inside solid, push up
+  while (y > SKY_LIMIT && isSolid(world, tx, Math.floor(y - 0.01))) {
+    y -= 1;
+  }
+  // Fall down until standing on something
+  let guard = 0;
+  while (guard++ < WORLD_H) {
+    const below = Math.floor(y + 0.001);
+    if (isSolid(world, tx, below) || isPlatform(getTile(world, tx, below))) {
+      return below; // feet on top of tile `below`
+    }
+    if (below >= WORLD_H - 1) return WORLD_H - 2;
+    y += 1;
+  }
+  return preferY;
+}
+
+function solidUnder(world, x, feetY) {
+  const tx = Math.floor(x);
+  const below = Math.floor(feetY + 0.001);
+  return isSolid(world, tx, below) || isPlatform(getTile(world, tx, below));
+}
+
+function wallAt(world, x, feetY, h) {
+  const tx = Math.floor(x);
+  // Check torso tiles
+  const mid = Math.floor(feetY - h * 0.5);
+  const head = Math.floor(feetY - h + 0.1);
+  return isSolid(world, tx, mid) || isSolid(world, tx, head);
+}
+
+function makeMob(kind, x, feetY) {
+  const def = MOB[kind] || MOB.rabbit;
+  return {
+    kind,
     x: x + 0.5,
-    y: y,
-    vx: (Math.random() < 0.5 ? -1 : 1) * (0.6 + Math.random() * 0.8),
+    y: feetY,
+    vx: (Math.random() < 0.5 ? -1 : 1) * def.speed * (0.6 + Math.random() * 0.4),
     facing: 1,
     anim: Math.random() * 10,
     hop: 0,
-    kind: Math.random() < 0.7 ? 'dodo' : 'bunny',
-  });
+    hp: def.hp,
+    maxHp: def.hp,
+    atkCd: 0,
+    w: def.w,
+    h: def.h,
+    hostile: !!def.hostile,
+  };
+}
+
+function spawnCritter(ents, x, feetY) {
+  // Passive rabbits only
+  ents.critters.push(makeMob('rabbit', x, feetY));
 }
 
 function seedCritters(ents, world, n) {
-  n = n || Math.min(40, Math.max(8, Math.floor(WORLD_W / 200)));
+  n = n || Math.min(50, Math.max(12, Math.floor(WORLD_W / 160)));
   let tries = 0;
-  while (ents.critters.length < n && tries < n * 40) {
+  while (ents.critters.length < n && tries < n * 50) {
     tries++;
     const x = Math.floor(Math.random() * WORLD_W);
-    const sy = world.surface[x];
-    if (getTile(world, x, sy) !== BLOCK.AIR) continue;
-    if (!isSolid(world, x, sy + 1)) continue;
+    const surface = world.surface[x];
+    // First solid below surface air
+    let feet = surface + 1;
+    while (feet < WORLD_H - 1 && !isSolid(world, x, feet)) feet++;
+    if (feet >= WORLD_H - 2) continue;
+    if (getTile(world, x, feet - 1) !== BLOCK.AIR && getTile(world, x, feet - 1) !== BLOCK.LEAVES) continue;
     const bio = world.biome[x];
-    if (bio === 1 && Math.random() < 0.5) continue; // fewer in desert
-    spawnCritter(ents, x, sy);
+    if (bio === 1 && Math.random() < 0.4) continue; // fewer in desert
+    spawnCritter(ents, x, feet);
   }
+}
+
+function spawnHostile(ents, x, feetY, kind) {
+  const nightKinds = ['zombie', 'skeleton', 'wolf'];
+  const k = kind || nightKinds[Math.floor(Math.random() * nightKinds.length)];
+  ents.hostiles.push(makeMob(k, x, feetY));
 }
 
 function updateDrops(ents, world, player, inv, dt) {
@@ -64,7 +130,6 @@ function updateDrops(ents, world, player, inv, dt) {
     d.y += d.vy * dt;
     d.vx *= 0.96;
 
-    // Ground collide
     const ty = Math.floor(d.y + 0.15);
     const tx = Math.floor(d.x);
     if (isSolid(world, tx, ty)) {
@@ -73,7 +138,6 @@ function updateDrops(ents, world, player, inv, dt) {
       d.vx *= 0.7;
     }
 
-    // Magnet / pickup
     const dist = Math.hypot(wrapDeltaX(player.x, d.x), (player.y - player.h * 0.5) - d.y);
     if (dist < 1.4) {
       const left = addItem(inv, d.id, d.count);
@@ -86,35 +150,18 @@ function updateDrops(ents, world, player, inv, dt) {
       ents.drops.splice(i, 1);
     }
 
-    // Wrap x
     if (d.x < 0) d.x += WORLD_W;
     if (d.x >= WORLD_W) d.x -= WORLD_W;
   }
   return picked;
 }
 
-function spawnHostile(ents, x, y) {
-  ents.hostiles.push({
-    x: x + 0.5,
-    y: y,
-    vx: (Math.random() < 0.5 ? -1 : 1) * (1.2 + Math.random()),
-    hp: 20,
-    anim: 0,
-    atkCd: 0,
-    kind: Math.random() < 0.5 ? 'scorpion' : 'dropbear',
-  });
-}
-
-/**
- * True if solid blocks block a ray from (x0,y0) to (x1,y1).
- * Open doors / platforms / ladders do not block. Used so mobs can't hit through dirt.
- */
 function hasLineOfSight(world, x0, y0, x1, y1) {
   const dx = wrapDeltaX(x0, x1);
   const dy = y1 - y0;
   const dist = Math.hypot(dx, dy);
   if (dist < 0.15) return true;
-  const steps = Math.max(2, Math.ceil(dist * 4)); // ~0.25 tile samples
+  const steps = Math.max(2, Math.ceil(dist * 4));
   for (let i = 1; i < steps; i++) {
     const t = i / steps;
     const x = x0 + dx * t;
@@ -127,7 +174,6 @@ function hasLineOfSight(world, x0, y0, x1, y1) {
         || tile === BLOCK.CAMPFIRE || isPlatform(tile)) {
       continue;
     }
-    // Open door is walkable
     if (tile === BLOCK.DOOR && world.meta && world.meta.openDoors
         && world.meta.openDoors[tileKey(tx, ty)]) {
       continue;
@@ -137,11 +183,9 @@ function hasLineOfSight(world, x0, y0, x1, y1) {
   return true;
 }
 
-/** Player is sealed underground (solid/ceiling nearby) — surface mobs shouldn't aggro through dirt. */
 function playerIsSheltered(world, player) {
   const px = Math.floor(player.x);
   const py = Math.floor(player.y - player.h * 0.5);
-  // Head-adjacent solid above or on sides counts as cover
   let solids = 0;
   for (let dy = -2; dy <= 1; dy++) {
     for (let dx = -1; dx <= 1; dx++) {
@@ -151,34 +195,75 @@ function playerIsSheltered(world, player) {
   }
   const surface = world.surface[wrapX(px)];
   const depth = player.y - surface;
-  // Deep enough under surface with nearby walls = safe from surface mobs
   return depth > 2.5 && solids >= 3;
 }
 
-/** Night surface hostiles near player. */
+function stepMobWalk(m, world, dt, targetVx) {
+  const def = MOB[m.kind] || MOB.rabbit;
+  m.anim += dt * (6 + Math.abs(targetVx) * 3);
+  m.vx = targetVx;
+
+  const face = Math.sign(m.vx) || m.facing || 1;
+  m.facing = face;
+
+  const nextX = m.x + m.vx * dt;
+  const stepX = nextX + face * 0.25;
+
+  // Cliff: no ground ahead → turn
+  if (!solidUnder(world, stepX, m.y)) {
+    m.vx *= -1;
+    m.facing = Math.sign(m.vx) || 1;
+  } else if (wallAt(world, stepX, m.y, def.h)) {
+    m.vx *= -1;
+    m.facing = Math.sign(m.vx) || 1;
+  } else {
+    m.x = nextX;
+  }
+
+  if (m.x < 0) m.x += WORLD_W;
+  if (m.x >= WORLD_W) m.x -= WORLD_W;
+
+  // Gravity-ish snap to ground (walk, don't float)
+  const grounded = solidUnder(world, m.x, m.y);
+  if (!grounded) {
+    // Fall
+    m.y += Math.min(8 * dt, 0.4);
+    m.y = groundFeetY(world, m.x, m.y);
+  } else {
+    m.y = groundFeetY(world, m.x, m.y);
+  }
+}
+
+/** Night hostiles + day wolves near player. */
 function updateHostiles(ents, world, player, dt, timeOfDay, ui) {
   const day = Math.sin(timeOfDay * Math.PI * 2 - Math.PI / 2) * 0.5 + 0.5;
   const night = day < 0.35;
-
-  // Despawn in day
-  if (!night) {
-    if (ents.hostiles.length) ents.hostiles.length = 0;
-    return [];
-  }
-
   const sheltered = playerIsSheltered(world, player);
 
-  // Spawn near player on surface only — never next to buried players
-  if (!sheltered && ents.hostiles.length < 5 && Math.random() < dt * 0.12) {
+  // Despawn pure night mobs at dawn; keep wolves
+  if (!night) {
+    for (let i = ents.hostiles.length - 1; i >= 0; i--) {
+      const k = ents.hostiles[i].kind;
+      if (k === 'zombie' || k === 'skeleton') ents.hostiles.splice(i, 1);
+    }
+  }
+
+  // Spawn
+  if (!sheltered && ents.hostiles.length < 6 && Math.random() < dt * 0.14) {
     const side = Math.random() < 0.5 ? -1 : 1;
-    const sx = wrapX(Math.floor(player.x) + side * (8 + Math.floor(Math.random() * 10)));
-    let sy = world.surface[sx];
-    while (sy < WORLD_H - 1 && !isSolid(world, sx, sy + 1)) sy++;
-    while (sy > SKY_LIMIT && isSolid(world, sx, sy)) sy--;
-    // Only if surface-ish and dark, and near player's vertical band
-    if (getTile(world, sx, sy) === BLOCK.AIR
-        && Math.abs((sy + 1) - player.y) < 8) {
-      spawnHostile(ents, sx, sy + 1);
+    const sx = wrapX(Math.floor(player.x) + side * (10 + Math.floor(Math.random() * 12)));
+    let feet = world.surface[sx] + 1;
+    while (feet < WORLD_H - 1 && !isSolid(world, sx, feet)) feet++;
+    if (feet < WORLD_H - 2 && Math.abs(feet - player.y) < 10) {
+      let kind;
+      if (night) {
+        const r = Math.random();
+        kind = r < 0.4 ? 'zombie' : r < 0.75 ? 'skeleton' : 'wolf';
+      } else {
+        kind = 'wolf'; // rare day wolves
+        if (Math.random() > 0.35) kind = null;
+      }
+      if (kind) spawnHostile(ents, sx, feet, kind);
     }
   }
 
@@ -188,58 +273,56 @@ function updateHostiles(ents, world, player, dt, timeOfDay, ui) {
 
   for (let i = ents.hostiles.length - 1; i >= 0; i--) {
     const h = ents.hostiles[i];
-    h.anim += dt * 10;
+    const def = MOB[h.kind] || MOB.zombie;
     h.atkCd = Math.max(0, h.atkCd - dt);
+
+    if (def.nightOnly && !night) {
+      ents.hostiles.splice(i, 1);
+      continue;
+    }
 
     const dx = wrapDeltaX(h.x, player.x);
     const dy = player.y - h.y;
     const dist = Math.hypot(dx, dy);
-    const hEyeX = h.x;
-    const hEyeY = h.y - 0.6;
-    const canSee = hasLineOfSight(world, hEyeX, hEyeY, pEyeX, pEyeY);
+    const canSee = hasLineOfSight(world, h.x, h.y - def.h * 0.5, pEyeX, pEyeY);
+    const aggro = def.aggroRange || 10;
 
-    // Only chase when they can see the player (no wall-hacks)
-    if (canSee && !sheltered) {
-      h.vx = Math.sign(dx || 1) * (h.kind === 'dropbear' ? 1.8 : 1.3);
+    let targetVx;
+    if (canSee && !sheltered && dist < aggro) {
+      targetVx = Math.sign(dx || 1) * def.speed;
     } else {
-      // Wander / give up if player is behind dirt
-      if (Math.random() < dt * 0.4) h.vx *= -1;
-      h.vx = Math.sign(h.vx || 1) * 0.7;
+      if (Math.random() < dt * 0.25) h.vx *= -1;
+      targetVx = Math.sign(h.vx || 1) * def.speed * 0.55;
     }
 
-    const nextX = h.x + h.vx * dt;
-    const feet = Math.floor(h.y + 0.05);
-    const ahead = Math.floor(nextX + Math.sign(h.vx) * 0.3);
-    if (isSolid(world, ahead, feet - 1)) h.vx *= -1;
-    else h.x = nextX;
-    if (h.x < 0) h.x += WORLD_W;
-    if (h.x >= WORLD_W) h.x -= WORLD_W;
+    stepMobWalk(h, world, dt, targetVx);
 
-    // Stick to ground
-    const tx = Math.floor(h.x);
-    let gy = Math.floor(h.y);
-    while (gy < WORLD_H - 1 && !isSolid(world, tx, gy + 1) && !isPlatform(getTile(world, tx, gy + 1))) gy++;
-    while (gy > SKY_LIMIT && isSolid(world, tx, gy)) gy--;
-    h.y = gy;
-
-    // Attack only in melee range WITH clear line of sight (no through-block hits).
-    // Don't hit players mid-swing (gives them a fair chance to fight).
-    if (canSee && !sheltered && dist < 1.15 && h.atkCd <= 0 && player.invuln <= 0
+    // Melee
+    const reach = h.kind === 'skeleton' ? 1.35 : 1.2;
+    if (canSee && !sheltered && dist < reach && h.atkCd <= 0 && player.invuln <= 0
         && !(player.attackT > 0)) {
-      h.atkCd = 1.1;
-      hits.push({ dmg: h.kind === 'dropbear' ? 14 : 10, kind: h.kind });
+      h.atkCd = h.kind === 'zombie' ? 1.25 : 1.0;
+      hits.push({ dmg: def.dmg, kind: h.kind });
     }
 
-    // No more stomp combat — swords/swipe only (jumping on them used to hurt both)
-
-    // Despawn far away, or if player is deep underground away from them
-    if (Math.abs(dx) > 40 || (sheltered && dist > 6)) {
+    if (Math.abs(dx) > 45 || (sheltered && dist > 8)) {
       ents.hostiles.splice(i, 1);
       continue;
     }
     if (h.hp <= 0) {
-      spawnDrop(ents, h.x, h.y - 0.5, 'apple', 1);
-      if (Math.random() < 0.3) spawnDrop(ents, h.x, h.y - 0.3, BLOCK.COAL, 1);
+      // Drops by type
+      if (h.kind === 'rabbit') spawnDrop(ents, h.x, h.y - 0.3, 'apple', 1);
+      else if (h.kind === 'wolf') {
+        spawnDrop(ents, h.x, h.y - 0.3, BLOCK.LEAVES, 1);
+        if (Math.random() < 0.4) spawnDrop(ents, h.x, h.y - 0.2, 'apple', 1);
+      } else if (h.kind === 'skeleton') {
+        spawnDrop(ents, h.x, h.y - 0.3, BLOCK.BONE || BLOCK.STONE, 1);
+        if (Math.random() < 0.5) spawnDrop(ents, h.x, h.y - 0.2, 'stick', 1);
+      } else {
+        // zombie
+        if (Math.random() < 0.5) spawnDrop(ents, h.x, h.y - 0.3, 'apple', 1);
+        if (Math.random() < 0.3) spawnDrop(ents, h.x, h.y - 0.2, BLOCK.DIRT, 1);
+      }
       ents.hostiles.splice(i, 1);
     }
   }
@@ -248,150 +331,22 @@ function updateHostiles(ents, world, player, dt, timeOfDay, ui) {
 
 function updateCritters(ents, world, dt) {
   for (const c of ents.critters) {
-    c.anim += dt * 8;
+    // Rabbits hop occasionally
+    if (Math.random() < dt * 0.2) c.hop = 0.35;
     c.hop = Math.max(0, c.hop - dt);
 
-    // Simple wander + edge turn
-    const nextX = c.x + c.vx * dt;
-    const feetY = Math.floor(c.y + 0.05);
-    const ahead = Math.floor(nextX + Math.sign(c.vx) * 0.3);
-    const ground = isSolid(world, ahead, feetY);
-    const wall = isSolid(world, ahead, feetY - 1);
-    if (!ground || wall || Math.random() < dt * 0.15) {
-      c.vx *= -1;
-      if (Math.random() < 0.3) c.hop = 0.25;
-    } else {
-      c.x = nextX;
-    }
-    if (c.x < 0) c.x += WORLD_W;
-    if (c.x >= WORLD_W) c.x -= WORLD_W;
-    c.facing = c.vx >= 0 ? 1 : -1;
+    if (Math.random() < dt * 0.2) c.vx *= -1;
+    const spd = (MOB.rabbit.speed) * (0.7 + Math.random() * 0.2);
+    const targetVx = Math.sign(c.vx || 1) * spd;
+    stepMobWalk(c, world, dt, targetVx);
 
-    // Stick to surface-ish
-    const tx = Math.floor(c.x);
-    let gy = Math.floor(c.y);
-    while (gy < WORLD_H - 1 && !isSolid(world, tx, gy + 1)) gy++;
-    while (gy > SKY_LIMIT && isSolid(world, tx, gy)) gy--;
-    c.y = gy + (c.hop > 0 ? -0.35 * Math.sin(c.hop * Math.PI * 4) : 0);
+    // Small hop offset for draw only (don't break feet permanently)
+    c.drawHop = c.hop > 0 ? Math.sin(c.hop * Math.PI / 0.35) * 0.25 : 0;
   }
 }
 
-function drawEntities(ctx, ents, cam, ts) {
-  // Drops
-  for (const d of ents.drops) {
-    const sx = (d.x - cam.x) * ts + W / 2;
-    const sy = (d.y - cam.y) * ts + H / 2 + Math.sin(d.bob) * 2;
-    ctx.save();
-    ctx.globalAlpha = Math.min(1, d.life / 2);
-    if (typeof d.id === 'number' && typeof getCubeTex === 'function' && getCubeTex(d.id)) {
-      ctx.drawImage(getCubeTex(d.id), sx - 8, sy - 8, 16, 16);
-    } else if (isFood(d.id) && FOOD[d.id]) {
-      ctx.fillStyle = FOOD[d.id].color;
-      ctx.beginPath();
-      ctx.arc(sx, sy, 5, 0, Math.PI * 2);
-      ctx.fill();
-    } else {
-      ctx.fillStyle = '#ddd';
-      ctx.fillRect(sx - 4, sy - 4, 8, 8);
-    }
-    ctx.restore();
-  }
-
-  // Hostiles
-  if (ents.hostiles) {
-    for (const h of ents.hostiles) {
-      const sx = (h.x - cam.x) * ts + W / 2;
-      const sy = (h.y - cam.y) * ts + H / 2;
-      const bob = Math.sin(h.anim) * 1.5;
-      ctx.save();
-      ctx.translate(sx, sy + bob);
-      if (h.vx < 0) ctx.scale(-1, 1);
-      if (h.kind === 'scorpion') {
-        ctx.fillStyle = '#8b4513';
-        ctx.beginPath();
-        ctx.ellipse(0, -6, 12, 6, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = '#5a2a0a';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(8, -8);
-        ctx.quadraticCurveTo(16, -18, 10, -14);
-        ctx.stroke();
-        ctx.fillStyle = '#222';
-        ctx.fillRect(4, -10, 2, 2);
-      } else {
-        // dropbear
-        ctx.fillStyle = '#6b4423';
-        ctx.beginPath();
-        ctx.ellipse(0, -10, 11, 10, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#4a2a12';
-        ctx.beginPath();
-        ctx.arc(-6, -18, 4, 0, Math.PI * 2);
-        ctx.arc(6, -18, 4, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#f44';
-        ctx.fillRect(-3, -12, 2, 2);
-        ctx.fillRect(2, -12, 2, 2);
-      }
-      ctx.restore();
-    }
-  }
-
-  // Critters
-  for (const c of ents.critters) {
-    const sx = (c.x - cam.x) * ts + W / 2;
-    const sy = (c.y - cam.y) * ts + H / 2;
-    const bob = Math.sin(c.anim) * 2;
-    ctx.save();
-    ctx.translate(sx, sy + bob);
-    if (c.facing < 0) ctx.scale(-1, 1);
-    if (c.kind === 'dodo') {
-      // Chunky bird
-      ctx.fillStyle = '#e8d0a0';
-      ctx.beginPath();
-      ctx.ellipse(0, -10, 10, 8, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#f0c070';
-      ctx.beginPath();
-      ctx.arc(8, -14, 6, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#e07040';
-      ctx.beginPath();
-      ctx.moveTo(12, -14);
-      ctx.lineTo(18, -12);
-      ctx.lineTo(12, -10);
-      ctx.fill();
-      ctx.fillStyle = '#222';
-      ctx.fillRect(9, -16, 2, 2);
-      ctx.fillStyle = '#c06040';
-      ctx.fillRect(-3, -2, 3, 6);
-      ctx.fillRect(2, -2, 3, 6);
-    } else {
-      // Bunny
-      ctx.fillStyle = '#f0e8e0';
-      ctx.beginPath();
-      ctx.ellipse(0, -8, 8, 6, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#f0e8e0';
-      ctx.fillRect(-4, -20, 3, 10);
-      ctx.fillRect(1, -20, 3, 10);
-      ctx.fillStyle = '#f8a0b0';
-      ctx.fillRect(-3, -18, 1, 5);
-      ctx.fillStyle = '#222';
-      ctx.fillRect(3, -10, 2, 2);
-    }
-    ctx.restore();
-  }
-}
-
-/**
- * Melee swipe — hit hostiles in front of the player.
- * @returns {{ kills: number, hits: number, dmg: number }}
- */
 function tryMeleeAttack(player, inv, ents, world) {
   if (!player || player.attackCd > 0) return { kills: 0, hits: 0, dmg: 0, fist: false };
-  // Fists if no tool/weapon selected — don't use last pickaxe for punches
   const tool = typeof getMeleeWeapon === 'function'
     ? getMeleeWeapon(inv)
     : (TOOLS.hand || { damage: 9, reach: 1.65 });
@@ -401,7 +356,7 @@ function tryMeleeAttack(player, inv, ents, world) {
   player.attackT = fist ? 0.18 : 0.22;
   player.attackCd = fist ? 0.28 : (tool.weapon ? 0.32 : 0.38);
   player.attackHit = false;
-  player.invuln = Math.max(player.invuln, 0.2); // brief i-frames while swinging
+  player.invuln = Math.max(player.invuln, 0.2);
 
   let hits = 0;
   let kills = 0;
@@ -413,28 +368,47 @@ function tryMeleeAttack(player, inv, ents, world) {
 
   for (let i = ents.hostiles.length - 1; i >= 0; i--) {
     const h = ents.hostiles[i];
+    const def = MOB[h.kind] || MOB.zombie;
     const dx = wrapDeltaX(px, h.x);
-    const dy = (h.y - 0.5) - py;
+    const dy = (h.y - def.h * 0.5) - py;
     const dist = Math.hypot(dx, dy);
-    // Fists: allow hit a bit more forgiving (all around when very close)
     const maxR = reach + (fist ? 0.45 : 0.35);
     if (dist > maxR) continue;
     if (dist > 0.85 && Math.sign(dx || face) !== face) continue;
-    if (!hasLineOfSight(world, px, py, h.x, h.y - 0.5)) continue;
+    if (!hasLineOfSight(world, px, py, h.x, h.y - def.h * 0.5)) continue;
 
     h.hp -= dmg;
     h.vx = face * (fist ? 2.8 : 3.5);
     hits++;
     player.attackHit = true;
     if (h.hp <= 0) {
-      spawnDrop(ents, h.x, h.y - 0.5, 'apple', 1);
-      if (Math.random() < 0.35) spawnDrop(ents, h.x, h.y - 0.3, BLOCK.COAL, 1);
+      // death handled next updateHostiles pass — do it here
+      if (h.kind === 'skeleton' && Math.random() < 0.5) spawnDrop(ents, h.x, h.y - 0.3, 'stick', 1);
+      else if (Math.random() < 0.5) spawnDrop(ents, h.x, h.y - 0.3, 'apple', 1);
       ents.hostiles.splice(i, 1);
       kills++;
     }
   }
 
-  // Wear tools/swords only (fists don't break)
+  // Also let players "hunt" rabbits for food
+  if (ents.critters) {
+    for (let i = ents.critters.length - 1; i >= 0; i--) {
+      const c = ents.critters[i];
+      const dx = wrapDeltaX(px, c.x);
+      const dy = (c.y - 0.25) - py;
+      const dist = Math.hypot(dx, dy);
+      if (dist > reach) continue;
+      if (dist > 0.7 && Math.sign(dx || face) !== face) continue;
+      c.hp = (c.hp || 8) - dmg;
+      hits++;
+      if (c.hp <= 0) {
+        spawnDrop(ents, c.x, c.y - 0.2, 'apple', 1 + (Math.random() < 0.5 ? 1 : 0));
+        ents.critters.splice(i, 1);
+        kills++;
+      }
+    }
+  }
+
   if (hits > 0 && inv && !fist) {
     const slot = selectedSlot(inv);
     if (slot && isTool(slot.id) && TOOLS[slot.id] && TOOLS[slot.id].durability < Infinity) {
@@ -449,11 +423,250 @@ function tryMeleeAttack(player, inv, ents, world) {
   return { kills, hits, dmg, fist };
 }
 
+// ─── Drawing (feet at origin, walk cycle) ───────────────────────────────────
+
+function drawMobShadow(ctx, w) {
+  ctx.fillStyle = 'rgba(0,0,0,0.28)';
+  ctx.beginPath();
+  ctx.ellipse(0, -1, w * 0.55, 3.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawWalkLegs(ctx, anim, color, legH, legW, spread) {
+  const stride = Math.sin(anim) * spread;
+  ctx.fillStyle = color;
+  ctx.fillRect(-legW * 1.1, -legH + stride, legW, legH - Math.min(stride, 0));
+  ctx.fillRect(legW * 0.2, -legH - stride, legW, legH + Math.max(stride, 0));
+}
+
+function drawRabbit(ctx, m, ts) {
+  const scale = ts;
+  const hop = (m.drawHop || 0) * ts;
+  ctx.save();
+  ctx.translate(0, -hop);
+  drawMobShadow(ctx, 14);
+  const stride = Math.sin(m.anim * 2) * 3;
+  // body
+  ctx.fillStyle = '#f2ebe3';
+  ctx.beginPath();
+  ctx.ellipse(0, -10, 11, 8, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // head
+  ctx.beginPath();
+  ctx.ellipse(9, -14, 6, 5, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // ears
+  ctx.fillStyle = '#f2ebe3';
+  ctx.fillRect(6, -28, 3, 12);
+  ctx.fillRect(11, -27, 3, 11);
+  ctx.fillStyle = '#f7b0c0';
+  ctx.fillRect(7, -26, 1.5, 8);
+  // eye
+  ctx.fillStyle = '#222';
+  ctx.fillRect(11, -16, 2, 2);
+  // feet
+  ctx.fillStyle = '#e8ddd4';
+  ctx.fillRect(-8 + stride, -4, 7, 3);
+  ctx.fillRect(2 - stride, -4, 7, 3);
+  ctx.restore();
+}
+
+function drawWolf(ctx, m, ts) {
+  drawMobShadow(ctx, 18);
+  const stride = Math.sin(m.anim * 2.2) * 4;
+  // legs
+  ctx.fillStyle = '#6a6a72';
+  ctx.fillRect(-10, -12 + stride, 4, 12);
+  ctx.fillRect(-3, -12 - stride, 4, 12);
+  ctx.fillRect(4, -12 + stride * 0.8, 4, 12);
+  ctx.fillRect(10, -12 - stride * 0.8, 4, 12);
+  // body
+  ctx.fillStyle = '#8a8a94';
+  ctx.beginPath();
+  ctx.ellipse(0, -18, 16, 9, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // head
+  ctx.fillStyle = '#7a7a84';
+  ctx.beginPath();
+  ctx.ellipse(14, -22, 8, 7, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // snout
+  ctx.fillStyle = '#6a6a74';
+  ctx.fillRect(18, -22, 8, 5);
+  // ear
+  ctx.fillStyle = '#8a8a94';
+  ctx.beginPath();
+  ctx.moveTo(10, -28);
+  ctx.lineTo(14, -36);
+  ctx.lineTo(16, -28);
+  ctx.fill();
+  // eye
+  ctx.fillStyle = '#f0c040';
+  ctx.fillRect(16, -24, 2.5, 2.5);
+  // tail
+  ctx.strokeStyle = '#7a7a84';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(-14, -18);
+  ctx.quadraticCurveTo(-22, -28 - Math.sin(m.anim) * 3, -18, -14);
+  ctx.stroke();
+}
+
+function drawZombie(ctx, m, ts) {
+  drawMobShadow(ctx, 12);
+  const phase = m.anim;
+  const stride = Math.sin(phase * 1.8) * 5;
+  // legs
+  ctx.fillStyle = '#3d4a38';
+  ctx.fillRect(-6, -18 + stride, 5, 18);
+  ctx.fillRect(1, -18 - stride, 5, 18);
+  // torso
+  ctx.fillStyle = '#4a6b3a';
+  roundRectLocal(ctx, -8, -40, 16, 24, 2);
+  ctx.fill();
+  // arms outstretched shambling
+  ctx.fillStyle = '#6a9a5a';
+  ctx.fillRect(6, -38, 14, 4);
+  ctx.fillRect(6, -32, 12, 4);
+  // head
+  ctx.fillStyle = '#7aba5a';
+  roundRectLocal(ctx, -7, -54, 14, 14, 3);
+  ctx.fill();
+  // eyes
+  ctx.fillStyle = '#222';
+  ctx.fillRect(-3, -48, 2.5, 2.5);
+  ctx.fillRect(2, -48, 2.5, 2.5);
+  // tattered mouth
+  ctx.fillStyle = '#2a3a22';
+  ctx.fillRect(-3, -42, 7, 2);
+}
+
+function drawSkeleton(ctx, m, ts) {
+  drawMobShadow(ctx, 11);
+  const phase = m.anim;
+  const stride = Math.sin(phase * 2) * 5;
+  // legs (bones)
+  ctx.strokeStyle = '#e8e4d8';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(-4, 0);
+  ctx.lineTo(-4, -18 + stride);
+  ctx.moveTo(4, 0);
+  ctx.lineTo(4, -18 - stride);
+  ctx.stroke();
+  // ribs
+  ctx.strokeStyle = '#ddd8cc';
+  ctx.lineWidth = 2;
+  for (let i = 0; i < 4; i++) {
+    ctx.beginPath();
+    ctx.moveTo(-7, -22 - i * 4);
+    ctx.lineTo(7, -22 - i * 4);
+    ctx.stroke();
+  }
+  // spine
+  ctx.beginPath();
+  ctx.moveTo(0, -18);
+  ctx.lineTo(0, -40);
+  ctx.stroke();
+  // arms + bow pose
+  ctx.beginPath();
+  ctx.moveTo(0, -36);
+  ctx.lineTo(12, -30);
+  ctx.moveTo(0, -36);
+  ctx.lineTo(-8, -28);
+  ctx.stroke();
+  // skull
+  ctx.fillStyle = '#f0ebe0';
+  ctx.beginPath();
+  ctx.arc(0, -48, 7, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#222';
+  ctx.fillRect(-4, -50, 2.5, 3);
+  ctx.fillRect(2, -50, 2.5, 3);
+  // bow
+  ctx.strokeStyle = '#8b6914';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(14, -30, 8, -1.2, 1.2);
+  ctx.stroke();
+}
+
+function roundRectLocal(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function drawEntities(ctx, ents, cam, ts) {
+  // Drops
+  for (const d of ents.drops) {
+    const sx = (d.x - cam.x) * ts + W / 2;
+    const sy = (d.y - cam.y) * ts + H / 2 + Math.sin(d.bob) * 2;
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, d.life / 2);
+    if (typeof d.id === 'number' && typeof getSoftTex === 'function' && getSoftTex(d.id)) {
+      ctx.drawImage(getSoftTex(d.id), sx - 8, sy - 8, 16, 16);
+    } else if (typeof d.id === 'number' && typeof getCubeTex === 'function' && getCubeTex(d.id)) {
+      ctx.drawImage(getCubeTex(d.id), sx - 8, sy - 8, 16, 16);
+    } else if (isFood(d.id) && FOOD[d.id]) {
+      ctx.fillStyle = FOOD[d.id].color;
+      ctx.beginPath();
+      ctx.arc(sx, sy, 5, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.fillStyle = '#ddd';
+      ctx.fillRect(sx - 4, sy - 4, 8, 8);
+    }
+    ctx.restore();
+  }
+
+  function drawOne(m) {
+    const sx = (m.x - cam.x) * ts + W / 2;
+    const sy = (m.y - cam.y) * ts + H / 2;
+    // cull offscreen
+    if (sx < -80 || sx > W + 80 || sy < -80 || sy > H + 80) return;
+
+    ctx.save();
+    ctx.translate(sx, sy);
+    if ((m.facing || m.vx || 1) < 0) ctx.scale(-1, 1);
+
+    // HP bar if hurt
+    if (m.hp < m.maxHp && m.hostile) {
+      const pct = Math.max(0, m.hp / m.maxHp);
+      ctx.fillStyle = 'rgba(0,0,0,0.45)';
+      ctx.fillRect(-12, -m.h * ts - 10, 24, 4);
+      ctx.fillStyle = '#e74c3c';
+      ctx.fillRect(-12, -m.h * ts - 10, 24 * pct, 4);
+    }
+
+    if (m.kind === 'rabbit') drawRabbit(ctx, m, ts);
+    else if (m.kind === 'wolf') drawWolf(ctx, m, ts);
+    else if (m.kind === 'zombie') drawZombie(ctx, m, ts);
+    else if (m.kind === 'skeleton') drawSkeleton(ctx, m, ts);
+    else drawRabbit(ctx, m, ts);
+
+    ctx.restore();
+  }
+
+  if (ents.hostiles) {
+    for (const h of ents.hostiles) drawOne(h);
+  }
+  for (const c of ents.critters) drawOne(c);
+}
+
 function serializeEntities(ents) {
   return {
     drops: ents.drops.map(d => ({ x: d.x, y: d.y, id: d.id, count: d.count, life: d.life })),
-    critters: ents.critters.map(c => ({ x: c.x, y: c.y, vx: c.vx, kind: c.kind })),
-    // hostiles not saved — respawn at night
+    critters: ents.critters.map(c => ({
+      x: c.x, y: c.y, vx: c.vx, kind: c.kind || 'rabbit', hp: c.hp, facing: c.facing,
+    })),
+    hostiles: (ents.hostiles || []).map(h => ({
+      x: h.x, y: h.y, vx: h.vx, kind: h.kind, hp: h.hp, facing: h.facing,
+    })),
   };
 }
 
@@ -470,9 +683,27 @@ function deserializeEntities(data) {
   }
   if (data.critters) {
     for (const c of data.critters) {
-      ents.critters.push({
-        x: c.x, y: c.y, vx: c.vx || 1, facing: 1, anim: 0, hop: 0, kind: c.kind || 'dodo',
-      });
+      const kind = (c.kind === 'dodo' || c.kind === 'bunny') ? 'rabbit' : (c.kind || 'rabbit');
+      const m = makeMob(kind, c.x - 0.5, c.y);
+      m.x = c.x;
+      m.y = c.y;
+      m.vx = c.vx || m.vx;
+      m.hp = c.hp != null ? c.hp : m.hp;
+      ents.critters.push(m);
+    }
+  }
+  if (data.hostiles) {
+    for (const h of data.hostiles) {
+      // Migrate old kinds
+      let kind = h.kind;
+      if (kind === 'scorpion' || kind === 'dropbear') kind = Math.random() < 0.5 ? 'zombie' : 'skeleton';
+      if (!MOB[kind]) kind = 'zombie';
+      const m = makeMob(kind, h.x - 0.5, h.y);
+      m.x = h.x;
+      m.y = h.y;
+      m.vx = h.vx || m.vx;
+      m.hp = h.hp != null ? h.hp : m.hp;
+      ents.hostiles.push(m);
     }
   }
   return ents;

@@ -415,7 +415,11 @@ function gameUpdate(dt) {
     player.hp -= hh.dmg;
     player.invuln = 0.7;
     sfxHurt();
-    toast(ui, hh.kind === 'dropbear' ? 'Dropbear attack!' : 'Scorpion sting!');
+    const label = hh.kind === 'zombie' ? 'Zombie hit!'
+      : hh.kind === 'skeleton' ? 'Skeleton hit!'
+      : hh.kind === 'wolf' ? 'Wolf bite!'
+      : 'Hit!';
+    toast(ui, label);
   }
 
   // Weather (rain cycles)
