@@ -612,24 +612,32 @@ function drawPlayer(ctx, p, cam, ts) {
     ctx.fillRect(sx + legW * 0.3 - 1, sy - 3 - stride, legW + 2, 3);
   }
 
-  // Sword swing arc
+  // Swing / punch arc
   if (p.attackT > 0) {
-    const t = 1 - p.attackT / 0.22;
+    const maxT = 0.22;
+    const t = 1 - p.attackT / maxT;
     const ang = (p.facing >= 0 ? -0.9 : Math.PI + 0.9) + p.facing * t * 1.8;
-    const len = ph * 0.55;
+    const len = ph * 0.5;
     ctx.save();
     ctx.translate(sx, sy - ph * 0.45);
-    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+    // Fist blob when unarmed swing looks punchy
+    ctx.fillStyle = 'rgba(255,200,150,0.55)';
+    const fx = Math.cos(ang) * len * 0.9;
+    const fy = Math.sin(ang) * len * 0.9;
+    ctx.beginPath();
+    ctx.arc(fx, fy, 6 + t * 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
     ctx.lineWidth = 3;
     ctx.lineCap = 'round';
     ctx.beginPath();
     ctx.moveTo(0, 0);
-    ctx.lineTo(Math.cos(ang) * len, Math.sin(ang) * len);
+    ctx.lineTo(fx, fy);
     ctx.stroke();
-    ctx.strokeStyle = 'rgba(200,220,255,0.35)';
-    ctx.lineWidth = 8;
+    ctx.strokeStyle = 'rgba(255,220,180,0.3)';
+    ctx.lineWidth = 10;
     ctx.beginPath();
-    ctx.arc(0, 0, len * 0.85, ang - 0.4, ang + 0.1);
+    ctx.arc(0, 0, len * 0.8, ang - 0.5, ang + 0.15);
     ctx.stroke();
     ctx.restore();
   }

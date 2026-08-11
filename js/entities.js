@@ -390,18 +390,22 @@ function drawEntities(ctx, ents, cam, ts) {
  * @returns {{ kills: number, hits: number, dmg: number }}
  */
 function tryMeleeAttack(player, inv, ents, world) {
-  if (!player || player.attackCd > 0) return { kills: 0, hits: 0, dmg: 0 };
-  const tool = typeof getHeldTool === 'function' ? getHeldTool(inv) : (TOOLS.hand || { damage: 5, reach: 1.5 });
-  const dmg = tool.damage || 5;
-  const reach = tool.reach || 1.5;
-  player.attackT = 0.22;
-  player.attackCd = tool.weapon ? 0.32 : 0.4;
+  if (!player || player.attackCd > 0) return { kills: 0, hits: 0, dmg: 0, fist: false };
+  // Fists if no tool/weapon selected — don't use last pickaxe for punches
+  const tool = typeof getMeleeWeapon === 'function'
+    ? getMeleeWeapon(inv)
+    : (TOOLS.hand || { damage: 9, reach: 1.65 });
+  const fist = !tool.weapon && tool.id === 'hand';
+  const dmg = tool.damage || (fist ? 9 : 5);
+  const reach = tool.reach || 1.65;
+  player.attackT = fist ? 0.18 : 0.22;
+  player.attackCd = fist ? 0.28 : (tool.weapon ? 0.32 : 0.38);
   player.attackHit = false;
-  player.invuln = Math.max(player.invuln, 0.18); // brief i-frames so trade-hits feel fair
+  player.invuln = Math.max(player.invuln, 0.2); // brief i-frames while swinging
 
   let hits = 0;
   let kills = 0;
-  if (!ents || !ents.hostiles) return { kills: 0, hits: 0, dmg };
+  if (!ents || !ents.hostiles) return { kills: 0, hits: 0, dmg, fist };
 
   const face = player.facing >= 0 ? 1 : -1;
   const px = player.x;
@@ -412,13 +416,14 @@ function tryMeleeAttack(player, inv, ents, world) {
     const dx = wrapDeltaX(px, h.x);
     const dy = (h.y - 0.5) - py;
     const dist = Math.hypot(dx, dy);
-    if (dist > reach + 0.35) continue;
-    // Must be roughly in front (or very close all around)
-    if (dist > 0.7 && Math.sign(dx || face) !== face) continue;
+    // Fists: allow hit a bit more forgiving (all around when very close)
+    const maxR = reach + (fist ? 0.45 : 0.35);
+    if (dist > maxR) continue;
+    if (dist > 0.85 && Math.sign(dx || face) !== face) continue;
     if (!hasLineOfSight(world, px, py, h.x, h.y - 0.5)) continue;
 
     h.hp -= dmg;
-    h.vx = face * 3.5; // knockback
+    h.vx = face * (fist ? 2.8 : 3.5);
     hits++;
     player.attackHit = true;
     if (h.hp <= 0) {
@@ -429,8 +434,8 @@ function tryMeleeAttack(player, inv, ents, world) {
     }
   }
 
-  // Wear weapon a little
-  if (hits > 0 && inv) {
+  // Wear tools/swords only (fists don't break)
+  if (hits > 0 && inv && !fist) {
     const slot = selectedSlot(inv);
     if (slot && isTool(slot.id) && TOOLS[slot.id] && TOOLS[slot.id].durability < Infinity) {
       slot.durability = (slot.durability != null ? slot.durability : TOOLS[slot.id].durability) - 1;
@@ -441,7 +446,7 @@ function tryMeleeAttack(player, inv, ents, world) {
     }
   }
 
-  return { kills, hits, dmg };
+  return { kills, hits, dmg, fist };
 }
 
 function serializeEntities(ents) {

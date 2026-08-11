@@ -1,7 +1,7 @@
 'use strict';
 
 // Blockbound — keep CACHE in sw.js in sync: 'blockbound-' + GAME_VERSION
-const GAME_VERSION = '1.5.000';
+const GAME_VERSION = '1.5.001';
 const GAME_VERSION_LABEL = 'v' + GAME_VERSION;
 const GAME_NAME = 'Blockbound';
 
@@ -126,7 +126,7 @@ const BLOCK_META = {
 
 /** Tool power multiplies mining speed. Weapons also have damage + reach. */
 const TOOLS = {
-  hand:      { id: 'hand', name: 'Hands', power: 1, durability: Infinity, damage: 5, reach: 1.5 },
+  hand:      { id: 'hand', name: 'Hands', power: 1, durability: Infinity, damage: 9, reach: 1.65 },
   wood_pick: { id: 'wood_pick', name: 'Wood Pickaxe', power: 2.2, durability: 80, mineBonus: [BLOCK.STONE, BLOCK.COAL, BLOCK.COPPER], damage: 6, reach: 1.5 },
   stone_pick:{ id: 'stone_pick', name: 'Stone Pickaxe', power: 3.5, durability: 160, mineBonus: [BLOCK.STONE, BLOCK.COAL, BLOCK.IRON, BLOCK.COPPER], damage: 7, reach: 1.5 },
   iron_pick: { id: 'iron_pick', name: 'Iron Pickaxe', power: 5.5, durability: 320, mineBonus: [BLOCK.STONE, BLOCK.COAL, BLOCK.IRON, BLOCK.GOLD, BLOCK.COPPER], damage: 8, reach: 1.5 },
@@ -242,6 +242,14 @@ function getHeldTool(inv) {
   const s = selectedSlot(inv);
   if (s && TOOLS[s.id]) return TOOLS[s.id];
   if (inv.tool && TOOLS[inv.tool]) return TOOLS[inv.tool];
+  return TOOLS.hand;
+}
+
+/** What you fight with: selected tool/weapon, otherwise bare fists (not the last pickaxe). */
+function getMeleeWeapon(inv) {
+  const s = selectedSlot(inv);
+  if (s && TOOLS[s.id]) return TOOLS[s.id];
+  // Holding a block, food, empty slot, etc. → punch with hands
   return TOOLS.hand;
 }
 

@@ -772,13 +772,14 @@ function doPlayerAttack(s) {
   const result = tryMeleeAttack(player, inv, ents, world);
   if (typeof sfxMine === 'function') sfxMine();
   if (result.hits > 0) {
-    spawnBurst(s.particles, player.x + player.facing * 0.8, player.y - 0.7, '#fff', 6);
+    const col = result.fist ? '#ffcc88' : '#fff';
+    spawnBurst(s.particles, player.x + player.facing * 0.8, player.y - 0.7, col, result.fist ? 8 : 6);
     if (result.kills > 0) {
-      toast(ui, 'Monster defeated!');
+      toast(ui, result.fist ? 'Punched out!' : 'Monster defeated!');
       unlockMilestone(world.meta, stats, ui, 'first_kill');
     }
   }
-  const tool = getHeldTool(inv);
+  const tool = typeof getMeleeWeapon === 'function' ? getMeleeWeapon(inv) : getHeldTool(inv);
   if (tool && tool.weapon) unlockMilestone(world.meta, stats, ui, 'first_sword');
 }
 
