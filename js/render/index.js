@@ -68,16 +68,25 @@ export function shadeHex(hex, mul) {
 
 export function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particles, ents) {
   const sky = skyColors(timeOfDay);
-  const g = ctx.createLinearGradient(0, 0, 0, H);
-  g.addColorStop(0, sky.top);
-  g.addColorStop(0.45, sky.mid);
-  g.addColorStop(1, sky.bot);
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, W, H);
+  const pCol = wrapX(Math.floor(player.x));
+  const surfY = (world.surface && world.surface[pCol] != null) ? world.surface[pCol] : SURFACE_Y;
+  // Deep underground: never show sky/white — solid cave black base
+  const deepUnder = player.y > surfY + 2.5;
 
-  drawCelestial(ctx, sky, timeOfDay);
-  drawClouds(ctx, cam.x, sky, timeOfDay);
-  drawParallax(ctx, cam.x, sky.day);
+  if (deepUnder) {
+    ctx.fillStyle = '#05040a';
+    ctx.fillRect(0, 0, W, H);
+  } else {
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, sky.top);
+    g.addColorStop(0.45, sky.mid);
+    g.addColorStop(1, sky.bot);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+    drawCelestial(ctx, sky, timeOfDay);
+    drawClouds(ctx, cam.x, sky, timeOfDay);
+    drawParallax(ctx, cam.x, sky.day);
+  }
 
   const zoom = (cam && cam.zoom) || (ui && ui.zoom) || 1;
   const ts = TILE * zoom;
@@ -90,8 +99,8 @@ export function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particl
   const emitters = collectEmitters(world, startTX, startTY, tilesX, tilesY);
   const now = performance.now();
 
-  // Cave backdrop + smooth dynamic light (flicker + warm pulse)
-  drawSmoothCaveBackdrop(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY, emitters, now);
+  // Cave backdrop + smooth torch pools (stays dark — never white fog)
+  drawSmoothCaveBackdrop(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY, emitters, now, deepUnder);
 
   // Terrain as one continuous surface (seamless tiles + smooth light, NO blur)
   drawSeamlessTerrain(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY, sky, emitters, now);
@@ -180,32 +189,13 @@ export function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particl
     }
   }
 
-  // Local darkness around the player when underground / unlit
-  // Soften strongly when standing in torch light so blooms aren't crushed.
-  {
-    const pLight = sampleLight(world, player.x, player.y - player.h * 0.5);
-    const bri = lightToBrightness(pLight, { ambient: 0.03 });
-    const under = player.y > (world.surface[wrapX(Math.floor(player.x))] || SURFACE_Y) + 2;
-    if (under || pLight < 11) {
-      // Less vignette when well-lit (torch nearby)
-      const litRelief = Math.min(1, pLight / 12);
-      const darkness = (under ? (1 - bri) * 0.62 : (1 - bri) * 0.38) * (1 - litRelief * 0.55);
-      if (darkness > 0.06) {
-        const v = ctx.createRadialGradient(W / 2, H / 2, H * 0.12, W / 2, H / 2, H * 0.78);
-        v.addColorStop(0, `rgba(0,0,0,${darkness * 0.08})`);
-        v.addColorStop(0.5, `rgba(0,0,0,${darkness * 0.4})`);
-        v.addColorStop(1, `rgba(0,0,0,${Math.min(0.88, darkness * 0.9)})`);
-        ctx.fillStyle = v;
-        ctx.fillRect(0, 0, W, H);
-      }
-    }
-  }
-
-  // Night surface vignette
-  if (sky.day < 0.55) {
-    const v = ctx.createRadialGradient(W / 2, H / 2, H * 0.15, W / 2, H / 2, H * 0.8);
+  // Soft screen-edge vignette only on surface at night — NOT underground
+  // (underground vignette made hard black cutouts against torch light)
+  if (!deepUnder && sky.day < 0.55) {
+    const v = ctx.createRadialGradient(W / 2, H / 2, H * 0.22, W / 2, H / 2, H * 0.85);
     v.addColorStop(0, 'rgba(0,0,0,0)');
-    v.addColorStop(1, `rgba(2,2,12,${(0.55 - sky.day) * 0.95})`);
+    v.addColorStop(0.55, 'rgba(0,0,0,0)');
+    v.addColorStop(1, `rgba(2,2,12,${(0.55 - sky.day) * 0.75})`);
     ctx.fillStyle = v;
     ctx.fillRect(0, 0, W, H);
   }
@@ -367,11 +357,12 @@ function drawSeamlessTerrain(ctx, world, cam, ts, startTX, startTY, tilesX, tile
       if (nearSurface && lvl >= 8 && sky) {
         bri = Math.max(bri, (0.25 + 0.75 * sky.day) * lightToBrightness(lvl, { ambient: 0.18 }));
       }
-      // Floor so unlit rock still has form against black cave
-      const v = Math.floor(Math.max(14, Math.min(255, bri * 255)));
+      // Keep terrain readable but not washed-out white when well lit
+      // Map bri 0→1 to ~0.12–0.92 so stone never multiplies to pure white
+      const v = Math.floor(Math.max(22, Math.min(235, (0.12 + bri * 0.8) * 255)));
       data[p] = v;
-      data[p + 1] = v;
-      data[p + 2] = Math.floor(v * 0.98);
+      data[p + 1] = Math.floor(v * 0.96);
+      data[p + 2] = Math.floor(v * 0.9);
       data[p + 3] = 255;
     }
   }
@@ -654,15 +645,15 @@ function collectEmitters(world, startTX, startTY, tilesX, tilesY) {
       let reach = 0;
       let kind = 'torch';
       if (id === BLOCK.TORCH) {
-        power = 1; reach = 9; kind = 'torch';
+        power = 1; reach = 10; kind = 'torch';
       } else if (id === BLOCK.LANTERN) {
-        power = 1.25; reach = 11; kind = 'lantern';
+        power = 1.15; reach = 12; kind = 'lantern';
       } else if (id === BLOCK.CAMPFIRE) {
-        power = 1.1; reach = 8; kind = 'fire';
+        power = 1.05; reach = 9; kind = 'fire';
       } else if (id === BLOCK.LAVA) {
-        power = 0.85; reach = 6; kind = 'lava';
+        power = 0.8; reach = 7; kind = 'lava';
       } else if (id === BLOCK.FURNACE) {
-        power = 0.45; reach = 4; kind = 'furnace';
+        power = 0.4; reach = 5; kind = 'furnace';
       } else {
         continue;
       }
@@ -690,23 +681,18 @@ function emitterFlickerAt(fx, fy, emitters, now) {
   const t = now * 0.001;
   for (let i = 0; i < emitters.length; i++) {
     const e = emitters[i];
-    const dx = fx - e.x;
-    // handle world wrap for x distance roughly
-    let adx = dx;
+    let adx = fx - e.x;
     if (adx > WORLD_W * 0.5) adx -= WORLD_W;
     if (adx < -WORLD_W * 0.5) adx += WORLD_W;
     const dy = fy - e.y;
     const d = Math.sqrt(adx * adx + dy * dy);
-    if (d >= e.reach) continue;
-    const k = 1 - d / e.reach;
-    const kk = k * k * e.power;
-    // Irregular flame: 3 sines + a faster spark tick
+    const fall = emitterSoftFalloff(d, e.reach * 1.35);
+    if (fall <= 0) continue;
+    const kk = fall * e.power;
     const ph = e.phase;
-    const fl = 0.72
-      + 0.16 * Math.sin(t * 6.2 + ph)
-      + 0.08 * Math.sin(t * 13.7 + ph * 1.9)
-      + 0.05 * Math.sin(t * 27.0 + ph * 0.4)
-      + 0.04 * Math.sin(t * 41.0 + ph * 2.3);
+    const fl = 0.88
+      + 0.08 * Math.sin(t * 6.2 + ph)
+      + 0.04 * Math.sin(t * 13.7 + ph * 1.9);
     wSum += kk;
     fSum += fl * kk;
   }
@@ -715,8 +701,18 @@ function emitterFlickerAt(fx, fy, emitters, now) {
 }
 
 /**
- * Extra dynamic brightness (0–~4 light levels) from dancing emitter cores.
- * Soft quadratic falloff so pools of light pulse without hard edges.
+ * Soft distance falloff from emitters (smoothstep-ish, long tail).
+ * Returns 0–1 influence — never a hard radius cut.
+ */
+function emitterSoftFalloff(d, reach) {
+  if (d >= reach) return 0;
+  const t = 1 - d / reach;
+  // smoothstep * soft cubic tail — gentle fade, no hard ring
+  return t * t * t * (t * (t * 6 - 15) + 10);
+}
+
+/**
+ * Extra dynamic light (0–~2.5 levels) from emitters — soft long falloff.
  */
 function dynamicEmitterBoost(fx, fy, emitters, now) {
   if (!emitters || !emitters.length) return 0;
@@ -729,26 +725,25 @@ function dynamicEmitterBoost(fx, fy, emitters, now) {
     if (adx < -WORLD_W * 0.5) adx += WORLD_W;
     const dy = fy - e.y;
     const d = Math.sqrt(adx * adx + dy * dy);
-    if (d >= e.reach) continue;
-    const k = 1 - d / e.reach;
-    const fall = k * k;
+    const reach = e.reach * 1.35; // longer soft tail
+    const fall = emitterSoftFalloff(d, reach);
+    if (fall <= 0) continue;
     const ph = e.phase;
-    const pulse = 0.55
-      + 0.28 * Math.sin(t * 5.5 + ph)
-      + 0.12 * Math.sin(t * 11.0 + ph * 1.6)
-      + 0.08 * Math.sin(t * 23.0 + ph * 0.7);
-    boost += e.power * fall * pulse * 3.2;
+    const pulse = 0.82
+      + 0.12 * Math.sin(t * 5.5 + ph)
+      + 0.06 * Math.sin(t * 11.0 + ph * 1.6);
+    boost += e.power * fall * pulse * 2.0;
   }
-  return Math.min(5.5, boost);
+  return Math.min(2.8, boost);
 }
 
 /**
- * Paint underground open space as a low-res light field, then upscale with
- * bilinear filtering. Applies live flicker + warm pulse near emitters.
+ * Underground open-air fill: always dark cave (never white/sky).
+ * Torch light = soft warm dim pools that fade smoothly into black.
  */
-function drawSmoothCaveBackdrop(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY, emitters, now) {
-  const RES = 3; // samples per tile edge
-  const pad = 1;
+function drawSmoothCaveBackdrop(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY, emitters, now, forceCave) {
+  const RES = 4; // smoother sampling
+  const pad = 2;
   const tw = tilesX + 2 + pad * 2;
   const th = tilesY + 2 + pad * 2;
   const bw = Math.max(1, tw * RES);
@@ -768,6 +763,10 @@ function drawSmoothCaveBackdrop(ctx, world, cam, ts, startTX, startTY, tilesX, t
   const img = lctx.createImageData(bw, bh);
   const data = img.data;
 
+  // Dim cave palette — candlelit max, pure void min (NO white)
+  const voidR = 4, voidG = 4, voidB = 8;
+  const litR = 48, litG = 36, litB = 22; // warm brown, not white
+
   for (let j = 0; j < bh; j++) {
     for (let i = 0; i < bw; i++) {
       const p = (j * bw + i) * 4;
@@ -776,57 +775,56 @@ function drawSmoothCaveBackdrop(ctx, world, cam, ts, startTX, startTY, tilesX, t
       const tileX = Math.floor(fx);
       const tileY = Math.floor(fy);
       if (tileY < 0 || tileY >= WORLD_H) {
-        data[p + 3] = 0;
+        if (forceCave) {
+          data[p] = voidR; data[p + 1] = voidG; data[p + 2] = voidB; data[p + 3] = 255;
+        } else {
+          data[p + 3] = 0;
+        }
         continue;
       }
       const wx = wrapX(tileX);
       const id = getTile(world, wx, tileY);
       if (!isCaveOpenTile(id)) {
-        data[p + 3] = 0;
+        // Solid cells: leave transparent so terrain draws; when deep under fill black behind
+        if (forceCave) {
+          data[p] = voidR; data[p + 1] = voidG; data[p + 2] = voidB; data[p + 3] = 255;
+        } else {
+          data[p + 3] = 0;
+        }
         continue;
       }
       const surf = (world.surface && world.surface[wx] != null) ? world.surface[wx] : SURFACE_Y;
-      const below = fy > surf;
+      const below = forceCave || fy > surf;
       let lvl = sampleLight(world, fx, fy);
-      // Open sky: leave gradient (transparent)
+      // Open sky only when not forced cave
       if (!below && lvl >= 12) {
         data[p + 3] = 0;
         continue;
       }
 
-      // Live dynamic boost + flicker from nearby flames
       const dyn = dynamicEmitterBoost(fx, fy, emitters, now);
       const fl = emitterFlickerAt(fx, fy, emitters, now);
-      if (dyn > 0.05) {
-        lvl = Math.min(15, lvl + dyn * fl);
-      } else if (lvl > 1.5) {
-        lvl = Math.min(15, lvl * (0.92 + 0.1 * fl));
+      if (dyn > 0.02) {
+        lvl = Math.min(15, lvl + dyn * (0.85 + 0.15 * fl));
       }
 
-      // Darker voids, brighter warm pools
-      const bri = lightToBrightness(lvl, { ambient: 0.012 });
-      const depth = Math.min(1, Math.max(0, (fy - surf) / 28));
-      const warm = Math.max(0, lvl) / 15;
-      const pulseWarm = warm * (0.85 + 0.25 * fl);
-      const baseR = 4 + depth * 4;
-      const baseG = 4 + depth * 3;
-      const baseB = 8 + depth * 6;
-      // Hot core: more orange/yellow when strongly lit
-      const r = Math.min(255, (baseR + pulseWarm * 140) * bri + pulseWarm * 48 * fl);
-      const g = Math.min(255, (baseG + pulseWarm * 78) * bri + pulseWarm * 22 * fl);
-      const b = Math.min(255, (baseB + pulseWarm * 22) * bri + pulseWarm * 4);
-      // Deeper black veil in unlit cave
-      const veil = below ? (1 - bri) * 0.96 : (1 - bri) * 0.72;
-      const vr = r * (1 - veil * 0.9);
-      const vg = g * (1 - veil * 0.9);
-      const vb = b * (1 - veil * 0.94);
-      let a = below ? 255 : Math.floor(Math.min(255, (1 - Math.min(1, lvl / 13)) * 235));
-      if (!below && a < 20) a = 0;
+      // Soft brightness 0–1 (gentle curve for smooth pools)
+      const t = Math.max(0, Math.min(15, lvl)) / 15;
+      const smooth = t * t * (3 - 2 * t); // smoothstep
+      const bri = Math.pow(smooth, 1.15); // slightly longer mid-range fade
 
-      data[p] = vr | 0;
-      data[p + 1] = vg | 0;
-      data[p + 2] = vb | 0;
-      data[p + 3] = a;
+      // Lerp void → warm lit cave air (cap stays dim)
+      const flicker = 0.92 + 0.08 * fl;
+      const r = (voidR + (litR - voidR) * bri) * flicker;
+      const g = (voidG + (litG - voidG) * bri) * flicker;
+      const b = (voidB + (litB - voidB) * bri);
+
+      data[p] = r | 0;
+      data[p + 1] = g | 0;
+      data[p + 2] = b | 0;
+      // Always opaque underground so sky never leaks white
+      data[p + 3] = below ? 255 : Math.floor(Math.min(255, (1 - Math.min(1, lvl / 14)) * 240 + bri * 40));
+      if (!below && data[p + 3] < 16) data[p + 3] = 0;
     }
   }
 
@@ -867,30 +865,32 @@ function drawEmitterBlooms(ctx, world, cam, ts, emitters, now) {
     const cx = (e.tx - cam.x) * ts + W / 2 + ts * 0.5 + jx;
     const cy = (e.ty - cam.y) * ts + H / 2 + ts * 0.38 + jy;
 
+    // Amber only — never white-hot fog
     let r = 255;
-    let g = 160;
+    let g = 140;
     let b = 40;
-    let coreA = 0.28;
-    let midR = ts * 2.2;
-    let outR = ts * 3.8;
+    let coreA = 0.18;
+    let midR = ts * 2.4;
+    let outR = ts * 4.6;
     if (e.kind === 'lantern') {
-      g = 180; b = 50; coreA = 0.32; midR = ts * 2.6; outR = ts * 4.4;
+      g = 155; b = 45; coreA = 0.2; midR = ts * 2.8; outR = ts * 5.2;
     } else if (e.kind === 'lava' || e.kind === 'fire') {
-      g = 100; b = 20; coreA = 0.26; midR = ts * 2.0; outR = ts * 3.4;
+      g = 90; b = 20; coreA = 0.16; midR = ts * 2.1; outR = ts * 3.8;
     } else if (e.kind === 'furnace') {
-      g = 120; b = 30; coreA = 0.16; midR = ts * 1.4; outR = ts * 2.4;
+      g = 110; b = 28; coreA = 0.1; midR = ts * 1.5; outR = ts * 2.6;
     }
 
-    const breathe = 0.94 + 0.07 * Math.sin(t * 3.4 + ph);
-    midR *= breathe * (0.95 + 0.06 * fl);
-    outR *= breathe * (0.96 + 0.05 * fl);
+    const breathe = 0.96 + 0.05 * Math.sin(t * 3.4 + ph);
+    midR *= breathe;
+    outR *= breathe;
 
-    // Outer soft wash (keep subtle — was fogging the cave)
+    // Soft outer wash (long smooth falloff)
     {
-      const g1 = ctx.createRadialGradient(cx, cy, ts * 0.35, cx, cy, outR);
-      g1.addColorStop(0, `rgba(${r},${g},${b},${0.1 * fl * e.power})`);
-      g1.addColorStop(0.5, `rgba(${r},${Math.max(0, g - 30)},${b},${0.04 * fl * e.power})`);
-      g1.addColorStop(1, `rgba(${r},80,10,0)`);
+      const g1 = ctx.createRadialGradient(cx, cy, ts * 0.5, cx, cy, outR);
+      g1.addColorStop(0, `rgba(${r},${g},${b},${0.08 * fl * e.power})`);
+      g1.addColorStop(0.4, `rgba(${r},${Math.max(0, g - 20)},${b},${0.035 * fl * e.power})`);
+      g1.addColorStop(0.75, `rgba(${r},${Math.max(0, g - 40)},${b},${0.012 * fl * e.power})`);
+      g1.addColorStop(1, `rgba(${r},60,10,0)`);
       ctx.fillStyle = g1;
       ctx.beginPath();
       ctx.arc(cx, cy, outR, 0, Math.PI * 2);
@@ -898,22 +898,22 @@ function drawEmitterBlooms(ctx, world, cam, ts, emitters, now) {
     }
     // Mid halo
     {
-      const g2 = ctx.createRadialGradient(cx, cy, ts * 0.12, cx, cy, midR);
-      g2.addColorStop(0, `rgba(${r},${g + 30},${b + 15},${0.2 * fl * e.power})`);
-      g2.addColorStop(0.45, `rgba(${r},${g},${b},${0.1 * fl * e.power})`);
+      const g2 = ctx.createRadialGradient(cx, cy, ts * 0.15, cx, cy, midR);
+      g2.addColorStop(0, `rgba(${r},${g + 20},${b},${0.14 * fl * e.power})`);
+      g2.addColorStop(0.5, `rgba(${r},${g},${b},${0.06 * fl * e.power})`);
       g2.addColorStop(1, `rgba(${r},${Math.max(0, g - 40)},${b},0)`);
       ctx.fillStyle = g2;
       ctx.beginPath();
       ctx.arc(cx, cy, midR, 0, Math.PI * 2);
       ctx.fill();
     }
-    // Hot core (smaller so it doesn't blow out)
+    // Small warm core (not white)
     {
-      const cr = ts * (0.32 + 0.08 * fl);
+      const cr = ts * (0.28 + 0.06 * fl);
       const g3 = ctx.createRadialGradient(cx, cy, 0, cx, cy, cr);
-      g3.addColorStop(0, `rgba(255,245,200,${coreA * fl})`);
-      g3.addColorStop(0.4, `rgba(255,190,70,${coreA * 0.45 * fl})`);
-      g3.addColorStop(1, `rgba(255,120,20,0)`);
+      g3.addColorStop(0, `rgba(255,200,100,${coreA * fl})`);
+      g3.addColorStop(0.45, `rgba(255,150,50,${coreA * 0.4 * fl})`);
+      g3.addColorStop(1, `rgba(255,100,20,0)`);
       ctx.fillStyle = g3;
       ctx.beginPath();
       ctx.arc(cx, cy, cr, 0, Math.PI * 2);

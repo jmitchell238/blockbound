@@ -688,16 +688,16 @@ export function getRenderLight(world, x, y) {
 
 /**
  * Map 0–15 light level → 0–1 brightness for rendering.
- * Soft curve so torch falloff reads continuous after lightmap upscale.
+ * Very soft falloff so torch pools fade smoothly (no hard light/dark cut).
  */
 export function lightToBrightness(level, opts) {
   opts = opts || {};
   const t = Math.max(0, Math.min(15, Number(level) || 0)) / 15;
-  // Ambient floor: tiny so you barely see silhouettes when completely dark
-  const ambient = opts.ambient != null ? opts.ambient : 0.035;
-  // Gentler than quadratic — mid light still visible, edges less stepped
-  const s = t * t * (3 - 2 * t); // smoothstep
-  const mixed = Math.pow(t, 1.25) * 0.55 + s * 0.45;
+  const ambient = opts.ambient != null ? opts.ambient : 0.03;
+  // smoothstep then ease-out for long soft tail
+  const s = t * t * (3 - 2 * t);
+  const soft = s * s * (3 - 2 * s); // double smoothstep — very gentle edges
+  const mixed = t * 0.25 + s * 0.35 + soft * 0.4;
   return ambient + (1 - ambient) * mixed;
 }
 
