@@ -86,53 +86,8 @@ export function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particl
   const startTX = Math.floor(cam.x - W / (2 * ts)) - 1;
   const startTY = Math.floor(cam.y - H / (2 * ts)) - 1;
 
-  // Cave / underground air — pitch dark without light, lit by torches/lanterns.
-  // Subdivide each tile into 2×2 with bilinear-sampled light so glow blends
-  // smoothly instead of hard per-tile steps.
-  const sub = 2;
-  const subTs = ts / sub;
-  for (let ty = startTY; ty <= startTY + tilesY; ty++) {
-    if (ty < 0 || ty >= WORLD_H) continue;
-    for (let tx = startTX; tx <= startTX + tilesX; tx++) {
-      const wx = wrapX(tx);
-      const t = getTile(world, wx, ty);
-      if (t !== BLOCK.AIR && t !== BLOCK.WATER) continue;
-      const belowSurface = ty > (world.surface[wx] || SURFACE_Y) + 0;
-      const lvlCenter = getRenderLight(world, wx, ty);
-      // Open sky air: leave the sky gradient showing
-      if (!belowSurface && lvlCenter >= 12) continue;
-
-      const sx0 = (tx - cam.x) * ts + W / 2;
-      const sy0 = (ty - cam.y) * ts + H / 2;
-      const depth = Math.min(1, Math.max(0, (ty - (world.surface[wx] || SURFACE_Y)) / 28));
-      const baseR = 18 + depth * 8;
-      const baseG = 16 + depth * 6;
-      const baseB = 22 + depth * 10;
-
-      for (let syi = 0; syi < sub; syi++) {
-        for (let sxi = 0; sxi < sub; sxi++) {
-          const lvl = sampleLight(world, wx + (sxi + 0.5) / sub, ty + (syi + 0.5) / sub);
-          if (!belowSurface && lvl >= 12) continue;
-          const bri = lightToBrightness(lvl, { ambient: 0.03 });
-          const warm = lvl > 0 ? (lvl / 15) * 0.45 : 0;
-          const r = Math.min(255, (baseR + warm * 90) * bri + warm * 28);
-          const g = Math.min(255, (baseG + warm * 55) * bri + warm * 16);
-          const b = Math.min(255, (baseB + warm * 22) * bri + warm * 4);
-          const sx = sx0 + sxi * subTs;
-          const sy = sy0 + syi * subTs;
-          if (belowSurface || lvl < 12) {
-            ctx.fillStyle = `rgb(${r | 0},${g | 0},${b | 0})`;
-            ctx.fillRect(sx, sy, subTs + 0.5, subTs + 0.5);
-          }
-          const darkA = belowSurface ? (1 - bri) * 0.9 : (1 - bri) * 0.65;
-          if (darkA > 0.12) {
-            ctx.fillStyle = `rgba(0,0,0,${Math.min(0.88, darkA)})`;
-            ctx.fillRect(sx, sy, subTs + 0.5, subTs + 0.5);
-          }
-        }
-      }
-    }
-  }
+  // Cave backdrop + smooth light (bilinear buffer upscaled — no tile squares)
+  drawSmoothCaveBackdrop(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY);
 
   // Solid blocks first, then non-solid (leaves, water, torch, ladder)
   const deferred = [];
@@ -145,8 +100,13 @@ export function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particl
       const meta = BLOCK_META[id];
       const sx = (tx - cam.x) * ts + W / 2;
       const sy = (ty - cam.y) * ts + H / 2;
-      // Sample light toward the face center for smoother wall shading
-      const lvl = sampleLight(world, wx + 0.5, ty + 0.5);
+      // Average light at corners so neighboring solid faces blend softer
+      const lvl = (
+        sampleLight(world, wx + 0.2, ty + 0.2)
+        + sampleLight(world, wx + 0.8, ty + 0.2)
+        + sampleLight(world, wx + 0.2, ty + 0.8)
+        + sampleLight(world, wx + 0.8, ty + 0.8)
+      ) * 0.25;
       let dayMul = lightToBrightness(lvl, { ambient: 0.04 });
       // Surface / open sky: blend in daylight
       const nearSurface = ty <= (world.surface[wx] || SURFACE_Y) + 1;
@@ -198,9 +158,16 @@ export function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particl
 
   drawPlayer(ctx, player, cam, ts, inv);
 
-  // Rain
+  // Rain only outdoors (at / near surface) — never underground
   if (ui && ui.weather > 0.05) {
-    drawRain(ctx, ui.weather, cam, timeOfDay);
+    const pCol = wrapX(Math.floor(player.x));
+    const surfY = (world.surface && world.surface[pCol] != null)
+      ? world.surface[pCol]
+      : SURFACE_Y;
+    // y increases downward: deeper = larger y. Only rain if near or above surface.
+    if (player.y <= surfY + 1.25) {
+      drawRain(ctx, ui.weather, cam, timeOfDay);
+    }
   }
 
   // Local darkness around the player when underground / unlit
@@ -514,6 +481,109 @@ export function drawLanternSprite(ctx, sx, sy, ts, mode, seed) {
   ctx.fill();
 }
 
+/**
+ * Open cells that need a cave backdrop (air + torch/lantern so no gray “hole”
+ * behind the sprite).
+ */
+function isCaveOpenTile(id) {
+  return id === BLOCK.AIR || id === BLOCK.WATER || id === BLOCK.TORCH
+    || id === BLOCK.LANTERN || id === BLOCK.LADDER || id === BLOCK.CAMPFIRE
+    || id === BLOCK.GLASS || id === BLOCK.LEAVES || id === BLOCK.PLATFORM;
+}
+
+/** Reused offscreen buffer for smooth cave lighting. */
+let _caveLightCanvas = null;
+let _caveLightCtx = null;
+
+/**
+ * Paint underground open space as a low-res light field, then upscale with
+ * bilinear filtering so torch glow is smooth — not square-by-square.
+ * Torch/lantern cells get the same fill as air so the stick isn't on a gray plate.
+ */
+function drawSmoothCaveBackdrop(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY) {
+  const RES = 3; // samples per tile edge
+  const pad = 1;
+  const tw = tilesX + 2 + pad * 2;
+  const th = tilesY + 2 + pad * 2;
+  const bw = Math.max(1, tw * RES);
+  const bh = Math.max(1, th * RES);
+  const otx = startTX - pad;
+  const oty = startTY - pad;
+
+  if (!_caveLightCanvas) {
+    _caveLightCanvas = document.createElement('canvas');
+    _caveLightCtx = _caveLightCanvas.getContext('2d', { willReadFrequently: true });
+  }
+  if (_caveLightCanvas.width !== bw || _caveLightCanvas.height !== bh) {
+    _caveLightCanvas.width = bw;
+    _caveLightCanvas.height = bh;
+  }
+  const lctx = _caveLightCtx;
+  const img = lctx.createImageData(bw, bh);
+  const data = img.data;
+
+  for (let j = 0; j < bh; j++) {
+    for (let i = 0; i < bw; i++) {
+      const p = (j * bw + i) * 4;
+      const fx = otx + (i + 0.5) / RES;
+      const fy = oty + (j + 0.5) / RES;
+      const tileX = Math.floor(fx);
+      const tileY = Math.floor(fy);
+      if (tileY < 0 || tileY >= WORLD_H) {
+        data[p + 3] = 0;
+        continue;
+      }
+      const wx = wrapX(tileX);
+      const id = getTile(world, wx, tileY);
+      if (!isCaveOpenTile(id)) {
+        data[p + 3] = 0;
+        continue;
+      }
+      const surf = (world.surface && world.surface[wx] != null) ? world.surface[wx] : SURFACE_Y;
+      const below = fy > surf;
+      const lvl = sampleLight(world, fx, fy);
+      // Open sky: leave gradient (transparent)
+      if (!below && lvl >= 12) {
+        data[p + 3] = 0;
+        continue;
+      }
+
+      const bri = lightToBrightness(lvl, { ambient: 0.02 });
+      const depth = Math.min(1, Math.max(0, (fy - surf) / 28));
+      const warm = Math.max(0, lvl) / 15;
+      // Deep cave base stays near-black; torch light warms it smoothly
+      const baseR = 8 + depth * 5;
+      const baseG = 7 + depth * 4;
+      const baseB = 12 + depth * 7;
+      const r = Math.min(255, (baseR + warm * 110) * bri + warm * 36);
+      const g = Math.min(255, (baseG + warm * 70) * bri + warm * 20);
+      const b = Math.min(255, (baseB + warm * 28) * bri + warm * 6);
+      // Extra black veil so unlit areas stay deep
+      const veil = below ? (1 - bri) * 0.92 : (1 - bri) * 0.7;
+      const vr = r * (1 - veil * 0.85);
+      const vg = g * (1 - veil * 0.85);
+      const vb = b * (1 - veil * 0.9);
+      // Full opacity underground so sky never shows through torch squares
+      let a = below ? 255 : Math.floor(Math.min(255, (1 - Math.min(1, lvl / 13)) * 230));
+      if (!below && a < 20) a = 0;
+
+      data[p] = vr | 0;
+      data[p + 1] = vg | 0;
+      data[p + 2] = vb | 0;
+      data[p + 3] = a;
+    }
+  }
+
+  lctx.putImageData(img, 0, 0);
+  const sx0 = (otx - cam.x) * ts + W / 2;
+  const sy0 = (oty - cam.y) * ts + H / 2;
+  ctx.save();
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(_caveLightCanvas, sx0, sy0, tw * ts, th * ts);
+  ctx.restore();
+}
+
 /** Soft additive blooms for torch/lantern so cave light isn't a hard tile grid. */
 function drawEmitterBlooms(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY) {
   ctx.save();
@@ -530,15 +600,15 @@ function drawEmitterBlooms(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY
       let b = 40;
       let a = 0.18;
       if (id === BLOCK.TORCH) {
-        radius = ts * 3.4;
-        a = 0.22;
-      } else if (id === BLOCK.LANTERN) {
         radius = ts * 4.2;
-        a = 0.26;
+        a = 0.28;
+      } else if (id === BLOCK.LANTERN) {
+        radius = ts * 5.0;
+        a = 0.32;
         g = 175;
       } else if (id === BLOCK.LAVA || id === BLOCK.CAMPFIRE) {
-        radius = ts * 2.6;
-        a = 0.16;
+        radius = ts * 3.2;
+        a = 0.2;
         r = 255; g = 90; b = 20;
       } else {
         continue;
@@ -546,9 +616,10 @@ function drawEmitterBlooms(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY
       const flicker = 0.82 + 0.18 * Math.sin(now / 95 + wx * 1.7 + ty * 0.9);
       const cx = (tx - cam.x) * ts + W / 2 + ts * 0.5;
       const cy = (ty - cam.y) * ts + H / 2 + ts * 0.4;
-      const grad = ctx.createRadialGradient(cx, cy, ts * 0.15, cx, cy, radius);
-      grad.addColorStop(0, `rgba(${r},${g + 40},${b},${a * flicker})`);
-      grad.addColorStop(0.35, `rgba(${r},${g},${b},${a * 0.45 * flicker})`);
+      const grad = ctx.createRadialGradient(cx, cy, ts * 0.2, cx, cy, radius);
+      grad.addColorStop(0, `rgba(${r},${g + 50},${b},${a * flicker})`);
+      grad.addColorStop(0.25, `rgba(${r},${g},${b},${a * 0.55 * flicker})`);
+      grad.addColorStop(0.6, `rgba(${r},${Math.max(0, g - 20)},${b},${a * 0.18 * flicker})`);
       grad.addColorStop(1, `rgba(${r},${Math.max(0, g - 40)},${b},0)`);
       ctx.fillStyle = grad;
       ctx.beginPath();

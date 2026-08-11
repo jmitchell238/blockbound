@@ -688,16 +688,16 @@ export function getRenderLight(world, x, y) {
 
 /**
  * Map 0–15 light level → 0–1 brightness for rendering.
- * Smooth ease (not harsh quadratic steps) so torch edges blend.
+ * Soft curve so torch falloff reads continuous after lightmap upscale.
  */
 export function lightToBrightness(level, opts) {
   opts = opts || {};
   const t = Math.max(0, Math.min(15, Number(level) || 0)) / 15;
   // Ambient floor: tiny so you barely see silhouettes when completely dark
   const ambient = opts.ambient != null ? opts.ambient : 0.035;
-  // Smoothstep-ish: soft mid-range, not a hard tile staircase
-  const s = t * t * (3 - 2 * t);
-  const mixed = t * 0.45 + s * 0.55;
+  // Gentler than quadratic — mid light still visible, edges less stepped
+  const s = t * t * (3 - 2 * t); // smoothstep
+  const mixed = Math.pow(t, 1.25) * 0.55 + s * 0.45;
   return ambient + (1 - ambient) * mixed;
 }
 
