@@ -688,15 +688,36 @@ export function getRenderLight(world, x, y) {
 
 /**
  * Map 0–15 light level → 0–1 brightness for rendering.
- * Quadratic falloff so unlit caves are near-black, torch edges soft.
+ * Smooth ease (not harsh quadratic steps) so torch edges blend.
  */
 export function lightToBrightness(level, opts) {
   opts = opts || {};
-  const t = Math.max(0, Math.min(15, level | 0)) / 15;
+  const t = Math.max(0, Math.min(15, Number(level) || 0)) / 15;
   // Ambient floor: tiny so you barely see silhouettes when completely dark
   const ambient = opts.ambient != null ? opts.ambient : 0.035;
-  // Square curve: mid light still useful, low light very dark
-  return ambient + (1 - ambient) * (t * t);
+  // Smoothstep-ish: soft mid-range, not a hard tile staircase
+  const s = t * t * (3 - 2 * t);
+  const mixed = t * 0.45 + s * 0.55;
+  return ambient + (1 - ambient) * mixed;
+}
+
+/**
+ * Bilinear sample of render light at continuous tile coords.
+ * Used so cave darkness and block shading blend across tile edges.
+ */
+export function sampleLight(world, fx, fy) {
+  const x0 = Math.floor(fx);
+  const y0 = Math.floor(fy);
+  const tx = fx - x0;
+  const ty = fy - y0;
+  const l00 = getRenderLight(world, x0, y0);
+  const l10 = getRenderLight(world, x0 + 1, y0);
+  const l01 = getRenderLight(world, x0, y0 + 1);
+  const l11 = getRenderLight(world, x0 + 1, y0 + 1);
+  return l00 * (1 - tx) * (1 - ty)
+    + l10 * tx * (1 - ty)
+    + l01 * (1 - tx) * ty
+    + l11 * tx * ty;
 }
 
 export function wrapDeltaX(from, to) {

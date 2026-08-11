@@ -49,7 +49,7 @@ export const BLOCK_META = {
   [BLOCK.SNOW]:      { name: 'Snow', solid: true, mine: 0.25, drops: BLOCK.SNOW, color: '#eef6ff', top: '#ffffff', gravity: true },
   [BLOCK.CLAY]:      { name: 'Clay', solid: true, mine: 0.4, drops: BLOCK.CLAY, color: '#a07868', top: '#b08878' },
   [BLOCK.LADDER]:    { name: 'Ladder', solid: false, mine: 0.2, drops: BLOCK.LADDER, color: '#c4a060', climb: true },
-  [BLOCK.TORCH]:     { name: 'Torch', solid: false, mine: 0.1, drops: BLOCK.TORCH, color: '#ffcc44', light: 10 },
+  [BLOCK.TORCH]:     { name: 'Torch', solid: false, mine: 0.1, drops: BLOCK.TORCH, color: '#ffcc44', light: 12 },
   [BLOCK.WORKBENCH]: { name: 'Workbench', solid: true, mine: 0.5, drops: BLOCK.WORKBENCH, color: '#a07040', top: '#c09050', interact: 'craft' },
   [BLOCK.PLANKS]:    { name: 'Planks', solid: true, mine: 0.4, drops: BLOCK.PLANKS, color: '#c49a5a', top: '#d4aa6a' },
   [BLOCK.GLASS]:     { name: 'Glass', solid: true, mine: 0.25, drops: BLOCK.GLASS, color: '#a8d8ff', alpha: 0.45 },

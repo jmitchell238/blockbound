@@ -7,7 +7,7 @@ import { BLOCK, BLOCK_META, isPlatform } from '../content/blocks.js';
 import { TOOLS, FOOD, isTool, isFood, isWeapon } from '../content/tools.js';
 import { itemName, isBlockItem } from '../content/items.js';
 import {
-  wrapX, wrapDeltaX, getTile, getLight, getRenderLight, lightToBrightness, isSolid, biomeNameAt,
+  wrapX, wrapDeltaX, getTile, getLight, getRenderLight, sampleLight, lightToBrightness, isSolid, biomeNameAt,
 } from '../world/index.js';
 import { textures, getCubeTex, getTileTex, getSoftTex, getPlayerPose, getItemIcon } from '../textures/textures.js';
 import { drawEntities } from '../entities/draw.js';
@@ -86,7 +86,11 @@ export function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particl
   const startTX = Math.floor(cam.x - W / (2 * ts)) - 1;
   const startTY = Math.floor(cam.y - H / (2 * ts)) - 1;
 
-  // Cave / underground air — pitch dark without light, lit by torches/lanterns
+  // Cave / underground air — pitch dark without light, lit by torches/lanterns.
+  // Subdivide each tile into 2×2 with bilinear-sampled light so glow blends
+  // smoothly instead of hard per-tile steps.
+  const sub = 2;
+  const subTs = ts / sub;
   for (let ty = startTY; ty <= startTY + tilesY; ty++) {
     if (ty < 0 || ty >= WORLD_H) continue;
     for (let tx = startTX; tx <= startTX + tilesX; tx++) {
@@ -94,38 +98,38 @@ export function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particl
       const t = getTile(world, wx, ty);
       if (t !== BLOCK.AIR && t !== BLOCK.WATER) continue;
       const belowSurface = ty > (world.surface[wx] || SURFACE_Y) + 0;
-      const lvl = getRenderLight(world, wx, ty);
+      const lvlCenter = getRenderLight(world, wx, ty);
       // Open sky air: leave the sky gradient showing
-      if (!belowSurface && lvl >= 12) continue;
+      if (!belowSurface && lvlCenter >= 12) continue;
 
-      const sx = (tx - cam.x) * ts + W / 2;
-      const sy = (ty - cam.y) * ts + H / 2;
-      const bri = lightToBrightness(lvl, { ambient: 0.02 });
-      // Unlit cave = near black; lit pocket = warm rock tone
+      const sx0 = (tx - cam.x) * ts + W / 2;
+      const sy0 = (ty - cam.y) * ts + H / 2;
       const depth = Math.min(1, Math.max(0, (ty - (world.surface[wx] || SURFACE_Y)) / 28));
       const baseR = 18 + depth * 8;
       const baseG = 16 + depth * 6;
       const baseB = 22 + depth * 10;
-      // When lit, show a faint warm fill so torch glow reads in empty air
-      const warm = lvl > 0 ? (lvl / 15) * 0.35 : 0;
-      const r = Math.min(255, (baseR + warm * 80) * bri + warm * 20);
-      const g = Math.min(255, (baseG + warm * 50) * bri + warm * 12);
-      const b = Math.min(255, (baseB + warm * 20) * bri);
-      // Always paint a darkness plate for underground / dim air
-      const darkA = belowSurface ? (1 - bri) * 0.97 : (1 - bri) * 0.75;
-      ctx.fillStyle = `rgb(${r | 0},${g | 0},${b | 0})`;
-      if (belowSurface || lvl < 12) {
-        ctx.fillRect(sx, sy, ts + 0.6, ts + 0.6);
-      }
-      // Extra black veil when nearly unlit
-      if (darkA > 0.15) {
-        ctx.fillStyle = `rgba(0,0,0,${Math.min(0.92, darkA)})`;
-        ctx.fillRect(sx, sy, ts + 0.6, ts + 0.6);
-      }
-      // Subtle rock speck only when somewhat lit
-      if (bri > 0.12 && belowSurface && ((wx * 13 + ty * 7) & 7) === 0) {
-        ctx.fillStyle = `rgba(255,255,255,${0.03 * bri})`;
-        ctx.fillRect(sx + 4, sy + 6, 3, 2);
+
+      for (let syi = 0; syi < sub; syi++) {
+        for (let sxi = 0; sxi < sub; sxi++) {
+          const lvl = sampleLight(world, wx + (sxi + 0.5) / sub, ty + (syi + 0.5) / sub);
+          if (!belowSurface && lvl >= 12) continue;
+          const bri = lightToBrightness(lvl, { ambient: 0.03 });
+          const warm = lvl > 0 ? (lvl / 15) * 0.45 : 0;
+          const r = Math.min(255, (baseR + warm * 90) * bri + warm * 28);
+          const g = Math.min(255, (baseG + warm * 55) * bri + warm * 16);
+          const b = Math.min(255, (baseB + warm * 22) * bri + warm * 4);
+          const sx = sx0 + sxi * subTs;
+          const sy = sy0 + syi * subTs;
+          if (belowSurface || lvl < 12) {
+            ctx.fillStyle = `rgb(${r | 0},${g | 0},${b | 0})`;
+            ctx.fillRect(sx, sy, subTs + 0.5, subTs + 0.5);
+          }
+          const darkA = belowSurface ? (1 - bri) * 0.9 : (1 - bri) * 0.65;
+          if (darkA > 0.12) {
+            ctx.fillStyle = `rgba(0,0,0,${Math.min(0.88, darkA)})`;
+            ctx.fillRect(sx, sy, subTs + 0.5, subTs + 0.5);
+          }
+        }
       }
     }
   }
@@ -141,8 +145,9 @@ export function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particl
       const meta = BLOCK_META[id];
       const sx = (tx - cam.x) * ts + W / 2;
       const sy = (ty - cam.y) * ts + H / 2;
-      const lvl = getRenderLight(world, wx, ty);
-      let dayMul = lightToBrightness(lvl, { ambient: 0.03 });
+      // Sample light toward the face center for smoother wall shading
+      const lvl = sampleLight(world, wx + 0.5, ty + 0.5);
+      let dayMul = lightToBrightness(lvl, { ambient: 0.04 });
       // Surface / open sky: blend in daylight
       const nearSurface = ty <= (world.surface[wx] || SURFACE_Y) + 1;
       if (nearSurface && lvl >= 8) {
@@ -160,6 +165,9 @@ export function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particl
   for (const d of deferred) {
     drawBlock(ctx, d.sx, d.sy, ts, d.id, d.dayMul, d.wx, d.ty, d.ao, world);
   }
+
+  // Soft torch / lantern blooms (screen-space) so light reads smoothly past tile grid
+  drawEmitterBlooms(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY);
 
   // Hover outline
   if (ui && ui.hoverTx != null && ui.hoverTy != null) {
@@ -196,17 +204,20 @@ export function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particl
   }
 
   // Local darkness around the player when underground / unlit
+  // Soften strongly when standing in torch light so blooms aren't crushed.
   {
-    const pLight = getRenderLight(world, Math.floor(player.x), Math.floor(player.y - 0.5));
-    const bri = lightToBrightness(pLight, { ambient: 0.02 });
+    const pLight = sampleLight(world, player.x, player.y - player.h * 0.5);
+    const bri = lightToBrightness(pLight, { ambient: 0.03 });
     const under = player.y > (world.surface[wrapX(Math.floor(player.x))] || SURFACE_Y) + 2;
-    if (under || pLight < 10) {
-      const darkness = under ? (1 - bri) * 0.72 : (1 - bri) * 0.45;
-      if (darkness > 0.08) {
-        const v = ctx.createRadialGradient(W / 2, H / 2, H * 0.08, W / 2, H / 2, H * 0.72);
-        v.addColorStop(0, `rgba(0,0,0,${darkness * 0.15})`);
-        v.addColorStop(0.55, `rgba(0,0,0,${darkness * 0.55})`);
-        v.addColorStop(1, `rgba(0,0,0,${Math.min(0.92, darkness * 0.95)})`);
+    if (under || pLight < 11) {
+      // Less vignette when well-lit (torch nearby)
+      const litRelief = Math.min(1, pLight / 12);
+      const darkness = (under ? (1 - bri) * 0.62 : (1 - bri) * 0.38) * (1 - litRelief * 0.55);
+      if (darkness > 0.06) {
+        const v = ctx.createRadialGradient(W / 2, H / 2, H * 0.12, W / 2, H / 2, H * 0.78);
+        v.addColorStop(0, `rgba(0,0,0,${darkness * 0.08})`);
+        v.addColorStop(0.5, `rgba(0,0,0,${darkness * 0.4})`);
+        v.addColorStop(1, `rgba(0,0,0,${Math.min(0.88, darkness * 0.9)})`);
         ctx.fillStyle = v;
         ctx.fillRect(0, 0, W, H);
       }
@@ -503,9 +514,54 @@ export function drawLanternSprite(ctx, sx, sy, ts, mode, seed) {
   ctx.fill();
 }
 
+/** Soft additive blooms for torch/lantern so cave light isn't a hard tile grid. */
+function drawEmitterBlooms(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY) {
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const now = performance.now();
+  for (let ty = startTY; ty <= startTY + tilesY; ty++) {
+    if (ty < 0 || ty >= WORLD_H) continue;
+    for (let tx = startTX; tx <= startTX + tilesX; tx++) {
+      const wx = wrapX(tx);
+      const id = getTile(world, wx, ty);
+      let radius = 0;
+      let r = 255;
+      let g = 160;
+      let b = 40;
+      let a = 0.18;
+      if (id === BLOCK.TORCH) {
+        radius = ts * 3.4;
+        a = 0.22;
+      } else if (id === BLOCK.LANTERN) {
+        radius = ts * 4.2;
+        a = 0.26;
+        g = 175;
+      } else if (id === BLOCK.LAVA || id === BLOCK.CAMPFIRE) {
+        radius = ts * 2.6;
+        a = 0.16;
+        r = 255; g = 90; b = 20;
+      } else {
+        continue;
+      }
+      const flicker = 0.82 + 0.18 * Math.sin(now / 95 + wx * 1.7 + ty * 0.9);
+      const cx = (tx - cam.x) * ts + W / 2 + ts * 0.5;
+      const cy = (ty - cam.y) * ts + H / 2 + ts * 0.4;
+      const grad = ctx.createRadialGradient(cx, cy, ts * 0.15, cx, cy, radius);
+      grad.addColorStop(0, `rgba(${r},${g + 40},${b},${a * flicker})`);
+      grad.addColorStop(0.35, `rgba(${r},${g},${b},${a * 0.45 * flicker})`);
+      grad.addColorStop(1, `rgba(${r},${Math.max(0, g - 40)},${b},0)`);
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
 /** Procedural torch — upright on floor, angled off walls, hanging from ceiling. */
 export function drawTorchSprite(ctx, sx, sy, ts, facing, seed) {
-  const flicker = 0.62 + 0.38 * Math.sin(performance.now() / 85 + (seed || 0));
+  const flicker = 0.7 + 0.3 * Math.sin(performance.now() / 90 + (seed || 0));
   let baseX;
   let baseY;
   let tipX;
@@ -513,72 +569,82 @@ export function drawTorchSprite(ctx, sx, sy, ts, facing, seed) {
 
   if (facing === 'left') {
     // Mounted on left wall → stick angles up-right out of the wall
-    baseX = sx + ts * 0.1;
-    baseY = sy + ts * 0.62;
-    tipX = sx + ts * 0.68;
-    tipY = sy + ts * 0.22;
+    baseX = sx + ts * 0.12;
+    baseY = sy + ts * 0.58;
+    tipX = sx + ts * 0.62;
+    tipY = sy + ts * 0.2;
   } else if (facing === 'right') {
     // Mounted on right wall → stick angles up-left
-    baseX = sx + ts * 0.9;
-    baseY = sy + ts * 0.62;
-    tipX = sx + ts * 0.32;
-    tipY = sy + ts * 0.22;
+    baseX = sx + ts * 0.88;
+    baseY = sy + ts * 0.58;
+    tipX = sx + ts * 0.38;
+    tipY = sy + ts * 0.2;
   } else if (facing === 'ceil') {
-    // Hanging from ceiling
+    // Hanging from ceiling — flame points down
     baseX = sx + ts * 0.5;
-    baseY = sy + ts * 0.08;
+    baseY = sy + ts * 0.1;
     tipX = sx + ts * 0.5;
-    tipY = sy + ts * 0.58;
+    tipY = sy + ts * 0.55;
   } else {
     // Floor / standing
     baseX = sx + ts * 0.5;
-    baseY = sy + ts * 0.9;
+    baseY = sy + ts * 0.88;
     tipX = sx + ts * 0.5;
-    tipY = sy + ts * 0.3;
+    tipY = sy + ts * 0.28;
   }
 
-  // Stick
+  // Stick (tapered look via two strokes)
   ctx.lineCap = 'round';
-  ctx.strokeStyle = '#3d2812';
-  ctx.lineWidth = Math.max(2.5, ts * 0.14);
+  ctx.strokeStyle = '#2a1a0c';
+  ctx.lineWidth = Math.max(3, ts * 0.16);
   ctx.beginPath();
   ctx.moveTo(baseX, baseY);
   ctx.lineTo(tipX, tipY);
   ctx.stroke();
-  ctx.strokeStyle = '#6b4420';
-  ctx.lineWidth = Math.max(1.8, ts * 0.1);
+  ctx.strokeStyle = '#7a4e28';
+  ctx.lineWidth = Math.max(2, ts * 0.1);
   ctx.beginPath();
   ctx.moveTo(baseX, baseY);
   ctx.lineTo(tipX, tipY);
   ctx.stroke();
 
-  // Ember band near tip
-  const midX = baseX * 0.25 + tipX * 0.75;
-  const midY = baseY * 0.25 + tipY * 0.75;
-  ctx.strokeStyle = '#8a4a18';
-  ctx.lineWidth = Math.max(2, ts * 0.12);
+  // Ember wrap near tip
+  const midX = baseX * 0.3 + tipX * 0.7;
+  const midY = baseY * 0.3 + tipY * 0.7;
+  ctx.strokeStyle = '#a85a20';
+  ctx.lineWidth = Math.max(2.2, ts * 0.12);
   ctx.beginPath();
   ctx.moveTo(midX, midY);
   ctx.lineTo(tipX, tipY);
   ctx.stroke();
 
-  // Flame core
-  ctx.fillStyle = '#ffcc44';
+  // Flame teardrop (not a flat yellow disc)
+  const flameUp = facing === 'ceil' ? 1 : -1;
+  ctx.fillStyle = `rgba(255, 120, 20, ${0.55 * flicker})`;
   ctx.beginPath();
-  ctx.arc(tipX, tipY, ts * 0.15, 0, Math.PI * 2);
+  ctx.moveTo(tipX, tipY + flameUp * ts * 0.02);
+  ctx.quadraticCurveTo(tipX + ts * 0.12, tipY + flameUp * ts * 0.1, tipX, tipY + flameUp * ts * 0.28);
+  ctx.quadraticCurveTo(tipX - ts * 0.12, tipY + flameUp * ts * 0.1, tipX, tipY + flameUp * ts * 0.02);
   ctx.fill();
-  ctx.fillStyle = `rgba(255, 240, 120, ${0.75 * flicker})`;
+  ctx.fillStyle = `rgba(255, 210, 60, ${0.9 * flicker})`;
   ctx.beginPath();
-  ctx.arc(tipX, tipY - ts * 0.03, ts * 0.09, 0, Math.PI * 2);
+  ctx.moveTo(tipX, tipY + flameUp * ts * 0.01);
+  ctx.quadraticCurveTo(tipX + ts * 0.07, tipY + flameUp * ts * 0.08, tipX, tipY + flameUp * ts * 0.18);
+  ctx.quadraticCurveTo(tipX - ts * 0.07, tipY + flameUp * ts * 0.08, tipX, tipY + flameUp * ts * 0.01);
+  ctx.fill();
+  ctx.fillStyle = `rgba(255, 255, 200, ${0.85 * flicker})`;
+  ctx.beginPath();
+  ctx.arc(tipX, tipY + flameUp * ts * 0.04, ts * 0.05, 0, Math.PI * 2);
   ctx.fill();
 
-  // Soft glow
-  const g = ctx.createRadialGradient(tipX, tipY, 1, tipX, tipY, ts * 0.55);
-  g.addColorStop(0, `rgba(255, 170, 40, ${0.4 * flicker})`);
-  g.addColorStop(1, 'rgba(255, 120, 20, 0)');
+  // Local soft glow around flame
+  const g = ctx.createRadialGradient(tipX, tipY, 1, tipX, tipY, ts * 0.7);
+  g.addColorStop(0, `rgba(255, 190, 60, ${0.5 * flicker})`);
+  g.addColorStop(0.45, `rgba(255, 120, 30, ${0.18 * flicker})`);
+  g.addColorStop(1, 'rgba(255, 100, 20, 0)');
   ctx.fillStyle = g;
   ctx.beginPath();
-  ctx.arc(tipX, tipY, ts * 0.55, 0, Math.PI * 2);
+  ctx.arc(tipX, tipY, ts * 0.7, 0, Math.PI * 2);
   ctx.fill();
 }
 
@@ -958,15 +1024,20 @@ export function drawPlayer(ctx, p, cam, ts, inv) {
   const drawW = drawH * (HERO_SW / HERO_SH);
   const footY = sy + (p.inBoat ? -6 : 0);
 
+  // Continuous chop phase while mining (not tied to break progress — that was too fast to see)
+  const minePhase = mineAim ? (performance.now() / 1000) * 7.5 : 0;
+  const mineStrike = mineAim ? Math.sin(minePhase) : 0; // -1..1 wind-up ↔ strike
+
   ctx.save();
   ctx.translate(sx, footY);
   // Face +X locally; flip whole character (and held item) when facing left
   if (p.facing < 0) ctx.scale(-1, 1);
 
-  // Lean body toward the mined block (look up / down / forward)
+  // Lean + bob body toward the mined block (look up / down / forward)
   if (mineAim) {
-    const lean = Math.max(-0.42, Math.min(0.42, mineAim.ang * 0.38));
+    const lean = Math.max(-0.5, Math.min(0.5, mineAim.ang * 0.42 + mineStrike * 0.14));
     ctx.rotate(lean);
+    ctx.translate(mineStrike * drawW * 0.04, Math.abs(mineStrike) * drawH * 0.03);
   }
 
   if (img) {
@@ -986,7 +1057,7 @@ export function drawPlayer(ctx, p, cam, ts, inv) {
   }
 
   // Pin selected hotbar item to hand; swing toward mine target when mining
-  drawHeldItem(ctx, p, inv, drawW, drawH, pose.key, mineAim);
+  drawHeldItem(ctx, p, inv, drawW, drawH, pose.key, mineAim, mineStrike);
 
   ctx.restore();
   ctx.restore();
@@ -1010,20 +1081,19 @@ function itemGrip(id) {
 /**
  * Draw the selected hotbar item with its handle grip pinned to the pose hand tip.
  * Origin is feet; character faces +X (caller flips for left).
- * When mineAim is set, arm + tool swing toward the mined block (up/down/forward).
+ * When mineAim is set, arm + tool swing hard toward the mined block.
+ * Mining arm draws even with empty hands so dig always reads as motion.
  */
-function drawHeldItem(ctx, p, inv, drawW, drawH, poseKey, mineAim) {
-  if (!inv || p.inBoat) return;
-  const slot = inv.hotbar && inv.hotbar[inv.selected];
-  if (!slot || slot.id == null || slot.id === 'hand') return;
-
-  const id = slot.id;
+function drawHeldItem(ctx, p, inv, drawW, drawH, poseKey, mineAim, mineStrike) {
+  if (p.inBoat) return;
+  const slot = inv && inv.hotbar ? inv.hotbar[inv.selected] : null;
+  const id = slot && slot.id != null && slot.id !== 'hand' ? slot.id : null;
   const walking = p.onGround && Math.abs(p.vx) > 0.25 && !p.crouching;
   const mining = !!(mineAim && p.mining);
   const swinging = (p.attackT || 0) > 0;
-  const tool = isTool(id);
-  const weapon = isWeapon(id);
-  const sid = String(id);
+  const tool = id != null && isTool(id);
+  const weapon = id != null && isWeapon(id);
+  const sid = id != null ? String(id) : '';
   const isPickOrAxe = tool && (sid.indexOf('pick') >= 0 || sid.indexOf('axe') >= 0);
   const isShovel = tool && sid.indexOf('shovel') >= 0;
 
@@ -1032,29 +1102,53 @@ function drawHeldItem(ctx, p, inv, drawW, drawH, poseKey, mineAim) {
   let angle;
 
   if (mining) {
-    // Shoulder pivot → arm extends toward mined tile; chop swings along that ray
-    const shoulderX = drawW * 0.06;
-    const shoulderY = -drawH * 0.56;
-    const armLen = drawH * 0.40;
+    // Shoulder pivot → big chop toward mined tile (time-based so it's always visible)
+    const shoulderX = drawW * 0.05;
+    const shoulderY = -drawH * 0.55;
+    const armLen = drawH * 0.48;
     const aim = mineAim.ang; // 0 forward, -up, +down
-    const t = (p.mining.progress || 0) * 10;
-    // -1 = wound up (pulled back), +1 = strike (fully extended toward target)
-    const strike = Math.sin(t);
-    const reach = armLen * (0.52 + 0.48 * (0.5 + 0.5 * strike));
-    // Wind-up is opposite the aim a bit (raise behind), strike along aim
-    const windAng = aim - 0.85 + strike * 0.95;
+    const strike = mineStrike != null ? mineStrike : Math.sin((performance.now() / 1000) * 7.5);
+    // Wind-up raises tool opposite the aim; strike drives toward the block
+    const windAng = aim - 1.15 + strike * 1.35;
+    const reach = armLen * (0.55 + 0.45 * (0.5 + 0.5 * strike));
     const dirX = Math.cos(windAng);
     const dirY = Math.sin(windAng);
     handX = shoulderX + dirX * reach;
     handY = shoulderY + dirY * reach;
 
-    // Icon tip points along -Y at angle 0 → aim tip at (cos a, sin a) needs:
-    // rotate θ where tip dir (sin θ, -cos θ) = (cos aim, sin aim)
-    // ⇒ θ = atan2(cos(aim), -sin(aim))
-    const tipAng = Math.atan2(Math.cos(aim), -Math.sin(aim));
-    // Extra chop rotation along the swing
-    angle = tipAng + strike * 0.55;
+    // Icon tip along -Y at angle 0 → point tip along windAng
+    const tipAng = Math.atan2(Math.cos(windAng), -Math.sin(windAng));
+    angle = tipAng + strike * 0.35;
+
+    // Draw raised arm so the body clearly "mines" (sprite arms stay idle)
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    // Orange hoodie sleeve
+    ctx.strokeStyle = '#e85d3a';
+    ctx.lineWidth = Math.max(4, drawW * 0.16);
+    ctx.beginPath();
+    ctx.moveTo(shoulderX, shoulderY);
+    ctx.lineTo(shoulderX + dirX * reach * 0.62, shoulderY + dirY * reach * 0.62);
+    ctx.stroke();
+    // Skin forearm
+    ctx.strokeStyle = '#e8b896';
+    ctx.lineWidth = Math.max(3.2, drawW * 0.12);
+    ctx.beginPath();
+    ctx.moveTo(shoulderX + dirX * reach * 0.55, shoulderY + dirY * reach * 0.55);
+    ctx.lineTo(handX, handY);
+    ctx.stroke();
+    // Hand knuckle
+    ctx.fillStyle = '#e8b896';
+    ctx.beginPath();
+    ctx.arc(handX, handY, Math.max(2.5, drawW * 0.07), 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    if (id == null) return; // bare-hand dig: arm only
   } else {
+    if (id == null) return; // idle empty hands
+
     // Base hand from current body frame (walk/idle/jump/crouch)
     let hand = handTipDraw(poseKey || 'idle', drawW, drawH);
 
@@ -1094,12 +1188,12 @@ function drawHeldItem(ctx, p, inv, drawW, drawH, poseKey, mineAim) {
   // World size of the icon
   let size = drawH * 0.30;
   if (weapon) size = drawH * 0.36;
-  else if (isPickOrAxe) size = drawH * 0.36;
-  else if (isShovel) size = drawH * 0.34;
-  else if (tool) size = drawH * 0.32;
+  else if (isPickOrAxe) size = drawH * 0.38;
+  else if (isShovel) size = drawH * 0.36;
+  else if (tool) size = drawH * 0.34;
   else size = drawH * 0.26;
 
-  if (mining) size *= 1.08;
+  if (mining) size *= 1.12;
 
   const grip = itemGrip(id);
 

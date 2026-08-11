@@ -217,9 +217,10 @@ export function updatePlayer(p, world, input, dt, toolPower) {
       const mineable = meta && meta.mine > 0 && id !== BLOCK.AIR
         && (p.godMode ? meta.mine < 99 : meta.mine < 50);
       if (mineable) {
+        // Keep a short minimum so dig animation always has a beat to read
         const need = p.godMode
-          ? 0.05
-          : meta.mine / Math.max(0.5, toolPower);
+          ? 0.16
+          : Math.max(0.22, meta.mine / Math.max(0.5, toolPower));
         if (!p.mining || p.mining.tx !== wrapX(tx) || p.mining.ty !== ty) {
           p.mining = { tx: wrapX(tx), ty, progress: 0, need };
         }
