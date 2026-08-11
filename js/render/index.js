@@ -93,20 +93,18 @@ export function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particl
   // Cave backdrop + smooth dynamic light (flicker + warm pulse)
   drawSmoothCaveBackdrop(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY, emitters, now);
 
-  // Terrain → soft offscreen layer (feathered tiles + smooth light + blur) so no grid
-  drawBlendedTerrainLayer(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY, sky, emitters, now);
-
-  // Non-terrain solids + deferred non-solids (leaves, water, torch, ladder)
+  // Solids first (crisp), then non-solids (leaves, water, torch, ladder)
   const deferred = [];
   for (let ty = startTY; ty <= startTY + tilesY; ty++) {
     if (ty < 0 || ty >= WORLD_H) continue;
     for (let tx = startTX; tx <= startTX + tilesX; tx++) {
       const wx = wrapX(tx);
       const id = getTile(world, wx, ty);
-      if (id === BLOCK.AIR || isTerrainBlock(id)) continue;
+      if (id === BLOCK.AIR) continue;
       const meta = BLOCK_META[id];
       const sx = (tx - cam.x) * ts + W / 2;
       const sy = (ty - cam.y) * ts + H / 2;
+      // Corner-average light so adjacent faces don't form hard light steps
       let lvl = (
         sampleLight(world, wx + 0.2, ty + 0.2)
         + sampleLight(world, wx + 0.8, ty + 0.2)
@@ -114,15 +112,15 @@ export function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particl
         + sampleLight(world, wx + 0.8, ty + 0.8)
       ) * 0.25;
       const fl = emitterFlickerAt(wx + 0.5, ty + 0.5, emitters, now);
-      if (lvl > 2) lvl = Math.min(15, lvl * (0.9 + 0.12 * fl));
-      let dayMul = lightToBrightness(lvl, { ambient: 0.03 });
+      if (lvl > 2) lvl = Math.min(15, lvl * (0.92 + 0.1 * fl));
+      let dayMul = lightToBrightness(lvl, { ambient: 0.04 });
       const nearSurface = ty <= (world.surface[wx] || SURFACE_Y) + 1;
       if (nearSurface && lvl >= 8) {
         const skyMul = 0.2 + 0.8 * sky.day;
         dayMul = Math.max(dayMul, skyMul * lightToBrightness(lvl, { ambient: 0.15 }));
       }
       if (!nearSurface && lvl > 5) {
-        dayMul = Math.min(1.15, dayMul * (1 + (lvl / 15) * 0.12 * fl));
+        dayMul = Math.min(1.1, dayMul * (1 + (lvl / 15) * 0.08 * fl));
       }
       const ao = blockAO(world, wx, ty);
       if (meta && !meta.solid && id !== BLOCK.WORKBENCH) {
@@ -136,7 +134,7 @@ export function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particl
     drawBlock(ctx, d.sx, d.sy, ts, d.id, d.dayMul, d.wx, d.ty, d.ao, world);
   }
 
-  // Multi-layer dancing blooms (core + mid + outer)
+  // Torch blooms (kept moderate so they don't fog the cave)
   drawEmitterBlooms(ctx, world, cam, ts, emitters, now);
 
   // Hover outline
@@ -253,157 +251,11 @@ export function nearestViewX(camX, tileX) {
 /** Soft ambient occlusion — very light so it doesn't outline every tile. */
 export function blockAO(world, x, y) {
   let s = 0;
-  if (isSolid(world, x - 1, y)) s += 0.01;
-  if (isSolid(world, x + 1, y)) s += 0.01;
-  if (isSolid(world, x, y - 1)) s += 0.008;
-  if (isSolid(world, x, y + 1)) s += 0.012;
-  return Math.min(0.04, s);
-}
-
-/** Offscreen buffers for seamless terrain compositing. */
-let _terrainLayer = null;
-let _terrainLayerCtx = null;
-let _terrainLight = null;
-let _terrainLightCtx = null;
-
-/**
- * Draw all terrain tiles onto a soft layer:
- * 1) full-bright feathered textures with heavy overlap
- * 2) smooth light multiply (no per-tile black squares)
- * 3) slight blur so remaining seams melt
- */
-function drawBlendedTerrainLayer(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY, sky, emitters, now) {
-  if (!_terrainLayer) {
-    _terrainLayer = document.createElement('canvas');
-    _terrainLayerCtx = _terrainLayer.getContext('2d');
-    _terrainLight = document.createElement('canvas');
-    _terrainLightCtx = _terrainLight.getContext('2d');
-  }
-  if (_terrainLayer.width !== W || _terrainLayer.height !== H) {
-    _terrainLayer.width = W;
-    _terrainLayer.height = H;
-    _terrainLight.width = W;
-    _terrainLight.height = H;
-  }
-  const tctx = _terrainLayerCtx;
-  const lctx = _terrainLightCtx;
-  tctx.clearRect(0, 0, W, H);
-  lctx.clearRect(0, 0, W, H);
-
-  // Build a smooth light field at ~3 samples/tile, upscale with bilinear
-  const RES = 3;
-  const padT = 1;
-  const tw = tilesX + 2 + padT * 2;
-  const th = tilesY + 2 + padT * 2;
-  const bw = Math.max(1, tw * RES);
-  const bh = Math.max(1, th * RES);
-  const otx = startTX - padT;
-  const oty = startTY - padT;
-
-  // Small light field canvas
-  if (!drawBlendedTerrainLayer._lf) {
-    drawBlendedTerrainLayer._lf = document.createElement('canvas');
-    drawBlendedTerrainLayer._lfc = drawBlendedTerrainLayer._lf.getContext('2d', { willReadFrequently: true });
-  }
-  const lf = drawBlendedTerrainLayer._lf;
-  const lfc = drawBlendedTerrainLayer._lfc;
-  if (lf.width !== bw || lf.height !== bh) {
-    lf.width = bw;
-    lf.height = bh;
-  }
-  const img = lfc.createImageData(bw, bh);
-  const data = img.data;
-
-  for (let j = 0; j < bh; j++) {
-    for (let i = 0; i < bw; i++) {
-      const p = (j * bw + i) * 4;
-      const fx = otx + (i + 0.5) / RES;
-      const fy = oty + (j + 0.5) / RES;
-      const tileX = Math.floor(fx);
-      const tileY = Math.floor(fy);
-      if (tileY < 0 || tileY >= WORLD_H) {
-        data[p] = data[p + 1] = data[p + 2] = 0;
-        data[p + 3] = 255;
-        continue;
-      }
-      const wx = wrapX(tileX);
-      let lvl = sampleLight(world, fx, fy);
-      const fl = emitterFlickerAt(fx, fy, emitters, now);
-      const dyn = dynamicEmitterBoost(fx, fy, emitters, now);
-      if (dyn > 0.05) lvl = Math.min(15, lvl + dyn * fl);
-      else if (lvl > 1.5) lvl = Math.min(15, lvl * (0.92 + 0.1 * fl));
-
-      let bri = lightToBrightness(lvl, { ambient: 0.04 });
-      const nearSurface = fy <= ((world.surface && world.surface[wx]) || SURFACE_Y) + 1;
-      if (nearSurface && lvl >= 8 && sky) {
-        const skyMul = 0.25 + 0.75 * sky.day;
-        bri = Math.max(bri, skyMul * lightToBrightness(lvl, { ambient: 0.18 }));
-      }
-      // Keep a floor so unlit rock still reads as shape (cave backdrop is black)
-      const v = Math.floor(Math.max(8, Math.min(255, bri * 255)));
-      data[p] = v;
-      data[p + 1] = v;
-      data[p + 2] = Math.floor(v * 0.97);
-      data[p + 3] = 255;
-    }
-  }
-  lfc.putImageData(img, 0, 0);
-
-  // Stretch smooth light field over the view
-  const sx0 = (otx - cam.x) * ts + W / 2;
-  const sy0 = (oty - cam.y) * ts + H / 2;
-  lctx.imageSmoothingEnabled = true;
-  lctx.imageSmoothingQuality = 'high';
-  lctx.drawImage(lf, sx0, sy0, tw * ts, th * ts);
-
-  // Draw terrain tiles full-bright with heavy soft overlap
-  const pad = Math.max(3.5, ts * 0.18);
-  tctx.imageSmoothingEnabled = true;
-  for (let ty = startTY; ty <= startTY + tilesY; ty++) {
-    if (ty < 0 || ty >= WORLD_H) continue;
-    for (let tx = startTX; tx <= startTX + tilesX; tx++) {
-      const wx = wrapX(tx);
-      const id = getTile(world, wx, ty);
-      if (!isTerrainBlock(id)) continue;
-      const soft = getSoftTex(id) || getTileTex(id);
-      if (!soft) continue;
-      const sx = (tx - cam.x) * ts + W / 2;
-      const sy = (ty - cam.y) * ts + H / 2;
-      tctx.globalAlpha = 1;
-      tctx.drawImage(soft, sx - pad, sy - pad, ts + pad * 2, ts + pad * 2);
-      // Soft grass top (no hard rect)
-      if (id === BLOCK.GRASS || id === BLOCK.SNOW || id === BLOCK.SAND) {
-        const m = BLOCK_META[id];
-        const topH = Math.max(2, ts * 0.12);
-        const g = tctx.createLinearGradient(sx, sy - pad, sx, sy - pad + topH + 3);
-        g.addColorStop(0, m && m.top ? m.top : 'rgba(255,255,255,0.25)');
-        g.addColorStop(1, 'rgba(255,255,255,0)');
-        tctx.globalAlpha = 0.16;
-        tctx.fillStyle = g;
-        tctx.fillRect(sx - pad, sy - pad, ts + pad * 2, topH + 3);
-        tctx.globalAlpha = 1;
-      }
-    }
-  }
-
-  // Multiply continuous light onto terrain (no square shade plates)
-  tctx.save();
-  tctx.globalCompositeOperation = 'multiply';
-  tctx.drawImage(_terrainLight, 0, 0);
-  tctx.restore();
-
-  // Composite with a gentle blur so residual seams disappear
-  ctx.save();
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = 'high';
-  ctx.filter = 'blur(1.1px)';
-  ctx.drawImage(_terrainLayer, 0, 0);
-  ctx.filter = 'none';
-  // Second unblurred pass at low alpha keeps some texture crispness
-  ctx.globalAlpha = 0.35;
-  ctx.drawImage(_terrainLayer, 0, 0);
-  ctx.globalAlpha = 1;
-  ctx.restore();
+  if (isSolid(world, x - 1, y)) s += 0.012;
+  if (isSolid(world, x + 1, y)) s += 0.012;
+  if (isSolid(world, x, y - 1)) s += 0.01;
+  if (isSolid(world, x, y + 1)) s += 0.015;
+  return Math.min(0.05, s);
 }
 
 export function drawCelestial(ctx, sky, timeOfDay) {
@@ -878,28 +730,28 @@ function drawEmitterBlooms(ctx, world, cam, ts, emitters, now) {
     const cy = (e.ty - cam.y) * ts + H / 2 + ts * 0.38 + jy;
 
     let r = 255;
-    let g = 165;
+    let g = 160;
     let b = 40;
-    let coreA = 0.42;
-    let midR = ts * 2.8;
-    let outR = ts * 5.2;
+    let coreA = 0.28;
+    let midR = ts * 2.2;
+    let outR = ts * 3.8;
     if (e.kind === 'lantern') {
-      g = 185; b = 55; coreA = 0.48; midR = ts * 3.4; outR = ts * 6.2;
+      g = 180; b = 50; coreA = 0.32; midR = ts * 2.6; outR = ts * 4.4;
     } else if (e.kind === 'lava' || e.kind === 'fire') {
-      g = 100; b = 20; coreA = 0.38; midR = ts * 2.4; outR = ts * 4.4;
+      g = 100; b = 20; coreA = 0.26; midR = ts * 2.0; outR = ts * 3.4;
     } else if (e.kind === 'furnace') {
-      g = 120; b = 30; coreA = 0.22; midR = ts * 1.6; outR = ts * 3.0;
+      g = 120; b = 30; coreA = 0.16; midR = ts * 1.4; outR = ts * 2.4;
     }
 
-    const breathe = 0.9 + 0.12 * Math.sin(t * 3.4 + ph);
-    midR *= breathe * (0.92 + 0.1 * fl);
-    outR *= breathe * (0.94 + 0.08 * fl);
+    const breathe = 0.94 + 0.07 * Math.sin(t * 3.4 + ph);
+    midR *= breathe * (0.95 + 0.06 * fl);
+    outR *= breathe * (0.96 + 0.05 * fl);
 
-    // Outer soft wash
+    // Outer soft wash (keep subtle — was fogging the cave)
     {
-      const g1 = ctx.createRadialGradient(cx, cy, ts * 0.3, cx, cy, outR);
-      g1.addColorStop(0, `rgba(${r},${g},${b},${0.16 * fl * e.power})`);
-      g1.addColorStop(0.45, `rgba(${r},${Math.max(0, g - 30)},${b},${0.07 * fl * e.power})`);
+      const g1 = ctx.createRadialGradient(cx, cy, ts * 0.35, cx, cy, outR);
+      g1.addColorStop(0, `rgba(${r},${g},${b},${0.1 * fl * e.power})`);
+      g1.addColorStop(0.5, `rgba(${r},${Math.max(0, g - 30)},${b},${0.04 * fl * e.power})`);
       g1.addColorStop(1, `rgba(${r},80,10,0)`);
       ctx.fillStyle = g1;
       ctx.beginPath();
@@ -908,21 +760,21 @@ function drawEmitterBlooms(ctx, world, cam, ts, emitters, now) {
     }
     // Mid halo
     {
-      const g2 = ctx.createRadialGradient(cx, cy, ts * 0.1, cx, cy, midR);
-      g2.addColorStop(0, `rgba(${r},${g + 40},${b + 20},${0.32 * fl * e.power})`);
-      g2.addColorStop(0.4, `rgba(${r},${g},${b},${0.16 * fl * e.power})`);
+      const g2 = ctx.createRadialGradient(cx, cy, ts * 0.12, cx, cy, midR);
+      g2.addColorStop(0, `rgba(${r},${g + 30},${b + 15},${0.2 * fl * e.power})`);
+      g2.addColorStop(0.45, `rgba(${r},${g},${b},${0.1 * fl * e.power})`);
       g2.addColorStop(1, `rgba(${r},${Math.max(0, g - 40)},${b},0)`);
       ctx.fillStyle = g2;
       ctx.beginPath();
       ctx.arc(cx, cy, midR, 0, Math.PI * 2);
       ctx.fill();
     }
-    // Hot white-yellow core
+    // Hot core (smaller so it doesn't blow out)
     {
-      const cr = ts * (0.45 + 0.12 * fl);
+      const cr = ts * (0.32 + 0.08 * fl);
       const g3 = ctx.createRadialGradient(cx, cy, 0, cx, cy, cr);
-      g3.addColorStop(0, `rgba(255,250,210,${coreA * fl})`);
-      g3.addColorStop(0.35, `rgba(255,200,80,${coreA * 0.55 * fl})`);
+      g3.addColorStop(0, `rgba(255,245,200,${coreA * fl})`);
+      g3.addColorStop(0.4, `rgba(255,190,70,${coreA * 0.45 * fl})`);
       g3.addColorStop(1, `rgba(255,120,20,0)`);
       ctx.fillStyle = g3;
       ctx.beginPath();
@@ -1038,44 +890,50 @@ export function drawBlock(ctx, sx, sy, ts, id, lightMul, wx, ty, ao, world) {
   const soft = getSoftTex(id) || face;
   const terrain = isTerrainBlock(id);
 
-  // Light as continuous brightness — NOT a black square overlay (that made a grid)
-  const shade = Math.max(0.04, Math.min(1.05, lightMul * (1 - ao * 0.25)));
+  // Light dims the texture itself (crisp) — never a black fillRect grid
+  const shade = Math.max(0.06, Math.min(1.05, lightMul * (1 - ao * 0.3)));
 
   ctx.save();
+  ctx.globalAlpha = alpha;
 
   const useFlat = id === BLOCK.WATER || id === BLOCK.TORCH || id === BLOCK.LANTERN || id === BLOCK.LADDER
     || id === BLOCK.LEAVES || id === BLOCK.GLASS || id === BLOCK.PLATFORM || id === BLOCK.CAMPFIRE
     || terrain;
 
-  // Terrain is drawn in drawBlendedTerrainLayer — skip here to avoid double grid
-  if (terrain) {
-    ctx.restore();
-    return;
-  }
-
-  const pad = 0.6;
+  // Tiny overlap hides 1px gaps without turning the world to mush
+  const pad = terrain ? 1.25 : 0.5;
 
   if (useFlat && soft && id !== BLOCK.WATER && id !== BLOCK.TORCH && id !== BLOCK.LANTERN
       && id !== BLOCK.LADDER && id !== BLOCK.LEAVES && id !== BLOCK.CAMPFIRE && id !== BLOCK.PLATFORM) {
     ctx.imageSmoothingEnabled = true;
-    ctx.globalAlpha = alpha * Math.min(1, 0.12 + shade * 0.92);
+    // brightness filter keeps pixels sharp while applying light
+    ctx.filter = 'brightness(' + shade.toFixed(3) + ')';
     ctx.drawImage(soft, sx - pad, sy - pad, ts + pad * 2, ts + pad * 2);
+    ctx.filter = 'none';
+    if (shade > 0.7 && (id === BLOCK.GRASS || id === BLOCK.SNOW || id === BLOCK.SAND)) {
+      ctx.globalAlpha = alpha * 0.12 * shade;
+      ctx.fillStyle = m.top || '#fff';
+      ctx.fillRect(sx - pad, sy - pad, ts + pad * 2, Math.max(2, ts * 0.1));
+      ctx.globalAlpha = alpha;
+    }
   } else if (cube && !useFlat) {
     ctx.imageSmoothingEnabled = true;
-    ctx.globalAlpha = alpha * Math.min(1, 0.15 + shade * 0.9);
+    ctx.filter = 'brightness(' + shade.toFixed(3) + ')';
     ctx.drawImage(cube, sx - pad, sy - pad, ts + pad * 2, ts + pad * 2);
+    ctx.filter = 'none';
   } else if (face && !useFlat) {
     ctx.imageSmoothingEnabled = true;
-    ctx.globalAlpha = alpha * Math.min(1, 0.15 + shade * 0.9);
+    ctx.filter = 'brightness(' + shade.toFixed(3) + ')';
     drawTexturedCube(ctx, sx, sy, ts, face, id);
+    ctx.filter = 'none';
   } else if (face && useFlat && id !== BLOCK.WATER && id !== BLOCK.TORCH && id !== BLOCK.LANTERN
       && id !== BLOCK.LADDER && id !== BLOCK.LEAVES) {
     ctx.imageSmoothingEnabled = true;
-    ctx.globalAlpha = alpha * Math.min(1, 0.12 + shade * 0.92);
+    ctx.filter = 'brightness(' + shade.toFixed(3) + ')';
     ctx.drawImage(face, sx - pad, sy - pad, ts + pad * 2, ts + pad * 2);
+    ctx.filter = 'none';
   } else if (!face && !cube) {
     const base = shadeHex(m.color, 0.55 + 0.45 * Math.min(1, shade));
-    ctx.globalAlpha = alpha;
     ctx.fillStyle = base;
     ctx.fillRect(sx - pad, sy - pad, ts + pad * 2, ts + pad * 2);
   }
@@ -1130,23 +988,27 @@ export function drawBlock(ctx, sx, sy, ts, id, lightMul, wx, ty, ao, world) {
     }
   }
   if (id === BLOCK.LEAVES && face) {
-    ctx.globalAlpha = 0.92 * Math.min(1, 0.2 + shade * 0.85);
-    ctx.drawImage(face, sx - 1.5, sy - 1.5, ts + 3, ts + 3);
+    ctx.globalAlpha = 0.92;
+    ctx.filter = 'brightness(' + shade.toFixed(3) + ')';
+    ctx.drawImage(face, sx, sy, ts, ts);
+    ctx.filter = 'none';
   }
   // Procedural furniture / specials
   if (id === BLOCK.DOOR || id === BLOCK.BED || id === BLOCK.CHEST || id === BLOCK.FURNACE
       || id === BLOCK.PLATFORM || id === BLOCK.CAMPFIRE) {
-    ctx.globalAlpha = Math.min(1, 0.2 + shade * 0.85);
+    ctx.globalAlpha = 1;
+    ctx.filter = 'brightness(' + shade.toFixed(3) + ')';
     if (face && id !== BLOCK.PLATFORM && id !== BLOCK.CAMPFIRE) {
       ctx.drawImage(face, sx, sy, ts, ts);
     } else {
       drawFurniture(ctx, sx, sy, ts, id, lightMul);
     }
+    ctx.filter = 'none';
   }
 
   // Subtle grass tufts only on surface grass (sparse)
   if (id === BLOCK.GRASS && shade > 0.65 && ((wx * 5 + ty * 3) % 4 === 0)) {
-    ctx.globalAlpha = 0.45 * shade;
+    ctx.globalAlpha = 0.5 * shade;
     ctx.fillStyle = '#6fbf45';
     const bx = sx + ts * 0.35;
     ctx.fillRect(bx, sy - 2, 2, 4);
