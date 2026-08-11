@@ -1,6 +1,6 @@
 /** Engine constants — version, viewport, physics. Content catalogs live in content/. */
 
-export const GAME_VERSION = '1.9.001';
+export const GAME_VERSION = '1.9.002';
 export const GAME_VERSION_LABEL = 'v' + GAME_VERSION;
 export const GAME_NAME = 'Blockbound';
 
@@ -52,8 +52,11 @@ export const MAGMA_Y = WORLD_H - 8;
 /** Hard sky ceiling — cannot place/fly above this (y = 0 is space edge). */
 export const SKY_LIMIT = 2;
 
-/** Light update radius (tiles) around edits — keeps thousands-wide worlds smooth. */
-export const LIGHT_RADIUS = 14;
+/**
+ * Light update / torch flood radius (tiles) around edits.
+ * Must be >= brightest emitter (lantern = 14) so light fully spreads.
+ */
+export const LIGHT_RADIUS = 16;
 
 export const GRAVITY = 2100;
 export const MOVE_SPEED = 155;

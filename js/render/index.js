@@ -6,7 +6,9 @@ import { getDifficulty, creativeCatalog } from '../core/difficulty.js';
 import { BLOCK, BLOCK_META, isPlatform } from '../content/blocks.js';
 import { TOOLS, FOOD, isTool, isFood, isWeapon } from '../content/tools.js';
 import { itemName, isBlockItem } from '../content/items.js';
-import { wrapX, getTile, getLight, isSolid, biomeNameAt } from '../world/index.js';
+import {
+  wrapX, getTile, getLight, getRenderLight, lightToBrightness, isSolid, biomeNameAt,
+} from '../world/index.js';
 import { textures, getCubeTex, getTileTex, getSoftTex, getPlayerFrame, getItemIcon } from '../textures/textures.js';
 import { drawEntities } from '../entities/draw.js';
 import { drawParticles } from '../particles/particles.js';
@@ -84,24 +86,46 @@ export function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particl
   const startTX = Math.floor(cam.x - W / (2 * ts)) - 1;
   const startTY = Math.floor(cam.y - H / (2 * ts)) - 1;
 
-  // Cave backdrop
+  // Cave / underground air — pitch dark without light, lit by torches/lanterns
   for (let ty = startTY; ty <= startTY + tilesY; ty++) {
     if (ty < 0 || ty >= WORLD_H) continue;
     for (let tx = startTX; tx <= startTX + tilesX; tx++) {
       const wx = wrapX(tx);
       const t = getTile(world, wx, ty);
       if (t !== BLOCK.AIR && t !== BLOCK.WATER) continue;
-      if (ty > world.surface[wx] + 1) {
-        const sx = (tx - cam.x) * ts + W / 2;
-        const sy = (ty - cam.y) * ts + H / 2;
-        const depth = Math.min(1, (ty - world.surface[wx]) / 20);
-        ctx.fillStyle = mixHex('#252536', '#12121c', depth);
+      const belowSurface = ty > (world.surface[wx] || SURFACE_Y) + 0;
+      const lvl = getRenderLight(world, wx, ty);
+      // Open sky air: leave the sky gradient showing
+      if (!belowSurface && lvl >= 12) continue;
+
+      const sx = (tx - cam.x) * ts + W / 2;
+      const sy = (ty - cam.y) * ts + H / 2;
+      const bri = lightToBrightness(lvl, { ambient: 0.02 });
+      // Unlit cave = near black; lit pocket = warm rock tone
+      const depth = Math.min(1, Math.max(0, (ty - (world.surface[wx] || SURFACE_Y)) / 28));
+      const baseR = 18 + depth * 8;
+      const baseG = 16 + depth * 6;
+      const baseB = 22 + depth * 10;
+      // When lit, show a faint warm fill so torch glow reads in empty air
+      const warm = lvl > 0 ? (lvl / 15) * 0.35 : 0;
+      const r = Math.min(255, (baseR + warm * 80) * bri + warm * 20);
+      const g = Math.min(255, (baseG + warm * 50) * bri + warm * 12);
+      const b = Math.min(255, (baseB + warm * 20) * bri);
+      // Always paint a darkness plate for underground / dim air
+      const darkA = belowSurface ? (1 - bri) * 0.97 : (1 - bri) * 0.75;
+      ctx.fillStyle = `rgb(${r | 0},${g | 0},${b | 0})`;
+      if (belowSurface || lvl < 12) {
         ctx.fillRect(sx, sy, ts + 0.6, ts + 0.6);
-        // subtle rock noise
-        if (((wx * 13 + ty * 7) & 7) === 0) {
-          ctx.fillStyle = 'rgba(255,255,255,0.02)';
-          ctx.fillRect(sx + 4, sy + 6, 3, 2);
-        }
+      }
+      // Extra black veil when nearly unlit
+      if (darkA > 0.15) {
+        ctx.fillStyle = `rgba(0,0,0,${Math.min(0.92, darkA)})`;
+        ctx.fillRect(sx, sy, ts + 0.6, ts + 0.6);
+      }
+      // Subtle rock speck only when somewhat lit
+      if (bri > 0.12 && belowSurface && ((wx * 13 + ty * 7) & 7) === 0) {
+        ctx.fillStyle = `rgba(255,255,255,${0.03 * bri})`;
+        ctx.fillRect(sx + 4, sy + 6, 3, 2);
       }
     }
   }
@@ -117,11 +141,13 @@ export function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particl
       const meta = BLOCK_META[id];
       const sx = (tx - cam.x) * ts + W / 2;
       const sy = (ty - cam.y) * ts + H / 2;
-      const light = getLight(world, wx, ty) / 15;
-      let dayMul = 0.28 + 0.72 * light;
-      // surface gets sky light boost
-      if (ty <= world.surface[wx] + 1) {
-        dayMul = Math.max(dayMul, 0.35 + 0.65 * sky.day * Math.max(0.4, light));
+      const lvl = getRenderLight(world, wx, ty);
+      let dayMul = lightToBrightness(lvl, { ambient: 0.03 });
+      // Surface / open sky: blend in daylight
+      const nearSurface = ty <= (world.surface[wx] || SURFACE_Y) + 1;
+      if (nearSurface && lvl >= 8) {
+        const skyMul = 0.2 + 0.8 * sky.day;
+        dayMul = Math.max(dayMul, skyMul * lightToBrightness(lvl, { ambient: 0.15 }));
       }
       const ao = blockAO(world, wx, ty);
       if (meta && !meta.solid && id !== BLOCK.WORKBENCH) {
@@ -169,7 +195,25 @@ export function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particl
     drawRain(ctx, ui.weather, cam, timeOfDay);
   }
 
-  // Night vignette
+  // Local darkness around the player when underground / unlit
+  {
+    const pLight = getRenderLight(world, Math.floor(player.x), Math.floor(player.y - 0.5));
+    const bri = lightToBrightness(pLight, { ambient: 0.02 });
+    const under = player.y > (world.surface[wrapX(Math.floor(player.x))] || SURFACE_Y) + 2;
+    if (under || pLight < 10) {
+      const darkness = under ? (1 - bri) * 0.72 : (1 - bri) * 0.45;
+      if (darkness > 0.08) {
+        const v = ctx.createRadialGradient(W / 2, H / 2, H * 0.08, W / 2, H / 2, H * 0.72);
+        v.addColorStop(0, `rgba(0,0,0,${darkness * 0.15})`);
+        v.addColorStop(0.55, `rgba(0,0,0,${darkness * 0.55})`);
+        v.addColorStop(1, `rgba(0,0,0,${Math.min(0.92, darkness * 0.95)})`);
+        ctx.fillStyle = v;
+        ctx.fillRect(0, 0, W, H);
+      }
+    }
+  }
+
+  // Night surface vignette
   if (sky.day < 0.55) {
     const v = ctx.createRadialGradient(W / 2, H / 2, H * 0.15, W / 2, H / 2, H * 0.8);
     v.addColorStop(0, 'rgba(0,0,0,0)');
@@ -651,11 +695,11 @@ export function drawBlock(ctx, sx, sy, ts, id, lightMul, wx, ty, ao, world) {
     }
   }
 
-  // Soft light multiply (no hard grid darkening)
-  const shade = Math.max(0.22, lightMul * (1 - ao * 0.55));
-  if (shade < 0.96 && id !== BLOCK.TORCH && id !== BLOCK.LANTERN && id !== BLOCK.LAVA && id !== BLOCK.CAMPFIRE) {
-    ctx.globalAlpha = (1 - shade) * 0.85;
-    ctx.fillStyle = '#0a1018';
+  // Darkness multiply — unlit blocks go nearly black (need torches/lanterns)
+  const shade = Math.max(0.02, lightMul * (1 - ao * 0.4));
+  if (shade < 0.97 && id !== BLOCK.TORCH && id !== BLOCK.LANTERN && id !== BLOCK.LAVA && id !== BLOCK.CAMPFIRE) {
+    ctx.globalAlpha = Math.min(0.96, (1 - shade) * 0.98);
+    ctx.fillStyle = '#010308';
     ctx.fillRect(sx - 0.5, sy - 0.5, ts + 1, ts + 1);
   }
 

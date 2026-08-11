@@ -49,7 +49,7 @@ export const BLOCK_META = {
   [BLOCK.SNOW]:      { name: 'Snow', solid: true, mine: 0.25, drops: BLOCK.SNOW, color: '#eef6ff', top: '#ffffff', gravity: true },
   [BLOCK.CLAY]:      { name: 'Clay', solid: true, mine: 0.4, drops: BLOCK.CLAY, color: '#a07868', top: '#b08878' },
   [BLOCK.LADDER]:    { name: 'Ladder', solid: false, mine: 0.2, drops: BLOCK.LADDER, color: '#c4a060', climb: true },
-  [BLOCK.TORCH]:     { name: 'Torch', solid: false, mine: 0.1, drops: BLOCK.TORCH, color: '#ffcc44', light: 8 },
+  [BLOCK.TORCH]:     { name: 'Torch', solid: false, mine: 0.1, drops: BLOCK.TORCH, color: '#ffcc44', light: 10 },
   [BLOCK.WORKBENCH]: { name: 'Workbench', solid: true, mine: 0.5, drops: BLOCK.WORKBENCH, color: '#a07040', top: '#c09050', interact: 'craft' },
   [BLOCK.PLANKS]:    { name: 'Planks', solid: true, mine: 0.4, drops: BLOCK.PLANKS, color: '#c49a5a', top: '#d4aa6a' },
   [BLOCK.GLASS]:     { name: 'Glass', solid: true, mine: 0.25, drops: BLOCK.GLASS, color: '#a8d8ff', alpha: 0.45 },
@@ -61,8 +61,8 @@ export const BLOCK_META = {
   [BLOCK.FURNACE]:   { name: 'Furnace', solid: true, mine: 0.7, drops: BLOCK.FURNACE, color: '#5a5a62', top: '#6e6e78', interact: 'furnace', light: 4 },
   [BLOCK.PLATFORM]:  { name: 'Platform', solid: true, mine: 0.25, drops: BLOCK.PLATFORM, color: '#c4a060', top: '#d4b070', platform: true },
   [BLOCK.CAMPFIRE]:  { name: 'Campfire', solid: false, mine: 0.3, drops: BLOCK.CAMPFIRE, color: '#8b4513', light: 10, interact: 'campfire' },
-  /** Hangs from ceilings / platforms, or sits on the floor — bright light. */
-  [BLOCK.LANTERN]:   { name: 'Lantern', solid: false, mine: 0.2, drops: BLOCK.LANTERN, color: '#ffc866', light: 12, hang: true },
+  /** Hangs from ceilings / platforms, or sits on the floor — brighter/farther than torch. */
+  [BLOCK.LANTERN]:   { name: 'Lantern', solid: false, mine: 0.2, drops: BLOCK.LANTERN, color: '#ffc866', light: 14, hang: true },
 };
 
 export const BIOME_NAMES = ['Forest', 'Desert', 'Snow', 'Plains'];

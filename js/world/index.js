@@ -521,6 +521,26 @@ export function fillSkyColumn(world, x) {
 }
 
 /**
+ * Can light travel *through* this tile into neighbors?
+ * Solids block propagation (except glass/doors handled as non-blocking where needed).
+ */
+export function lightBlocksPropagation(t) {
+  if (t === BLOCK.AIR || t === BLOCK.WATER || t === BLOCK.LADDER
+      || t === BLOCK.TORCH || t === BLOCK.LANTERN || t === BLOCK.LEAVES
+      || t === BLOCK.CAMPFIRE) {
+    return false;
+  }
+  // Glass lets light through
+  if (t === BLOCK.GLASS) return false;
+  // Open platforms let light past vertically a bit — treat as non-blocking for glow
+  if (isPlatform(t)) return false;
+  const m = BLOCK_META[t];
+  if (m && m.light) return false; // emitters always participate
+  if (m && m.solid) return true;
+  return false;
+}
+
+/**
  * Local light update for dirty columns: sky refill + limited flood.
  * Safe at 16k width because we never scan the whole map on mine/place.
  */
@@ -536,13 +556,13 @@ export function flushLight(world) {
   } else {
     // Full refresh requested
     recomputeSkyLight(world);
-    floodLightAll(world, 4);
+    floodLightAll(world, LIGHT_RADIUS);
     world.dirtyLight = false;
     world.lightDirtyCols = null;
     return;
   }
 
-  // Expand for torch bleed
+  // Expand for torch / lantern bleed
   const set = new Set();
   for (const x of cols) {
     for (let d = -LIGHT_RADIUS; d <= LIGHT_RADIUS; d++) set.add(wrapX(x + d));
@@ -551,59 +571,79 @@ export function flushLight(world) {
   for (const x of set) fillSkyColumn(world, x);
 
   // Multi-pass flood only inside the dirty column set
-  const L = world.light;
-  const list = Array.from(set);
-  for (let pass = 0; pass < LIGHT_RADIUS; pass++) {
-    let changed = false;
-    for (let i = 0; i < list.length; i++) {
-      const x = list[i];
-      for (let y = 1; y < WORLD_H - 1; y++) {
-        const t = world.tiles[idx(x, y)];
-        const m = BLOCK_META[t];
-        if (m && m.solid && !m.light && t !== BLOCK.LAVA) continue;
-        const cur = L[idx(x, y)];
-        const n = Math.max(
-          L[idx(x - 1, y)],
-          L[idx(x + 1, y)],
-          L[idx(x, y - 1)],
-          L[idx(x, y + 1)]
-        );
-        const next = Math.max(cur, n - 1);
-        if (next > cur) {
-          L[idx(x, y)] = next;
-          changed = true;
-        }
-      }
-    }
-    if (!changed) break;
-  }
+  floodLightColumns(world, Array.from(set), LIGHT_RADIUS);
 
   world.lightDirtyCols = null;
   world.dirtyLight = false;
 }
 
-/** Cheap whole-map flood (few passes) — only for load fallbacks. */
-export function floodLightAll(world, passes) {
+/**
+ * Flood light through air; solid walls can *receive* light (so faces brighten)
+ * but do not re-transmit it (except emitters / transparent).
+ */
+export function floodLightColumns(world, list, passes) {
   const L = world.light;
-  passes = passes || 4;
+  passes = passes || LIGHT_RADIUS;
   for (let pass = 0; pass < passes; pass++) {
-    for (let y = 1; y < WORLD_H - 1; y++) {
-      for (let x = 0; x < WORLD_W; x++) {
-        const t = world.tiles[idx(x, y)];
-        const m = BLOCK_META[t];
-        if (m && m.solid && !m.light && t !== BLOCK.LAVA) continue;
-        const cur = L[idx(x, y)];
-        const n = Math.max(
-          L[idx(x - 1, y)],
-          L[idx(x + 1, y)],
-          L[idx(x, y - 1)],
-          L[idx(x, y + 1)]
-        );
-        const next = Math.max(cur, n - 1);
-        if (next > cur) L[idx(x, y)] = next;
+    let changed = false;
+    for (let i = 0; i < list.length; i++) {
+      const x = list[i];
+      for (let y = 1; y < WORLD_H - 1; y++) {
+        const i0 = idx(x, y);
+        const t = world.tiles[i0];
+        const blocks = lightBlocksPropagation(t);
+        // Max light from neighbors that can transmit
+        let n = 0;
+        // left
+        {
+          const tn = world.tiles[idx(x - 1, y)];
+          if (!lightBlocksPropagation(tn) || emitLight(tn) > 0) {
+            n = Math.max(n, L[idx(x - 1, y)]);
+          }
+        }
+        {
+          const tn = world.tiles[idx(x + 1, y)];
+          if (!lightBlocksPropagation(tn) || emitLight(tn) > 0) {
+            n = Math.max(n, L[idx(x + 1, y)]);
+          }
+        }
+        {
+          const tn = world.tiles[idx(x, y - 1)];
+          if (!lightBlocksPropagation(tn) || emitLight(tn) > 0) {
+            n = Math.max(n, L[idx(x, y - 1)]);
+          }
+        }
+        {
+          const tn = world.tiles[idx(x, y + 1)];
+          if (!lightBlocksPropagation(tn) || emitLight(tn) > 0) {
+            n = Math.max(n, L[idx(x, y + 1)]);
+          }
+        }
+        const cur = L[i0];
+        // Emitters keep their own level; everyone can pick up neighbor-1
+        const next = Math.max(cur, n - 1, emitLight(t));
+        // Solid non-emitters: only receive (for face lighting), already handled
+        // Transparent: receive and will transmit next pass via neighbor check
+        if (next > cur) {
+          L[i0] = next;
+          changed = true;
+        }
+        // If this cell blocks propagation, clamp so it doesn't become a fake light source
+        // (it still stores light for rendering faces)
+        if (blocks && emitLight(t) === 0 && next > 0) {
+          // keep the value for rendering — transmission is gated in neighbor checks
+        }
       }
     }
+    if (!changed) break;
   }
+}
+
+/** Cheap whole-map flood — only for load fallbacks. */
+export function floodLightAll(world, passes) {
+  const list = [];
+  for (let x = 0; x < WORLD_W; x++) list.push(x);
+  floodLightColumns(world, list, passes || 6);
 }
 
 /** Back-compat name used by game loop / load. */
@@ -625,6 +665,38 @@ export function getLight(world, x, y) {
   if (y < 0) return 15;
   if (y >= WORLD_H) return 0;
   return world.light[idx(x, y)];
+}
+
+/**
+ * Light used for drawing a tile face: self + brightest adjacent air/emitter,
+ * so solid walls next to a torch actually brighten.
+ */
+export function getRenderLight(world, x, y) {
+  y = Math.floor(y);
+  if (y < 0) return 15;
+  if (y >= WORLD_H) return 0;
+  let L = getLight(world, x, y);
+  L = Math.max(
+    L,
+    getLight(world, x - 1, y),
+    getLight(world, x + 1, y),
+    getLight(world, x, y - 1),
+    getLight(world, x, y + 1)
+  );
+  return L;
+}
+
+/**
+ * Map 0–15 light level → 0–1 brightness for rendering.
+ * Quadratic falloff so unlit caves are near-black, torch edges soft.
+ */
+export function lightToBrightness(level, opts) {
+  opts = opts || {};
+  const t = Math.max(0, Math.min(15, level | 0)) / 15;
+  // Ambient floor: tiny so you barely see silhouettes when completely dark
+  const ambient = opts.ambient != null ? opts.ambient : 0.035;
+  // Square curve: mid light still useful, low light very dark
+  return ambient + (1 - ambient) * (t * t);
 }
 
 export function wrapDeltaX(from, to) {

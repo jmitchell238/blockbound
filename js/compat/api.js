@@ -19,9 +19,10 @@ export { MILESTONES } from '../content/milestones.js';
 export { tileKey, itemName } from '../content/items.js';
 export {
   wrapX, wrapDeltaX, generateWorld, generateWorldAsync, getTile, setTile, getLight,
-  isSolid, serializeWorld, deserializeWorld, markLightDirty, flushLight,
-  recomputeSkyLight, tickGravityNear,
+  getRenderLight, lightToBrightness, isSolid, serializeWorld, deserializeWorld,
+  markLightDirty, flushLight, recomputeSkyLight, tickGravityNear,
 } from '../world/index.js';
+export { LIGHT_RADIUS } from '../core/constants.js';
 export {
   makeInventory, addItem, canCraft, craft, countItem, removeItem, selectedSlot,
 } from '../inventory/inventory.js';
