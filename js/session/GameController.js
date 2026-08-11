@@ -16,7 +16,7 @@ import {
 import {
   makeInventory, addItem, removeItem, selectedSlot, selectHotbar,
   syncEquippedTool, toolPowerFor, canCraft, craft, deserializeInv,
-  moveOrSwap, stowToBag, HOTBAR_SIZE, getMeleeWeapon, getHeldTool,
+  moveOrSwap, stowToBag, transferSlot, HOTBAR_SIZE, getMeleeWeapon, getHeldTool,
 } from '../inventory/inventory.js';
 import {
   makeWorldMeta, getChest, removeChest, nearInteract, isDoorOpen, toggleDoor,
@@ -67,6 +67,12 @@ export function _finishSession(world, player, inv, timeOfDay, seed, ents, shared
     creativeHit: [],
     creativeScroll: 0,
     invPick: null, // { from: 'hotbar'|'bag'|'chest', i }
+    /** Drag ghost: { from, i, id, count, durability, x, y, active } */
+    invDrag: null,
+    /** Hover tooltip { text, x, y } */
+    hoverTip: null,
+    /** Double-click tracking { key, t } */
+    invClickLast: null,
     toast: '',
     toastT: 0,
     showTouch: false,
@@ -617,15 +623,145 @@ export function getInvArray(s, from) {
   return null;
 }
 
-export function handleInvSlotClick(s, from, i) {
+function hitTest(hits, x, y) {
+  if (!hits) return null;
+  // Later hits drawn on top — search reverse
+  for (let i = hits.length - 1; i >= 0; i--) {
+    const h = hits[i];
+    if (x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h) return h;
+  }
+  return null;
+}
+
+function activeMenuHits(ui) {
+  if (ui.creativeOpen) return ui.creativeHit || [];
+  if (ui.bagOpen) return ui.bagHit || [];
+  if (ui.chestOpen) return ui.chestHit || [];
+  if (ui.craftOpen) return ui.craftHit || [];
+  return [];
+}
+
+function slotLabel(slotOrId) {
+  if (slotOrId == null) return '';
+  if (typeof slotOrId === 'object') {
+    const n = itemName(slotOrId.id);
+    return slotOrId.count > 1 ? n + ' ×' + slotOrId.count : n;
+  }
+  return itemName(slotOrId);
+}
+
+function giveCreativeItem(inv, id) {
+  const count = creativeGiveCount(id);
+  const left = addItem(inv, id, count);
+  if (isTool(id)) {
+    for (const arr of [inv.hotbar, inv.bag]) {
+      for (const s of arr) {
+        if (s && s.id === id && s.durability == null && TOOLS[id]) {
+          s.durability = TOOLS[id].durability;
+        }
+      }
+    }
+  }
+  syncEquippedTool(inv);
+  return { count, left, got: count - left };
+}
+
+/** Destroy held / picked inventory stack (creative void). */
+function voidInvPick(s) {
+  const ui = s.ui;
+  if (!ui.invPick) return false;
+  const arr = getInvArray(s, ui.invPick.from);
+  if (!arr || !arr[ui.invPick.i]) {
+    ui.invPick = null;
+    return false;
+  }
+  const name = slotLabel(arr[ui.invPick.i]);
+  arr[ui.invPick.i] = null;
+  ui.invPick = null;
+  syncEquippedTool(s.inv);
+  sfxPlace();
+  toast(ui, 'Removed ' + name);
+  return true;
+}
+
+function voidInvDrag(s) {
+  const ui = s.ui;
+  const d = ui.invDrag;
+  if (!d) return false;
+  const arr = getInvArray(s, d.from);
+  if (arr && arr[d.i]) {
+    const name = slotLabel(arr[d.i]);
+    arr[d.i] = null;
+    syncEquippedTool(s.inv);
+    sfxPlace();
+    toast(ui, 'Removed ' + name);
+  }
+  ui.invDrag = null;
+  ui.invPick = null;
+  return true;
+}
+
+/**
+ * Double-click auto-move: hotbar ↔ bag, or creative give.
+ * @returns {boolean} handled
+ */
+export function handleInvDoubleClick(s, from, i) {
+  const arr = getInvArray(s, from);
+  if (!arr || !arr[i]) return false;
+  const inv = s.inv;
+  const ui = s.ui;
+
+  // Creative catalog double-click is handled separately (give)
+  if (from === 'hotbar') {
+    if (stowToBag(inv, i)) {
+      sfxPickup();
+      toast(ui, '→ Backpack');
+      syncEquippedTool(inv);
+      ui.invPick = null;
+      return true;
+    }
+    toast(ui, 'Backpack full');
+    return true;
+  }
+  if (from === 'bag') {
+    if (transferSlot(inv.bag, i, inv.hotbar)) {
+      sfxPickup();
+      toast(ui, '→ Hotbar');
+      syncEquippedTool(inv);
+      ui.invPick = null;
+      return true;
+    }
+    toast(ui, 'Hotbar full');
+    return true;
+  }
+  if (from === 'chest') {
+    // Prefer hotbar, then bag
+    if (transferSlot(arr, i, inv.hotbar) || transferSlot(arr, i, inv.bag)) {
+      sfxPickup();
+      toast(ui, 'Took item');
+      ui.invPick = null;
+      return true;
+    }
+  }
+  return false;
+}
+
+export function handleInvSlotClick(s, from, i, opts) {
+  opts = opts || {};
   const ui = s.ui;
   const arr = getInvArray(s, from);
   if (!arr) return;
 
+  // Double-click auto-move
+  if (opts.doubleClick) {
+    handleInvDoubleClick(s, from, i);
+    return;
+  }
+
   // First tap: pick up if slot has item, or clear pick
   if (!ui.invPick) {
     if (!arr[i]) {
-      toast(ui, 'Empty slot');
+      // empty — nothing
       return;
     }
     ui.invPick = { from, i };
@@ -668,87 +804,252 @@ export function stowHotbarToBag(s) {
   }
 }
 
-export function gameClickCraft(x, y) {
+/**
+ * Unified pointer handler for open inventory / creative / chest / craft menus.
+ * phase: 'down' | 'move' | 'up'
+ */
+export function gameUiPointer(x, y, phase) {
   if (!session) return false;
-  const ui = session.ui;
-  const inv = session.inv;
+  const s = session;
+  const ui = s.ui;
+  const inv = s.inv;
+  const menuOpen = !!(ui.creativeOpen || ui.bagOpen || ui.chestOpen || ui.craftOpen);
+  if (!menuOpen) {
+    ui.hoverTip = null;
+    ui.invDrag = null;
+    return false;
+  }
 
-  // Creative block picker
-  if (ui.creativeOpen) {
-    const hits = ui.creativeHit || [];
-    for (const h of hits) {
-      if (x < h.x || x > h.x + h.w || y < h.y || y > h.y + h.h) continue;
-      if (h.kind === 'close') {
-        ui.creativeOpen = false;
-        return true;
+  const hits = activeMenuHits(ui);
+  const h = hitTest(hits, x, y);
+
+  // ——— MOVE: tooltips + drag follow ———
+  if (phase === 'move') {
+    // Tooltip
+    if (h && (h.kind === 'slot' || h.kind === 'give')) {
+      let text = '';
+      if (h.kind === 'give') text = slotLabel(h.id);
+      else {
+        const arr = getInvArray(s, h.from);
+        const slot = arr && arr[h.i];
+        text = slot ? slotLabel(slot) : '';
       }
-      if (h.kind === 'scroll') {
-        ui.creativeScroll = Math.max(0, (ui.creativeScroll || 0) + h.dir);
-        return true;
+      ui.hoverTip = text ? { text, x, y } : null;
+    } else if (ui.invPick) {
+      const arr = getInvArray(s, ui.invPick.from);
+      const slot = arr && arr[ui.invPick.i];
+      ui.hoverTip = slot ? { text: slotLabel(slot) + ' (click to place)', x, y } : null;
+    } else {
+      ui.hoverTip = null;
+    }
+
+    if (ui.invDrag) {
+      const dx = x - ui.invDrag.originX;
+      const dy = y - ui.invDrag.originY;
+      if (!ui.invDrag.active && (dx * dx + dy * dy) > 64) {
+        ui.invDrag.active = true;
+        ui.invPick = null; // drag takes over click-click
       }
-      if (h.kind === 'give') {
-        const count = creativeGiveCount(h.id);
-        const left = addItem(inv, h.id, count);
-        if (isTool(h.id)) {
-          for (const arr of [inv.hotbar, inv.bag]) {
-            for (const s of arr) {
-              if (s && s.id === h.id && s.durability == null && TOOLS[h.id]) {
-                s.durability = TOOLS[h.id].durability;
-              }
+      ui.invDrag.x = x;
+      ui.invDrag.y = y;
+    }
+    return true;
+  }
+
+  // ——— DOWN: begin potential drag / click ———
+  if (phase === 'down') {
+    if (h && h.kind === 'slot') {
+      const arr = getInvArray(s, h.from);
+      const slot = arr && arr[h.i];
+      if (slot) {
+        ui.invDrag = {
+          from: h.from,
+          i: h.i,
+          id: slot.id,
+          count: slot.count,
+          durability: slot.durability,
+          originX: x,
+          originY: y,
+          x,
+          y,
+          active: false,
+          t0: performance.now(),
+        };
+      } else {
+        ui.invDrag = null;
+      }
+    } else if (h && h.kind === 'give') {
+      ui.invDrag = {
+        from: 'creative',
+        i: -1,
+        id: h.id,
+        count: creativeGiveCount(h.id),
+        originX: x,
+        originY: y,
+        x,
+        y,
+        active: false,
+        t0: performance.now(),
+        give: true,
+      };
+    } else {
+      ui.invDrag = null;
+    }
+    return true;
+  }
+
+  // ——— UP: complete click, drag-drop, double-click ———
+  if (phase === 'up') {
+    const drag = ui.invDrag;
+    const wasDragging = !!(drag && drag.active);
+    ui.invDrag = null;
+
+    // Drag-drop completion
+    if (wasDragging && drag) {
+      // Drop on inventory slot
+      if (h && h.kind === 'slot') {
+        if (drag.give) {
+          // Dragged from creative catalog → place into slot
+          const arr = getInvArray(s, h.from);
+          if (arr) {
+            const n = creativeGiveCount(drag.id);
+            if (!arr[h.i]) {
+              arr[h.i] = { id: drag.id, count: n };
+              if (isTool(drag.id) && TOOLS[drag.id]) arr[h.i].durability = TOOLS[drag.id].durability;
+              sfxPickup();
+              toast(ui, '+ ' + itemName(drag.id));
+              syncEquippedTool(inv);
+            } else if (arr[h.i].id === drag.id && !isTool(drag.id) && arr[h.i].count < 99) {
+              arr[h.i].count = Math.min(99, arr[h.i].count + n);
+              sfxPickup();
+            } else {
+              // stack into inv any free slot
+              const r = giveCreativeItem(inv, drag.id);
+              if (r.got > 0) { sfxPickup(); toast(ui, '+ ' + itemName(drag.id)); }
+              else toast(ui, 'Inventory full');
+            }
+          }
+        } else {
+          const fromArr = getInvArray(s, drag.from);
+          const toArr = getInvArray(s, h.from);
+          if (fromArr && toArr && fromArr[drag.i]) {
+            if (moveOrSwap(fromArr, drag.i, toArr, h.i)) {
+              sfxPickup();
+              syncEquippedTool(inv);
             }
           }
         }
-        syncEquippedTool(inv);
-        if (left < count) {
+        ui.invPick = null;
+        return true;
+      }
+
+      // Drop on creative catalog / void while holding inventory item → destroy
+      if (!drag.give && (h && (h.kind === 'give' || h.kind === 'void') || (ui.creativeOpen && !h))) {
+        // recreate drag state briefly for void
+        ui.invDrag = drag;
+        voidInvDrag(s);
+        return true;
+      }
+
+      // Drop creative item onto empty panel → add to inventory
+      if (drag.give && ui.creativeOpen) {
+        const r = giveCreativeItem(inv, drag.id);
+        if (r.got > 0) {
           sfxPickup();
-          toast(ui, '+ ' + itemName(h.id) + (count > 1 ? ' ×' + (count - left) : ''));
-        } else {
-          toast(ui, 'Inventory full');
-        }
+          toast(ui, '+ ' + itemName(drag.id) + (r.got > 1 ? ' ×' + r.got : ''));
+        } else toast(ui, 'Inventory full');
         return true;
       }
+
+      return true;
+    }
+
+    // Non-drag click handling
+    if (!h) {
+      // Click empty creative backdrop with a picked inv item → void
+      if (ui.creativeOpen && ui.invPick && (ui.invPick.from === 'hotbar' || ui.invPick.from === 'bag')) {
+        voidInvPick(s);
+        return true;
+      }
+      return true;
+    }
+
+    if (h.kind === 'close') {
+      if (ui.creativeOpen) ui.creativeOpen = false;
+      else if (ui.bagOpen) ui.bagOpen = false;
+      else if (ui.chestOpen) ui.chestOpen = null;
+      else if (ui.craftOpen) ui.craftOpen = false;
+      ui.invPick = null;
+      ui.hoverTip = null;
+      return true;
+    }
+    if (h.kind === 'scroll') {
+      ui.creativeScroll = Math.max(0, (ui.creativeScroll || 0) + h.dir);
+      return true;
+    }
+    if (h.kind === 'stow') {
+      stowHotbarToBag(s);
+      return true;
+    }
+    if (h.kind === 'void') {
+      if (ui.invPick) voidInvPick(s);
+      return true;
+    }
+
+    // Creative give (click)
+    if (h.kind === 'give') {
+      // Holding inv item + click catalog → delete held item
+      if (ui.invPick && (ui.invPick.from === 'hotbar' || ui.invPick.from === 'bag')) {
+        voidInvPick(s);
+        return true;
+      }
+      // Double-click give
+      const key = 'give:' + h.id;
+      const now = performance.now();
+      const last = ui.invClickLast;
+      const dbl = last && last.key === key && (now - last.t) < 380;
+      ui.invClickLast = { key, t: now };
+      const times = dbl ? 2 : 1;
+      let gotTotal = 0;
+      for (let n = 0; n < times; n++) {
+        const r = giveCreativeItem(inv, h.id);
+        gotTotal += r.got;
+        if (r.got <= 0) break;
+      }
+      if (gotTotal > 0) {
+        sfxPickup();
+        toast(ui, '+ ' + itemName(h.id) + (gotTotal > 1 ? ' ×' + gotTotal : ''));
+      } else toast(ui, 'Inventory full');
+      return true;
+    }
+
+    if (h.kind === 'slot') {
+      const key = h.from + ':' + h.i;
+      const now = performance.now();
+      const last = ui.invClickLast;
+      const dbl = last && last.key === key && (now - last.t) < 380;
+      ui.invClickLast = { key, t: now };
+      handleInvSlotClick(s, h.from, h.i, { doubleClick: dbl });
+      return true;
+    }
+
+    // Craft panel passthrough for remaining kinds
+    if (ui.craftOpen) {
+      return gameClickCraft(x, y);
     }
     return true;
   }
 
-  // Inventory (bag) UI
-  if (ui.bagOpen) {
-    const hits = ui.bagHit || [];
-    for (const h of hits) {
-      if (x < h.x || x > h.x + h.w || y < h.y || y > h.y + h.h) continue;
-      if (h.kind === 'close') {
-        ui.bagOpen = false;
-        ui.invPick = null;
-        return true;
-      }
-      if (h.kind === 'stow') {
-        stowHotbarToBag(session);
-        return true;
-      }
-      if (h.kind === 'slot') {
-        handleInvSlotClick(session, h.from, h.i);
-        return true;
-      }
-    }
-    return true;
-  }
+  return true;
+}
 
-  // Chest UI
-  if (ui.chestOpen) {
-    const hits = ui.chestHit || [];
-    for (const h of hits) {
-      if (x < h.x || x > h.x + h.w || y < h.y || y > h.y + h.h) continue;
-      if (h.kind === 'close') {
-        ui.chestOpen = null;
-        ui.invPick = null;
-        return true;
-      }
-      if (h.kind === 'slot') {
-        handleInvSlotClick(session, h.from, h.i);
-        return true;
-      }
-    }
-    return true;
+/** @deprecated use gameUiPointer — kept for craft-only path */
+export function gameClickCraft(x, y) {
+  if (!session) return false;
+  const ui = session.ui;
+  // Prefer unified handler for inv menus
+  if (ui.creativeOpen || ui.bagOpen || ui.chestOpen) {
+    return gameUiPointer(x, y, 'up');
   }
 
   if (!ui.craftOpen) return false;

@@ -18,7 +18,7 @@ import {
 } from './save/save.js';
 import { audioSetMuted, ensureAudio } from './audio/audio.js';
 import {
-  enterPlay, enterMenu, getSession, gameUpdate, gameRender, gameClickCraft,
+  enterPlay, enterMenu, getSession, gameUpdate, gameRender, gameClickCraft, gameUiPointer,
 } from './session/index.js';
 import { skyColors, drawParallax, drawBlock } from './render/index.js';
 
@@ -495,21 +495,60 @@ function ensureListeners() {
     return s ? s.cam : { x: WORLD_W / 2, y: SURFACE_Y };
   });
 
+  const menuOpen = (s) => !!(s && (s.ui.craftOpen || s.ui.chestOpen || s.ui.bagOpen || s.ui.creativeOpen));
+
+  const blockWorldInput = () => {
+    appInput.pointerDown = false;
+    appInput.mineTx = null;
+    appInput.mineTy = null;
+    appInput.placeTx = null;
+    appInput.placeTy = null;
+    appInput.holdMining = false;
+    appInput.tapPlace = null;
+  };
+
   cv.addEventListener('pointerdown', e => {
     if (screenName !== 'play') return;
     const s = getSession();
-    if (!s) return;
+    if (!menuOpen(s)) return;
     const p = eventToStage(e);
-    if (s.ui.craftOpen || s.ui.chestOpen || s.ui.bagOpen || s.ui.creativeOpen) {
+    if (s.ui.craftOpen && !s.ui.bagOpen && !s.ui.creativeOpen && !s.ui.chestOpen) {
+      // Craft menu still uses click-up path
       gameClickCraft(p.x, p.y);
+    } else {
+      gameUiPointer(p.x, p.y, 'down');
+    }
+    e.preventDefault();
+    e.stopPropagation();
+    blockWorldInput();
+  }, true);
+
+  cv.addEventListener('pointermove', e => {
+    if (screenName !== 'play') return;
+    const s = getSession();
+    if (!menuOpen(s)) return;
+    const p = eventToStage(e);
+    if (s.ui.bagOpen || s.ui.creativeOpen || s.ui.chestOpen) {
+      gameUiPointer(p.x, p.y, 'move');
       e.preventDefault();
       e.stopPropagation();
-      appInput.pointerDown = false;
-      appInput.mineTx = null;
-      appInput.mineTy = null;
-      appInput.placeTx = null;
-      appInput.placeTy = null;
+      blockWorldInput();
     }
+  }, true);
+
+  cv.addEventListener('pointerup', e => {
+    if (screenName !== 'play') return;
+    const s = getSession();
+    if (!menuOpen(s)) return;
+    const p = eventToStage(e);
+    if (s.ui.craftOpen && !s.ui.bagOpen && !s.ui.creativeOpen && !s.ui.chestOpen) {
+      // already handled on down for craft
+    } else {
+      gameUiPointer(p.x, p.y, 'up');
+    }
+    e.preventDefault();
+    e.stopPropagation();
+    blockWorldInput();
   }, true);
 }
 
