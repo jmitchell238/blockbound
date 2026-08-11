@@ -877,30 +877,105 @@ export function drawPlayer(ctx, p, cam, ts, inv) {
   }
 
   const img = getPlayerFrame(p, inv) || textures.player;
+  const drawH = ph * (p.crouching ? 0.92 : 1.12);
+  const drawW = drawH * (96 / 176);
+  const footY = sy + (p.inBoat ? -6 : 0);
+
+  ctx.save();
+  ctx.translate(sx, footY);
+  if (p.facing < 0) ctx.scale(-1, 1);
+
   if (img) {
     // Fixed draw size for ALL frames so jump/mine never shrink the character.
     // Original hero sprites are 96×176 with feet on the bottom edge.
-    const drawH = ph * (p.crouching ? 0.92 : 1.12);
-    const drawW = drawH * (96 / 176);
-    const footY = sy + (p.inBoat ? -6 : 0);
-    ctx.save();
-    ctx.translate(sx, footY);
-    if (p.facing < 0) ctx.scale(-1, 1);
     ctx.imageSmoothingEnabled = false; // crisp pixel art
     ctx.drawImage(img, -drawW / 2, -drawH, drawW, drawH);
-    ctx.restore();
   } else {
     // Minimal procedural fallback (orange hoodie)
     const bob = walking ? Math.abs(Math.sin(p.anim * 2)) * 2 : 0;
-    const bodyTop = sy - ph + bob;
     ctx.fillStyle = '#ee6c4d';
-    roundRect(ctx, sx - pw * 0.4, bodyTop + ph * 0.25, pw * 0.8, ph * 0.45, 3);
+    roundRect(ctx, -pw * 0.4, -ph + bob + ph * 0.25, pw * 0.8, ph * 0.45, 3);
     ctx.fill();
     ctx.fillStyle = '#e8c49a';
-    roundRect(ctx, sx - pw * 0.35, bodyTop, pw * 0.7, ph * 0.28, 4);
+    roundRect(ctx, -pw * 0.35, -ph + bob, pw * 0.7, ph * 0.28, 4);
     ctx.fill();
   }
 
+  // Always show the selected hotbar item in the character's hand
+  drawHeldItem(ctx, p, inv, drawW, drawH);
+
+  ctx.restore();
+  ctx.restore();
+}
+
+/**
+ * Draw whatever is selected on the hotbar in the hero's front hand.
+ * Origin is feet; character faces +X (caller flips for left).
+ */
+function drawHeldItem(ctx, p, inv, drawW, drawH) {
+  if (!inv || p.inBoat) return;
+  const slot = inv.hotbar && inv.hotbar[inv.selected];
+  if (!slot || slot.id == null || slot.id === 'hand') return;
+
+  const id = slot.id;
+  const walking = p.onGround && Math.abs(p.vx) > 0.25 && !p.crouching;
+  const mining = !!(p.mining && p.mining.progress != null);
+  const swinging = (p.attackT || 0) > 0;
+  const tool = isTool(id);
+  const weapon = isWeapon(id);
+  const isPickOrAxe = tool && (String(id).indexOf('pick') >= 0 || String(id).indexOf('axe') >= 0);
+  const isShovel = tool && String(id).indexOf('shovel') >= 0;
+
+  // Hand / grip point relative to feet (matches side-view idle proportions)
+  const phase = p.anim || 0;
+  const walkSwing = walking ? Math.sin(phase * 2.2) : 0;
+  let handX = drawW * 0.20 + walkSwing * drawW * 0.04;
+  let handY = -drawH * (p.crouching ? 0.42 : 0.48) + Math.abs(walkSwing) * drawH * 0.02;
+
+  // Carry / swing angle (radians). Tools sit a bit upright; blocks hang lower.
+  let angle = tool ? -0.55 : -0.15;
+  if (walking && !mining && !swinging) {
+    angle += walkSwing * 0.35;
+  }
+  if (mining) {
+    // Chop cycle — raise then strike
+    const t = (p.mining.progress || 0) * 9;
+    angle = -0.2 - Math.sin(t) * 1.15;
+    handX = drawW * 0.28;
+    handY = -drawH * 0.52 - Math.cos(t) * drawH * 0.04;
+  } else if (swinging) {
+    // Attack arc from raised to forward
+    const atk = Math.min(1, (p.attackT || 0) / 0.22);
+    const swing = Math.sin((1 - atk) * Math.PI); // 0 → peak → 0
+    angle = -1.3 + swing * 1.7;
+    handX = drawW * 0.26;
+    handY = -drawH * 0.55;
+  }
+
+  // Icon size — tools larger, blocks a bit smaller
+  let size = drawH * (tool || weapon ? 0.38 : 0.30);
+  if (isPickOrAxe || weapon) size = drawH * 0.42;
+  if (isShovel) size = drawH * 0.40;
+
+  // Grip offset: tools pivot near the handle end (bottom of icon)
+  const gripX = 0;
+  const gripY = size * (tool ? 0.32 : 0.15);
+
+  ctx.save();
+  ctx.translate(handX, handY);
+  ctx.rotate(angle);
+  ctx.imageSmoothingEnabled = false;
+
+  // Slight drop shadow under item for readability
+  ctx.save();
+  ctx.globalAlpha = 0.25;
+  ctx.fillStyle = '#000';
+  ctx.beginPath();
+  ctx.ellipse(0, size * 0.15, size * 0.22, size * 0.08, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  drawItemIcon(ctx, -size / 2 + gripX, -size / 2 - gripY, size, id);
   ctx.restore();
 }
 

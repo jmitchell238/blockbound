@@ -276,31 +276,16 @@ export async function loadTextures() {
   return textures;
 }
 
-/** Best player frame for current action state. */
+/** Best player frame for current action state.
+ *  Tool/weapon graphics are drawn live via drawHeldItem (not baked into poses),
+ *  so we only pick body frames here.
+ */
 export function getPlayerFrame(player, inv) {
   const A = textures.playerAnims || {};
   const idle = A.idle || textures.player;
   if (!player) return idle;
 
   if (player.inBoat) return A.boat || idle;
-
-  // Action overrides — only show tool poses when that tool is equipped
-  if (player.attackT > 0) {
-    const tool = (inv && inv.tool) ? String(inv.tool) : 'hand';
-    if (tool.indexOf('sword') >= 0) return A.sword || idle;
-    if (tool.indexOf('shovel') >= 0) return A.shovel || idle;
-    if (tool.indexOf('pick') >= 0 || tool.indexOf('axe') >= 0) return A.mine || idle;
-    // bare hands / unknown: keep idle (no fake weapon sprite)
-    return idle;
-  }
-  if (player.mining) {
-    const tool = (inv && inv.tool) ? String(inv.tool) : 'hand';
-    if (tool.indexOf('shovel') >= 0) return A.shovel || A.mine || idle;
-    if (tool.indexOf('pick') >= 0 || tool.indexOf('axe') >= 0 || tool === 'hand') {
-      return A.mine || idle;
-    }
-    return A.mine || idle;
-  }
 
   // Crouch when holding down while grounded
   if (player.onGround && player.crouching) return A.crouch || idle;
