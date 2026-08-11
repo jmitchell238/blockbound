@@ -1,7 +1,7 @@
 'use strict';
 
 // Blockbound — keep CACHE in sw.js in sync: 'blockbound-' + GAME_VERSION
-const GAME_VERSION = '1.4.005';
+const GAME_VERSION = '1.4.006';
 const GAME_VERSION_LABEL = 'v' + GAME_VERSION;
 const GAME_NAME = 'Blockbound';
 
@@ -160,7 +160,7 @@ const RECIPES = [
   { id: 'ladder', name: 'Ladder ×4', station: 'hand', in: [['stick', 3]], out: [BLOCK.LADDER, 4] },
   { id: 'platform', name: 'Platform ×4', station: 'hand', in: [[BLOCK.PLANKS, 1]], out: [BLOCK.PLATFORM, 4] },
   { id: 'workbench', name: 'Workbench', station: 'hand', in: [[BLOCK.PLANKS, 4]], out: [BLOCK.WORKBENCH, 1] },
-  { id: 'chest', name: 'Chest', station: 'hand', in: [[BLOCK.PLANKS, 8]], out: [BLOCK.CHEST, 1] },
+  { id: 'chest', name: 'Chest', station: 'hand', in: [[BLOCK.PLANKS, 6]], out: [BLOCK.CHEST, 1] },
   { id: 'door', name: 'Door', station: 'hand', in: [[BLOCK.PLANKS, 6]], out: [BLOCK.DOOR, 1] },
   { id: 'campfire', name: 'Campfire', station: 'hand', in: [['stick', 4], [BLOCK.COAL, 1]], out: [BLOCK.CAMPFIRE, 1] },
   { id: 'bed', name: 'Bed', station: 'workbench', in: [[BLOCK.PLANKS, 3], [BLOCK.LEAVES, 3]], out: [BLOCK.BED, 1] },

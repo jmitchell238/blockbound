@@ -1,5 +1,5 @@
 // Blockbound — bump with GAME_VERSION in js/config.js
-const CACHE = 'blockbound-1.4.005';
+const CACHE = 'blockbound-1.4.006';
 
 const ASSETS = [
   './',

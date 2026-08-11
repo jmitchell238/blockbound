@@ -181,6 +181,48 @@ function transferSlot(fromArr, fromI, toArr) {
   return false;
 }
 
+/** Swap or move one slot into another array (bag ↔ hotbar). */
+function moveOrSwap(fromArr, fromI, toArr, toI) {
+  if (fromI < 0 || fromI >= fromArr.length) return false;
+  if (toI < 0 || toI >= toArr.length) return false;
+  const a = fromArr[fromI];
+  const b = toArr[toI];
+  if (!a) return false;
+  // Stack if same stackable item
+  if (b && a.id === b.id && canStack(a.id) && b.count < 99) {
+    const space = 99 - b.count;
+    const move = Math.min(space, a.count);
+    b.count += move;
+    a.count -= move;
+    if (a.count <= 0) fromArr[fromI] = null;
+    return true;
+  }
+  // Swap
+  fromArr[fromI] = b;
+  toArr[toI] = a;
+  return true;
+}
+
+function bagUsed(inv) {
+  let n = 0;
+  for (const s of inv.bag) if (s) n++;
+  return n;
+}
+
+function bagFree(inv) {
+  return BAG_SIZE - bagUsed(inv);
+}
+
+/** Move entire hotbar slot into first free bag space (or stack). */
+function stowToBag(inv, hotbarIndex) {
+  return transferSlot(inv.hotbar, hotbarIndex, inv.bag);
+}
+
+/** Move bag slot into hotbar. */
+function takeFromBag(inv, bagIndex) {
+  return transferSlot(inv.bag, bagIndex, inv.hotbar);
+}
+
 function serializeInv(inv) {
   return {
     hotbar: inv.hotbar.map(s => s ? { id: s.id, count: s.count, durability: s.durability } : null),

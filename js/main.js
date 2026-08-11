@@ -292,8 +292,23 @@ function wireUI() {
   });
   document.getElementById('btnCraft').addEventListener('click', () => {
     const s = getSession();
-    if (s) s.ui.craftOpen = !s.ui.craftOpen;
+    if (!s) return;
+    s.ui.bagOpen = false;
+    s.ui.chestOpen = null;
+    s.ui.invPick = null;
+    s.ui.craftOpen = !s.ui.craftOpen;
   });
+  const bagBtn = document.getElementById('btnBag');
+  if (bagBtn) {
+    bagBtn.addEventListener('click', () => {
+      const s = getSession();
+      if (!s) return;
+      s.ui.craftOpen = false;
+      s.ui.chestOpen = null;
+      s.ui.invPick = null;
+      s.ui.bagOpen = !s.ui.bagOpen;
+    });
+  }
   document.getElementById('btnMode').addEventListener('click', () => {
     const s = getSession();
     if (!s) return;

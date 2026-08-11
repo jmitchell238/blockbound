@@ -19,6 +19,7 @@ function _finishSession(world, player, inv, timeOfDay, seed, ents) {
     chestOpen: null, // { x, y, slots }
     chestHit: [],
     bagOpen: false,
+    invPick: null, // { from: 'hotbar'|'bag'|'chest', i }
     toast: '',
     toastT: 0,
     showTouch: false,
@@ -169,6 +170,7 @@ function gameUpdate(dt) {
     ui.bagOpen = !ui.bagOpen;
     ui.craftOpen = false;
     ui.chestOpen = null;
+    ui.invPick = null;
     input.bagToggle = false;
   }
   if (input.modeToggle) {
@@ -478,8 +480,10 @@ function handleUse(s) {
   }
   if (hit && hit.kind === 'chest') {
     ui.craftOpen = false;
+    ui.bagOpen = false;
+    ui.invPick = null;
     ui.chestOpen = { x: hit.x, y: hit.y, slots: getChest(world.meta, hit.x, hit.y) };
-    toast(ui, 'Chest — tap items to move');
+    toast(ui, 'Chest open — move items with taps');
     return;
   }
   if (hit && hit.kind === 'bed') {
@@ -559,21 +563,106 @@ function gameRender(ctx) {
   }
 }
 
+function getInvArray(s, from) {
+  if (from === 'hotbar') return s.inv.hotbar;
+  if (from === 'bag') return s.inv.bag;
+  if (from === 'chest' && s.ui.chestOpen) return s.ui.chestOpen.slots;
+  return null;
+}
+
+function handleInvSlotClick(s, from, i) {
+  const ui = s.ui;
+  const arr = getInvArray(s, from);
+  if (!arr) return;
+
+  // First tap: pick up if slot has item, or clear pick
+  if (!ui.invPick) {
+    if (!arr[i]) {
+      toast(ui, 'Empty slot');
+      return;
+    }
+    ui.invPick = { from, i };
+    return;
+  }
+
+  // Same slot → cancel
+  if (ui.invPick.from === from && ui.invPick.i === i) {
+    ui.invPick = null;
+    return;
+  }
+
+  const fromArr = getInvArray(s, ui.invPick.from);
+  if (!fromArr || !fromArr[ui.invPick.i]) {
+    ui.invPick = null;
+    return;
+  }
+
+  if (moveOrSwap(fromArr, ui.invPick.i, arr, i)) {
+    sfxPickup();
+    ui.invPick = null;
+    syncEquippedTool(s.inv);
+  } else {
+    toast(ui, 'Can\'t move there');
+  }
+}
+
+function stowHotbarToBag(s) {
+  let moved = 0;
+  // Stow from end of hotbar (keep selected tool if possible)
+  for (let i = 0; i < HOTBAR_SIZE; i++) {
+    if (i === s.inv.selected) continue;
+    if (s.inv.hotbar[i] && stowToBag(s.inv, i)) moved++;
+  }
+  if (moved) {
+    sfxPlace();
+    toast(s.ui, 'Stowed ' + moved + ' stack' + (moved > 1 ? 's' : '') + ' in backpack');
+  } else {
+    toast(s.ui, 'Nothing to stow (or backpack full)');
+  }
+}
+
 function gameClickCraft(x, y) {
   if (!session) return false;
   const ui = session.ui;
   const inv = session.inv;
 
-  // Chest UI clicks
-  if (ui.chestOpen) {
-    const hits = ui.chestHit || [];
+  // Inventory (bag) UI
+  if (ui.bagOpen) {
+    const hits = ui.bagHit || [];
     for (const h of hits) {
-      if (x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h) {
-        handleChestClick(session, h);
+      if (x < h.x || x > h.x + h.w || y < h.y || y > h.y + h.h) continue;
+      if (h.kind === 'close') {
+        ui.bagOpen = false;
+        ui.invPick = null;
+        return true;
+      }
+      if (h.kind === 'stow') {
+        stowHotbarToBag(session);
+        return true;
+      }
+      if (h.kind === 'slot') {
+        handleInvSlotClick(session, h.from, h.i);
         return true;
       }
     }
-    if (y < 80 || y > H - 40) ui.chestOpen = null;
+    return true;
+  }
+
+  // Chest UI
+  if (ui.chestOpen) {
+    const hits = ui.chestHit || [];
+    for (const h of hits) {
+      if (x < h.x || x > h.x + h.w || y < h.y || y > h.y + h.h) continue;
+      if (h.kind === 'close') {
+        ui.chestOpen = null;
+        ui.invPick = null;
+        return true;
+      }
+      if (h.kind === 'slot') {
+        handleInvSlotClick(session, h.from, h.i);
+        return true;
+      }
+    }
     return true;
   }
 
@@ -636,43 +725,6 @@ function gameClickCraft(x, y) {
     }
   }
   return true; // swallow clicks while open
-}
-
-function handleChestClick(s, h) {
-  const chest = s.ui.chestOpen.slots;
-  const invSlots = s.inv.hotbar; // move to/from hotbar for simplicity
-  if (h.from === 'chest') {
-    const item = chest[h.i];
-    if (!item) return;
-    const left = addItem(s.inv, item.id, item.count);
-    if (left <= 0) chest[h.i] = null;
-    else item.count = left;
-    sfxPickup();
-  } else if (h.from === 'hotbar') {
-    const item = invSlots[h.i];
-    if (!item) return;
-    // put into chest
-    for (let i = 0; i < chest.length; i++) {
-      if (chest[i] && chest[i].id === item.id && canStack(item.id) && chest[i].count < 99) {
-        const space = 99 - chest[i].count;
-        const mv = Math.min(space, item.count);
-        chest[i].count += mv;
-        item.count -= mv;
-        if (item.count <= 0) invSlots[h.i] = null;
-        sfxPlace();
-        return;
-      }
-    }
-    for (let i = 0; i < chest.length; i++) {
-      if (!chest[i]) {
-        chest[i] = { id: item.id, count: item.count, durability: item.durability };
-        invSlots[h.i] = null;
-        sfxPlace();
-        return;
-      }
-    }
-    toast(s.ui, 'Chest full');
-  }
 }
 
 function getSession() {

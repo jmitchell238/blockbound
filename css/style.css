@@ -300,22 +300,28 @@ button.ghost {
 
 /* Row just above hotbar (hotbar ~58px tall) */
 #btnMenu {
-  left: 8px;
+  left: 6px;
   bottom: max(72px, calc(env(safe-area-inset-bottom, 0px) + 68px));
 }
 .craft-btn {
-  left: 56px;
+  left: 52px;
   bottom: max(72px, calc(env(safe-area-inset-bottom, 0px) + 68px));
+}
+.bag-btn {
+  left: 98px;
+  bottom: max(72px, calc(env(safe-area-inset-bottom, 0px) + 68px));
+  font-size: 1rem;
+  padding: 8px 10px;
 }
 .use-btn {
-  left: 104px;
+  left: 146px;
   bottom: max(72px, calc(env(safe-area-inset-bottom, 0px) + 68px));
-  font-size: 0.8rem;
-  padding: 8px 10px;
+  font-size: 0.78rem;
+  padding: 8px 9px;
 }
 .mode-btn {
-  left: 168px;
+  left: 212px;
   bottom: max(72px, calc(env(safe-area-inset-bottom, 0px) + 68px));
-  font-size: 0.8rem;
-  padding: 8px 10px;
+  font-size: 0.78rem;
+  padding: 8px 9px;
 }

@@ -790,15 +790,19 @@ function drawHUD(ctx, player, inv, world, cam, ui, sky) {
     ctx.fillText(String(i + 1), x + 5, hy + 12);
   }
 
-  // Tool under biome card (top-left) — not near bottom chrome
+  // Tool + bag fill under biome card
   ctx.fillStyle = 'rgba(6,14,10,0.5)';
-  roundRect(ctx, 12, 100, 150, 22, 8);
+  roundRect(ctx, 12, 100, 150, 36, 8);
   ctx.fill();
   ctx.fillStyle = '#e8fff0';
   ctx.font = '600 11px system-ui';
   ctx.textAlign = 'left';
   const tname = (TOOLS[inv.tool] && TOOLS[inv.tool].name) || 'Hands';
   ctx.fillText('Tool: ' + tname, 20, 115);
+  const bu = typeof bagUsed === 'function' ? bagUsed(inv) : 0;
+  ctx.fillStyle = bu >= BAG_SIZE ? '#ff8a80' : '#9ec5b0';
+  ctx.font = '600 10px system-ui';
+  ctx.fillText('🎒 Backpack ' + bu + '/' + BAG_SIZE, 20, 130);
 
   if (ui.craftOpen) drawCraftPanel(ctx, inv, world, player, ui);
 
@@ -973,119 +977,214 @@ function drawMinimap(ctx, world, player, cam) {
   ctx.strokeRect(mx - 4.5, my - 4.5, mw + 8, mh + 8);
 }
 
-function drawChestPanel(ctx, inv, ui) {
-  const pw = 320;
-  const ph = 360;
-  const px = (W - pw) / 2;
-  const py = (H - ph) / 2 - 10;
-  ctx.fillStyle = 'rgba(10, 22, 18, 0.96)';
-  roundRect(ctx, px, py, pw, ph, 18);
+function drawInvSlot(ctx, x, y, cell, slot, selected) {
+  ctx.fillStyle = selected ? 'rgba(125,255,160,0.2)' : 'rgba(255,255,255,0.07)';
+  roundRect(ctx, x, y, cell, cell, 8);
   ctx.fill();
-  ctx.strokeStyle = 'rgba(212,160,74,0.4)';
-  ctx.stroke();
-  ctx.fillStyle = '#d4a04a';
-  ctx.font = '700 18px system-ui';
-  ctx.textAlign = 'center';
-  ctx.fillText('Chest', W / 2, py + 28);
-  ctx.fillStyle = '#9ec5b0';
-  ctx.font = '12px system-ui';
-  ctx.fillText('Tap chest items → inventory · hotbar → chest', W / 2, py + 48);
-
-  ui.chestHit = [];
-  const slots = ui.chestOpen.slots;
-  const cell = 36;
-  const gap = 6;
-  const cols = 4;
-  let startY = py + 64;
-  for (let i = 0; i < slots.length; i++) {
-    const col = i % cols;
-    const row = Math.floor(i / cols);
-    const x = px + 40 + col * (cell + gap);
-    const y = startY + row * (cell + gap);
-    ctx.fillStyle = 'rgba(255,255,255,0.06)';
-    roundRect(ctx, x, y, cell, cell, 8);
-    ctx.fill();
-    if (slots[i]) {
-      drawItemIcon(ctx, x + 4, y + 4, cell - 8, slots[i].id);
-      if (slots[i].count > 1) {
-        ctx.fillStyle = '#fff';
-        ctx.font = '700 10px system-ui';
-        ctx.textAlign = 'right';
-        ctx.fillText(String(slots[i].count), x + cell - 3, y + cell - 4);
-      }
-    }
-    ui.chestHit.push({ from: 'chest', i, x, y, w: cell, h: cell });
+  if (selected) {
+    ctx.strokeStyle = 'rgba(125,255,160,0.8)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
   }
-
-  ctx.fillStyle = '#7dffa0';
-  ctx.font = '600 13px system-ui';
-  ctx.textAlign = 'center';
-  ctx.fillText('Hotbar', W / 2, py + 240);
-  const hx = px + 24;
-  const hy = py + 252;
-  for (let i = 0; i < HOTBAR_SIZE; i++) {
-    const x = hx + i * (cell + 4);
-    ctx.fillStyle = 'rgba(255,255,255,0.06)';
-    roundRect(ctx, x, hy, cell, cell, 8);
-    ctx.fill();
-    const s = inv.hotbar[i];
-    if (s) {
-      drawItemIcon(ctx, x + 4, hy + 4, cell - 8, s.id);
-      if (s.count > 1) {
-        ctx.fillStyle = '#fff';
-        ctx.font = '700 10px system-ui';
-        ctx.textAlign = 'right';
-        ctx.fillText(String(s.count), x + cell - 3, hy + cell - 4);
-      }
+  if (slot) {
+    drawItemIcon(ctx, x + 4, y + 4, cell - 8, slot.id);
+    if (slot.count > 1) {
+      ctx.fillStyle = 'rgba(0,0,0,0.45)';
+      roundRect(ctx, x + cell - 20, y + cell - 16, 18, 13, 4);
+      ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.font = '700 11px system-ui';
+      ctx.textAlign = 'right';
+      ctx.fillText(String(slot.count), x + cell - 4, y + cell - 5);
     }
-    ui.chestHit.push({ from: 'hotbar', i, x, y: hy, w: cell, h: cell });
   }
-  ctx.fillStyle = '#8899aa';
-  ctx.font = '12px system-ui';
-  ctx.textAlign = 'center';
-  ctx.fillText('C / E to close', W / 2, py + ph - 16);
 }
 
-function drawBagPanel(ctx, inv, ui) {
-  const pw = 300;
-  const ph = 340;
+function drawChestPanel(ctx, inv, ui) {
+  const pw = 340;
+  const ph = 560;
   const px = (W - pw) / 2;
-  const py = (H - ph) / 2 - 10;
-  ctx.fillStyle = 'rgba(10, 22, 18, 0.96)';
+  const py = Math.max(6, (H - ph) / 2 - 6);
+  ui.chestHit = [];
+  ui.bagHit = [];
+
+  ctx.fillStyle = 'rgba(0,0,0,0.45)';
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.fillStyle = 'rgba(12, 24, 20, 0.98)';
   roundRect(ctx, px, py, pw, ph, 18);
   ctx.fill();
-  ctx.strokeStyle = 'rgba(125,255,160,0.3)';
+  ctx.strokeStyle = 'rgba(212,160,74,0.5)';
+  ctx.lineWidth = 2;
   ctx.stroke();
-  ctx.fillStyle = '#7dffa0';
-  ctx.font = '700 18px system-ui';
+
+  ctx.fillStyle = '#d4a04a';
+  ctx.font = '700 20px system-ui';
+  ctx.textAlign = 'left';
+  ctx.fillText('📦 Chest', px + 16, py + 30);
+
+  // Close
+  const closeX = px + pw - 44;
+  ctx.fillStyle = 'rgba(255,255,255,0.1)';
+  roundRect(ctx, closeX, py + 10, 32, 32, 10);
+  ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.font = '700 16px system-ui';
   ctx.textAlign = 'center';
-  ctx.fillText('Backpack', W / 2, py + 28);
+  ctx.fillText('✕', closeX + 16, py + 32);
+  ui.chestHit.push({ kind: 'close', x: closeX, y: py + 10, w: 32, h: 32 });
+
   ctx.fillStyle = '#9ec5b0';
   ctx.font = '12px system-ui';
-  ctx.fillText('I / B to close · items auto-stack to hotbar', W / 2, py + 48);
+  ctx.textAlign = 'left';
+  ctx.fillText('Tap an item, then tap where to put it', px + 16, py + 52);
 
-  const cell = 34;
+  const cell = 38;
   const gap = 6;
+  const slots = ui.chestOpen.slots;
+
+  // Chest grid 4x4
+  ctx.fillStyle = '#d4a04a';
+  ctx.font = '700 13px system-ui';
+  ctx.fillText('Chest storage', px + 16, py + 74);
+  const cStartY = py + 84;
+  for (let i = 0; i < slots.length; i++) {
+    const col = i % 4;
+    const row = Math.floor(i / 4);
+    const x = px + 16 + col * (cell + gap);
+    const y = cStartY + row * (cell + gap);
+    const sel = ui.invPick && ui.invPick.from === 'chest' && ui.invPick.i === i;
+    drawInvSlot(ctx, x, y, cell, slots[i], sel);
+    ui.chestHit.push({ kind: 'slot', from: 'chest', i, x, y, w: cell, h: cell });
+  }
+
+  // Hotbar
+  const hLabelY = cStartY + 4 * (cell + gap) + 18;
+  ctx.fillStyle = '#7dffa0';
+  ctx.font = '700 13px system-ui';
+  ctx.textAlign = 'left';
+  ctx.fillText('Hotbar (1–8)', px + 16, hLabelY);
+  const hy = hLabelY + 10;
+  for (let i = 0; i < HOTBAR_SIZE; i++) {
+    const x = px + 12 + i * (cell + 4);
+    const sel = ui.invPick && ui.invPick.from === 'hotbar' && ui.invPick.i === i;
+    drawInvSlot(ctx, x, hy, cell, inv.hotbar[i], sel);
+    ui.chestHit.push({ kind: 'slot', from: 'hotbar', i, x, y: hy, w: cell, h: cell });
+  }
+
+  // Bag
+  const bLabelY = hy + cell + 22;
+  const used = typeof bagUsed === 'function' ? bagUsed(inv) : 0;
+  ctx.fillStyle = '#7dffa0';
+  ctx.font = '700 13px system-ui';
+  ctx.fillText('Backpack ' + used + '/' + BAG_SIZE, px + 16, bLabelY);
+  const by = bLabelY + 10;
   const cols = 6;
   for (let i = 0; i < inv.bag.length; i++) {
     const col = i % cols;
     const row = Math.floor(i / cols);
-    const x = px + 28 + col * (cell + gap);
-    const y = py + 64 + row * (cell + gap);
-    ctx.fillStyle = 'rgba(255,255,255,0.06)';
-    roundRect(ctx, x, y, cell, cell, 8);
-    ctx.fill();
-    const s = inv.bag[i];
-    if (s) {
-      drawItemIcon(ctx, x + 3, y + 3, cell - 6, s.id);
-      if (s.count > 1) {
-        ctx.fillStyle = '#fff';
-        ctx.font = '700 10px system-ui';
-        ctx.textAlign = 'right';
-        ctx.fillText(String(s.count), x + cell - 3, y + cell - 4);
-      }
-    }
+    const x = px + 16 + col * (cell + gap);
+    const y = by + row * (cell + gap);
+    const sel = ui.invPick && ui.invPick.from === 'bag' && ui.invPick.i === i;
+    drawInvSlot(ctx, x, y, cell, inv.bag[i], sel);
+    ui.chestHit.push({ kind: 'slot', from: 'bag', i, x, y, w: cell, h: cell });
   }
+
+  ctx.fillStyle = '#8899aa';
+  ctx.font = '11px system-ui';
+  ctx.textAlign = 'center';
+  ctx.fillText(ui.invPick ? 'Tap a slot to move there · tap again to cancel' : 'Tap item to pick up · ⚒ to close', W / 2, py + ph - 14);
+}
+
+function drawBagPanel(ctx, inv, ui) {
+  const pw = 340;
+  const ph = 480;
+  const px = (W - pw) / 2;
+  const py = Math.max(8, (H - ph) / 2 - 8);
+  ui.bagHit = [];
+
+  ctx.fillStyle = 'rgba(0,0,0,0.45)';
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.fillStyle = 'rgba(12, 28, 22, 0.98)';
+  roundRect(ctx, px, py, pw, ph, 18);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(125,255,160,0.4)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  const used = typeof bagUsed === 'function' ? bagUsed(inv) : 0;
+  ctx.fillStyle = '#7dffa0';
+  ctx.font = '700 20px system-ui';
+  ctx.textAlign = 'left';
+  ctx.fillText('🎒 Inventory', px + 16, py + 30);
+
+  const closeX = px + pw - 44;
+  ctx.fillStyle = 'rgba(255,255,255,0.1)';
+  roundRect(ctx, closeX, py + 10, 32, 32, 10);
+  ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.font = '700 16px system-ui';
+  ctx.textAlign = 'center';
+  ctx.fillText('✕', closeX + 16, py + 32);
+  ui.bagHit.push({ kind: 'close', x: closeX, y: py + 10, w: 32, h: 32 });
+
+  ctx.fillStyle = '#9ec5b0';
+  ctx.font = '12px system-ui';
+  ctx.textAlign = 'left';
+  ctx.fillText('Backpack ' + used + '/' + BAG_SIZE + ' · tap to move ↔ hotbar', px + 16, py + 52);
+
+  const cell = 40;
+  const gap = 6;
+
+  // Hotbar section
+  ctx.fillStyle = '#7dffa0';
+  ctx.font = '700 13px system-ui';
+  ctx.fillText('Hotbar — what you hold', px + 16, py + 76);
+  const hy = py + 86;
+  for (let i = 0; i < HOTBAR_SIZE; i++) {
+    const x = px + 12 + i * (cell + 4);
+    const sel = ui.invPick && ui.invPick.from === 'hotbar' && ui.invPick.i === i;
+    drawInvSlot(ctx, x, hy, cell, inv.hotbar[i], sel);
+    ui.bagHit.push({ kind: 'slot', from: 'hotbar', i, x, y: hy, w: cell, h: cell });
+  }
+
+  // Quick stow all extras button
+  const stowY = hy + cell + 12;
+  ctx.fillStyle = 'rgba(125,255,160,0.15)';
+  roundRect(ctx, px + 16, stowY, pw - 32, 32, 10);
+  ctx.fill();
+  ctx.fillStyle = '#c8f5d8';
+  ctx.font = '600 12px system-ui';
+  ctx.textAlign = 'center';
+  ctx.fillText('⬇ Stow full stacks into backpack', W / 2, stowY + 21);
+  ui.bagHit.push({ kind: 'stow', x: px + 16, y: stowY, w: pw - 32, h: 32 });
+
+  // Bag grid
+  ctx.fillStyle = '#7dffa0';
+  ctx.font = '700 13px system-ui';
+  ctx.textAlign = 'left';
+  ctx.fillText('Backpack — extra storage', px + 16, stowY + 54);
+  const by = stowY + 64;
+  const cols = 6;
+  for (let i = 0; i < inv.bag.length; i++) {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const x = px + 16 + col * (cell + gap);
+    const y = by + row * (cell + gap);
+    const sel = ui.invPick && ui.invPick.from === 'bag' && ui.invPick.i === i;
+    drawInvSlot(ctx, x, y, cell, inv.bag[i], sel);
+    ui.bagHit.push({ kind: 'slot', from: 'bag', i, x, y, w: cell, h: cell });
+  }
+
+  ctx.fillStyle = '#8899aa';
+  ctx.font = '11px system-ui';
+  ctx.textAlign = 'center';
+  ctx.fillText(
+    ui.invPick ? 'Tap another slot to move · tap same to cancel' : 'Tap an item, then tap empty/hotbar slot · 🎒 to close',
+    W / 2,
+    py + ph - 14
+  );
 }
 
 function drawCraftPanel(ctx, inv, world, player, ui) {
