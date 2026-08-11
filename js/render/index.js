@@ -843,8 +843,8 @@ export function drawCrack(ctx, sx, sy, ts, p) {
 }
 
 /**
- * Draw the player — polished procedural Minecraft-style figure.
- * Limbs pivot from hips/shoulders for a real walk cycle (not foot wiggle).
+ * Draw the player — original orange-hoodie hero, procedural, with a real
+ * pivoted walk cycle (same limb math that fixed the Steve prototype).
  */
 export function drawPlayer(ctx, p, cam, ts, inv) {
   const sx = (p.x - cam.x) * ts + W / 2;
@@ -859,7 +859,6 @@ export function drawPlayer(ctx, p, cam, ts, inv) {
     ctx.globalAlpha = 0.45;
   }
 
-  // Soft ground shadow (stretches slightly when running)
   ctx.fillStyle = 'rgba(0,0,0,0.30)';
   ctx.beginPath();
   ctx.ellipse(sx, sy - 1, pw * (0.5 + run * 0.12), 4.2, 0, 0, Math.PI * 2);
@@ -875,182 +874,206 @@ export function drawPlayer(ctx, p, cam, ts, inv) {
   }
 
   const footY = sy + (p.inBoat ? -6 : 0);
-  const drawH = ph * (p.crouching ? 0.86 : 1.02);
+  const drawH = ph * (p.crouching ? 0.88 : 1.05);
   ctx.save();
   ctx.translate(sx, footY);
   if (p.facing < 0) ctx.scale(-1, 1);
-  drawSteveSide(ctx, p, drawH);
+  drawHeroSide(ctx, p, drawH);
   ctx.restore();
 
   ctx.restore();
 }
 
 /**
- * Side-view blocky player. Origin = feet center, faces +X.
- *
- * Walk cycle: legs and arms rotate from hip/shoulder joints so the whole
- * limb steps forward and back — not a heel wiggle.
+ * Original Blockbound hero (orange hoodie, curly hair, jeans) —
+ * side view, feet at origin, faces +X.
+ * Limbs pivot from hips/shoulders for a real forward/back stride.
  */
-function drawSteveSide(ctx, p, H) {
+function drawHeroSide(ctx, p, H) {
   const crouch = !!p.crouching;
   const walking = p.onGround && Math.abs(p.vx) > 0.25 && !crouch;
   const airborne = !p.onGround;
   const mining = !!(p.mining && p.mining.progress > 0);
   const swinging = (p.attackT || 0) > 0;
 
-  // One full step cycle ~ every 2.2 anim units; stronger when sprinting
-  const sprint = p.sprinting ? 1.15 : 1;
-  const phase = p.anim * 2.5 * sprint;
-  const step = walking ? Math.sin(phase) : airborne ? 0.55 : 0;
-  // Contact bounce: body dips when a foot plants
-  const bob = walking ? Math.abs(Math.sin(phase)) * (H * 0.028) : 0;
+  const sprint = p.sprinting ? 1.18 : 1;
+  const phase = p.anim * 2.55 * sprint;
+  const step = walking ? Math.sin(phase) : airborne ? 0.5 : 0;
+  const bob = walking ? Math.abs(Math.sin(phase)) * (H * 0.03) : 0;
 
-  // Minecraft skin proportions (32 units tall)
-  const u = H / 32;
-  const headS = 8 * u;
-  const torsoH = (crouch ? 9.5 : 12) * u;
-  const torsoW = 8 * u;
-  const limbW = 4 * u;
-  const legH = (crouch ? 8 : 12) * u;
+  // Slightly taller/softer proportions than pure Steve (matches original art)
+  const u = H / 34;
+  const headS = 9.2 * u;
+  const torsoH = (crouch ? 10 : 12.5) * u;
+  const torsoW = 9 * u;
+  const limbW = 3.8 * u;
+  const legH = (crouch ? 8 : 12.5) * u;
   const armH = 12 * u;
 
-  // Max limb angles (radians) — big enough to read as stepping
-  const maxLeg = walking ? 0.72 : airborne ? 0.35 : 0.08;
-  const maxArm = walking ? 0.78 : 0.12;
-  const legA = step * maxLeg;          // far (back) leg angle
-  const legB = -step * maxLeg;         // near (front) leg angle
-  let armA = step * maxArm;            // far arm (same side as near leg → opposite of far leg)
-  let armB = -step * maxArm;           // near arm
+  const maxLeg = walking ? 0.78 : airborne ? 0.4 : 0.06;
+  const maxArm = walking ? 0.82 : 0.1;
+  const legA = step * maxLeg;
+  const legB = -step * maxLeg;
+  let armA = step * maxArm;
+  let armB = -step * maxArm;
 
   if (mining || swinging) {
     const t = mining ? p.mining.progress * 8 : (p.attackT || 0) * 14;
-    armB = -0.35 - Math.sin(t) * 1.15; // overhand dig / swing
+    armB = -0.4 - Math.sin(t) * 1.2;
   }
 
-  // Palette — classic Steve, slightly richer
-  const skin = '#c68642';
-  const skinSh = '#a86b35';
-  const shirt = '#00aaaa';
-  const shirtSh = '#008080';
-  const pants = '#3c3cdc';
-  const pantsSh = '#2828a8';
-  const hair = '#3b2412';
-  const hairSh = '#2a180c';
-  const shoe = '#1c1c1c';
+  // Original character palette (orange hoodie boy)
+  const skin = '#e8b896';
+  const skinSh = '#d49a72';
+  const hoodie = '#e85d3a';
+  const hoodieSh = '#c44a2c';
+  const hoodieHi = '#f07855';
+  const jeans = '#3a5fad';
+  const jeansSh = '#2a4688';
+  const hair = '#6b4423';
+  const hairSh = '#4a2e16';
+  const hairHi = '#8a5a32';
+  const boot = '#3d2918';
+  const bootHi = '#5a3d24';
 
-  // Joint anchors (after body bob)
   const hipY = -bob - legH;
   const shoulderY = hipY - torsoH;
-  const headY = shoulderY - headS;
-  const lean = walking ? step * 0.04 : 0; // tiny torso lean into stride
+  const headY = shoulderY - headS + u * 0.4;
+  const lean = walking ? step * 0.05 : 0;
 
-  // ── helpers: limb as rotated block from a pivot ──────────
-  function limb(px, py, angle, w, h, fill, foot) {
+  function limb(px, py, angle, w, h, fill, isLeg) {
     ctx.save();
     ctx.translate(px, py);
     ctx.rotate(angle);
     ctx.fillStyle = fill;
-    // draw downward from pivot (y increases down in canvas after we think in +y down)
+    // Slightly rounded look via double rect (blocky but soft edge)
     ctx.fillRect(-w / 2, 0, w, h);
-    if (foot) {
-      ctx.fillStyle = shoe;
-      // foot points slightly forward of leg end
-      ctx.fillRect(-w / 2 - u * 0.15, h - u * 1.35, w + u * 0.55, u * 1.5);
+    if (isLeg) {
+      // boot
+      ctx.fillStyle = boot;
+      ctx.fillRect(-w / 2 - u * 0.2, h - u * 1.5, w + u * 0.7, u * 1.65);
+      ctx.fillStyle = bootHi;
+      ctx.fillRect(-w / 2 - u * 0.1, h - u * 1.5, w + u * 0.35, u * 0.45);
     } else {
-      // hand tip
+      // hand
       ctx.fillStyle = skin;
-      ctx.fillRect(-w / 2, h - w * 0.95, w, w);
+      ctx.fillRect(-w / 2 + u * 0.1, h - w * 0.92, w * 0.9, w * 0.9);
     }
     ctx.restore();
   }
 
-  // Draw order (painter): far limbs → torso → near limbs → head
-  // Far hip is slightly left of center (depth cue); near is right
-  const farHipX = -limbW * 0.35;
-  const nearHipX = limbW * 0.35;
-  const farShX = -torsoW / 2 + limbW * 0.15;
-  const nearShX = torsoW / 2 - limbW * 0.15;
+  const farHipX = -limbW * 0.4;
+  const nearHipX = limbW * 0.4;
+  const farShX = -torsoW / 2 + limbW * 0.2;
+  const nearShX = torsoW / 2 - limbW * 0.2;
 
-  // FAR leg + FAR arm (behind body)
-  limb(farHipX, hipY, legA, limbW, legH, pantsSh, true);
-  limb(farShX, shoulderY, armA, limbW * 0.95, armH, shirtSh, false);
+  // FAR limbs (behind)
+  limb(farHipX, hipY, legA, limbW, legH, jeansSh, true);
+  limb(farShX, shoulderY, armA, limbW * 0.95, armH, hoodieSh, false);
 
-  // Torso (with slight lean)
+  // Torso / hoodie
   ctx.save();
   ctx.translate(0, hipY);
   ctx.rotate(lean);
-  ctx.fillStyle = shirt;
+  // hoodie body
+  ctx.fillStyle = hoodie;
   ctx.fillRect(-torsoW / 2, -torsoH, torsoW, torsoH);
-  // side shade for volume
-  ctx.fillStyle = shirtSh;
-  ctx.fillRect(torsoW / 2 - u * 1.5, -torsoH, u * 1.5, torsoH);
-  // belt line
-  ctx.fillStyle = pants;
-  ctx.fillRect(-torsoW / 2, -u * 1.2, torsoW, u * 1.2);
+  // shade
+  ctx.fillStyle = hoodieSh;
+  ctx.fillRect(torsoW / 2 - u * 1.6, -torsoH, u * 1.6, torsoH);
+  // hood/collar fold at top of torso
+  ctx.fillStyle = hoodieHi;
+  ctx.fillRect(-torsoW / 2, -torsoH, torsoW, u * 1.4);
+  ctx.fillStyle = hoodieSh;
+  ctx.fillRect(-torsoW / 2 + u * 0.5, -torsoH + u * 0.3, torsoW - u, u * 0.9);
+  // pocket
+  ctx.fillStyle = hoodieSh;
+  ctx.fillRect(-u * 1.6, -torsoH * 0.45, u * 3.2, u * 2.2);
+  // waist / jeans peek
+  ctx.fillStyle = jeans;
+  ctx.fillRect(-torsoW / 2 + u * 0.3, -u * 1.4, torsoW - u * 0.6, u * 1.5);
   ctx.restore();
 
-  // NEAR leg + NEAR arm (in front)
-  limb(nearHipX, hipY, legB, limbW, legH, pants, true);
-  limb(nearShX, shoulderY, armB, limbW * 0.95, armH, shirt, false);
+  // NEAR limbs (front)
+  limb(nearHipX, hipY, legB, limbW, legH, jeans, true);
+  limb(nearShX, shoulderY, armB, limbW * 0.95, armH, hoodie, false);
 
-  // Tool held by near hand while mining / attacking
+  // Tool while mining / attacking
   if (mining || swinging) {
     ctx.save();
     ctx.translate(nearShX, shoulderY);
     ctx.rotate(armB);
-    // hand position along arm
-    const hx = 0;
-    const hy = armH * 0.92;
-    ctx.translate(hx, hy);
-    ctx.rotate(-0.35);
-    // handle
+    ctx.translate(0, armH * 0.9);
+    ctx.rotate(-0.4);
     ctx.fillStyle = '#6b3f1a';
     ctx.fillRect(-u * 0.55, -u * 0.3, u * 1.1, armH * 0.55);
-    // head (pick/axe)
     ctx.fillStyle = '#9aa3ab';
-    ctx.fillRect(-u * 2.6, -u * 2.1, u * 5.2, u * 2.3);
+    ctx.fillRect(-u * 2.5, -u * 2.0, u * 5.0, u * 2.2);
     ctx.fillStyle = '#6d757c';
-    ctx.fillRect(-u * 2.6, -u * 0.4, u * 5.2, u * 0.7);
+    ctx.fillRect(-u * 2.5, -u * 0.35, u * 5.0, u * 0.65);
     ctx.restore();
   }
 
-  // ── Head (no googly eyes — flat MC face) ─────────────────
+  // ── Head: original hero face (curly hair, friendly — not googly) ──
   ctx.save();
-  ctx.translate(lean * torsoH * 0.4, 0); // head follows lean slightly
-  // face
-  ctx.fillStyle = skin;
-  ctx.fillRect(-headS / 2, headY, headS, headS);
-  // cheek shade
+  ctx.translate(lean * torsoH * 0.35, 0);
+
+  // neck
   ctx.fillStyle = skinSh;
-  ctx.fillRect(headS / 2 - u * 1.2, headY + headS * 0.35, u * 1.2, headS * 0.55);
-  // hair cap + sideburn
-  ctx.fillStyle = hair;
-  ctx.fillRect(-headS / 2, headY, headS, headS * 0.32);
-  ctx.fillRect(-headS / 2, headY, headS * 0.28, headS * 0.62);
-  ctx.fillStyle = hairSh;
-  ctx.fillRect(-headS / 2, headY, headS, u * 0.9);
+  ctx.fillRect(-u * 1.4, shoulderY - u * 0.8, u * 2.8, u * 1.2);
+
+  // face block (slightly rounded via layered rects)
+  ctx.fillStyle = skin;
+  ctx.fillRect(-headS / 2, headY, headS, headS * 0.95);
+  ctx.fillStyle = skinSh;
+  ctx.fillRect(headS / 2 - u * 1.3, headY + headS * 0.35, u * 1.3, headS * 0.5);
+
   // ear
   ctx.fillStyle = skinSh;
-  ctx.fillRect(-headS / 2 - u * 0.9, headY + headS * 0.38, u * 1.1, headS * 0.28);
+  ctx.fillRect(-headS / 2 - u * 1.0, headY + headS * 0.36, u * 1.2, headS * 0.26);
 
-  // Eye — single small dark slot (Minecraft side-view, not a googly)
-  const eyeX = headS * 0.08;
-  const eyeY = headY + headS * 0.45;
-  const eyeW = headS * 0.34;
-  const eyeH = headS * 0.14;
-  ctx.fillStyle = '#3d2918';
-  ctx.fillRect(eyeX, eyeY, eyeW, eyeH);
-  // tiny highlight pixel (not a white sclera blob)
-  ctx.fillStyle = '#5a4030';
-  ctx.fillRect(eyeX + eyeW * 0.55, eyeY + u * 0.15, eyeW * 0.28, eyeH * 0.45);
+  // curly hair mass (messy top + side + fringe)
+  ctx.fillStyle = hair;
+  // main cap
+  ctx.fillRect(-headS / 2 - u * 0.4, headY - u * 1.2, headS + u * 0.8, headS * 0.42);
+  // curls / tufts
+  ctx.fillRect(-headS / 2 - u * 0.8, headY - u * 0.3, u * 2.2, u * 2.0);
+  ctx.fillRect(headS / 2 - u * 1.4, headY - u * 0.6, u * 2.0, u * 1.6);
+  ctx.fillRect(-u * 1.2, headY - u * 2.0, u * 2.4, u * 1.6);
+  ctx.fillRect(u * 0.4, headY - u * 1.8, u * 2.0, u * 1.4);
+  // side hair over ear
+  ctx.fillRect(-headS / 2 - u * 0.5, headY + headS * 0.2, u * 1.8, headS * 0.55);
+  // fringe
+  ctx.fillStyle = hairHi;
+  ctx.fillRect(-headS / 2 + u * 0.3, headY + u * 0.2, headS * 0.55, u * 1.3);
+  ctx.fillStyle = hairSh;
+  ctx.fillRect(-headS / 2 - u * 0.2, headY - u * 0.4, headS * 0.4, u * 1.8);
 
-  // Nose (subtle block)
+  // Eyes — dark ovals like the original sprite (small, not googly white discs)
+  const eyeY = headY + headS * 0.42;
+  // white of eye (thin)
+  ctx.fillStyle = '#f4efe8';
+  ctx.fillRect(headS * 0.02, eyeY, headS * 0.32, headS * 0.2);
+  // iris / pupil
+  ctx.fillStyle = '#2a1a10';
+  ctx.fillRect(headS * 0.12, eyeY + u * 0.25, headS * 0.16, headS * 0.14);
+  // tiny specular
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(headS * 0.2, eyeY + u * 0.35, u * 0.45, u * 0.4);
+
+  // brow
+  ctx.fillStyle = hairSh;
+  ctx.fillRect(headS * 0.0, eyeY - u * 0.55, headS * 0.34, u * 0.45);
+
+  // nose
   ctx.fillStyle = skinSh;
-  ctx.fillRect(headS * 0.28, headY + headS * 0.55, headS * 0.18, headS * 0.14);
+  ctx.fillRect(headS * 0.26, headY + headS * 0.54, headS * 0.16, headS * 0.12);
 
-  // Mouth — thin line, not a smile
-  ctx.fillStyle = '#6a4028';
-  ctx.fillRect(headS * 0.06, headY + headS * 0.74, headS * 0.28, u * 0.55);
+  // small smile
+  ctx.fillStyle = '#b07050';
+  ctx.fillRect(headS * 0.04, headY + headS * 0.72, headS * 0.28, u * 0.55);
+  ctx.fillStyle = skin;
+  ctx.fillRect(headS * 0.06, headY + headS * 0.72, headS * 0.24, u * 0.28);
 
   ctx.restore();
 }
