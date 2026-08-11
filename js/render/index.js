@@ -86,8 +86,12 @@ export function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particl
   const startTX = Math.floor(cam.x - W / (2 * ts)) - 1;
   const startTY = Math.floor(cam.y - H / (2 * ts)) - 1;
 
-  // Cave backdrop + smooth light (bilinear buffer upscaled — no tile squares)
-  drawSmoothCaveBackdrop(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY);
+  // Visible light emitters (torches etc.) — shared by backdrop, blocks, blooms
+  const emitters = collectEmitters(world, startTX, startTY, tilesX, tilesY);
+  const now = performance.now();
+
+  // Cave backdrop + smooth dynamic light (flicker + warm pulse)
+  drawSmoothCaveBackdrop(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY, emitters, now);
 
   // Solid blocks first, then non-solid (leaves, water, torch, ladder)
   const deferred = [];
@@ -101,18 +105,25 @@ export function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particl
       const sx = (tx - cam.x) * ts + W / 2;
       const sy = (ty - cam.y) * ts + H / 2;
       // Average light at corners so neighboring solid faces blend softer
-      const lvl = (
+      let lvl = (
         sampleLight(world, wx + 0.2, ty + 0.2)
         + sampleLight(world, wx + 0.8, ty + 0.2)
         + sampleLight(world, wx + 0.2, ty + 0.8)
         + sampleLight(world, wx + 0.8, ty + 0.8)
       ) * 0.25;
-      let dayMul = lightToBrightness(lvl, { ambient: 0.04 });
+      // Subtle live pulse on lit faces near emitters
+      const fl = emitterFlickerAt(wx + 0.5, ty + 0.5, emitters, now);
+      if (lvl > 2) lvl = Math.min(15, lvl * (0.9 + 0.12 * fl));
+      let dayMul = lightToBrightness(lvl, { ambient: 0.03 });
       // Surface / open sky: blend in daylight
       const nearSurface = ty <= (world.surface[wx] || SURFACE_Y) + 1;
       if (nearSurface && lvl >= 8) {
         const skyMul = 0.2 + 0.8 * sky.day;
         dayMul = Math.max(dayMul, skyMul * lightToBrightness(lvl, { ambient: 0.15 }));
+      }
+      // Warm tint on strongly lit underground faces
+      if (!nearSurface && lvl > 5) {
+        dayMul = Math.min(1.15, dayMul * (1 + (lvl / 15) * 0.12 * fl));
       }
       const ao = blockAO(world, wx, ty);
       if (meta && !meta.solid && id !== BLOCK.WORKBENCH) {
@@ -126,8 +137,8 @@ export function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particl
     drawBlock(ctx, d.sx, d.sy, ts, d.id, d.dayMul, d.wx, d.ty, d.ao, world);
   }
 
-  // Soft torch / lantern blooms (screen-space) so light reads smoothly past tile grid
-  drawEmitterBlooms(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY);
+  // Multi-layer dancing blooms (core + mid + outer)
+  drawEmitterBlooms(ctx, world, cam, ts, emitters, now);
 
   // Hover outline
   if (ui && ui.hoverTx != null && ui.hoverTy != null) {
@@ -495,12 +506,112 @@ function isCaveOpenTile(id) {
 let _caveLightCanvas = null;
 let _caveLightCtx = null;
 
+/** Gather torch/lantern/lava emitters in the view for dynamic lighting. */
+function collectEmitters(world, startTX, startTY, tilesX, tilesY) {
+  const list = [];
+  // Pad so off-screen torches still light the edge
+  for (let ty = startTY - 2; ty <= startTY + tilesY + 2; ty++) {
+    if (ty < 0 || ty >= WORLD_H) continue;
+    for (let tx = startTX - 2; tx <= startTX + tilesX + 2; tx++) {
+      const wx = wrapX(tx);
+      const id = getTile(world, wx, ty);
+      let power = 0;
+      let reach = 0;
+      let kind = 'torch';
+      if (id === BLOCK.TORCH) {
+        power = 1; reach = 9; kind = 'torch';
+      } else if (id === BLOCK.LANTERN) {
+        power = 1.25; reach = 11; kind = 'lantern';
+      } else if (id === BLOCK.CAMPFIRE) {
+        power = 1.1; reach = 8; kind = 'fire';
+      } else if (id === BLOCK.LAVA) {
+        power = 0.85; reach = 6; kind = 'lava';
+      } else if (id === BLOCK.FURNACE) {
+        power = 0.45; reach = 4; kind = 'furnace';
+      } else {
+        continue;
+      }
+      // Stable per-tile phase so each flame dances independently
+      const phase = (wx * 12.9898 + ty * 78.233) * 0.017;
+      list.push({
+        x: wx + 0.5,
+        y: ty + 0.45,
+        tx, ty, wx,
+        power, reach, kind, phase,
+      });
+    }
+  }
+  return list;
+}
+
+/**
+ * Multi-harmonic flicker weight at a world point (1 = nominal).
+ * Stronger near emitters, calm in unlit voids.
+ */
+function emitterFlickerAt(fx, fy, emitters, now) {
+  if (!emitters || !emitters.length) return 1;
+  let wSum = 0;
+  let fSum = 0;
+  const t = now * 0.001;
+  for (let i = 0; i < emitters.length; i++) {
+    const e = emitters[i];
+    const dx = fx - e.x;
+    // handle world wrap for x distance roughly
+    let adx = dx;
+    if (adx > WORLD_W * 0.5) adx -= WORLD_W;
+    if (adx < -WORLD_W * 0.5) adx += WORLD_W;
+    const dy = fy - e.y;
+    const d = Math.sqrt(adx * adx + dy * dy);
+    if (d >= e.reach) continue;
+    const k = 1 - d / e.reach;
+    const kk = k * k * e.power;
+    // Irregular flame: 3 sines + a faster spark tick
+    const ph = e.phase;
+    const fl = 0.72
+      + 0.16 * Math.sin(t * 6.2 + ph)
+      + 0.08 * Math.sin(t * 13.7 + ph * 1.9)
+      + 0.05 * Math.sin(t * 27.0 + ph * 0.4)
+      + 0.04 * Math.sin(t * 41.0 + ph * 2.3);
+    wSum += kk;
+    fSum += fl * kk;
+  }
+  if (wSum < 0.02) return 1;
+  return fSum / wSum;
+}
+
+/**
+ * Extra dynamic brightness (0–~4 light levels) from dancing emitter cores.
+ * Soft quadratic falloff so pools of light pulse without hard edges.
+ */
+function dynamicEmitterBoost(fx, fy, emitters, now) {
+  if (!emitters || !emitters.length) return 0;
+  let boost = 0;
+  const t = now * 0.001;
+  for (let i = 0; i < emitters.length; i++) {
+    const e = emitters[i];
+    let adx = fx - e.x;
+    if (adx > WORLD_W * 0.5) adx -= WORLD_W;
+    if (adx < -WORLD_W * 0.5) adx += WORLD_W;
+    const dy = fy - e.y;
+    const d = Math.sqrt(adx * adx + dy * dy);
+    if (d >= e.reach) continue;
+    const k = 1 - d / e.reach;
+    const fall = k * k;
+    const ph = e.phase;
+    const pulse = 0.55
+      + 0.28 * Math.sin(t * 5.5 + ph)
+      + 0.12 * Math.sin(t * 11.0 + ph * 1.6)
+      + 0.08 * Math.sin(t * 23.0 + ph * 0.7);
+    boost += e.power * fall * pulse * 3.2;
+  }
+  return Math.min(5.5, boost);
+}
+
 /**
  * Paint underground open space as a low-res light field, then upscale with
- * bilinear filtering so torch glow is smooth — not square-by-square.
- * Torch/lantern cells get the same fill as air so the stick isn't on a gray plate.
+ * bilinear filtering. Applies live flicker + warm pulse near emitters.
  */
-function drawSmoothCaveBackdrop(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY) {
+function drawSmoothCaveBackdrop(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY, emitters, now) {
   const RES = 3; // samples per tile edge
   const pad = 1;
   const tw = tilesX + 2 + pad * 2;
@@ -541,30 +652,40 @@ function drawSmoothCaveBackdrop(ctx, world, cam, ts, startTX, startTY, tilesX, t
       }
       const surf = (world.surface && world.surface[wx] != null) ? world.surface[wx] : SURFACE_Y;
       const below = fy > surf;
-      const lvl = sampleLight(world, fx, fy);
+      let lvl = sampleLight(world, fx, fy);
       // Open sky: leave gradient (transparent)
       if (!below && lvl >= 12) {
         data[p + 3] = 0;
         continue;
       }
 
-      const bri = lightToBrightness(lvl, { ambient: 0.02 });
+      // Live dynamic boost + flicker from nearby flames
+      const dyn = dynamicEmitterBoost(fx, fy, emitters, now);
+      const fl = emitterFlickerAt(fx, fy, emitters, now);
+      if (dyn > 0.05) {
+        lvl = Math.min(15, lvl + dyn * fl);
+      } else if (lvl > 1.5) {
+        lvl = Math.min(15, lvl * (0.92 + 0.1 * fl));
+      }
+
+      // Darker voids, brighter warm pools
+      const bri = lightToBrightness(lvl, { ambient: 0.012 });
       const depth = Math.min(1, Math.max(0, (fy - surf) / 28));
       const warm = Math.max(0, lvl) / 15;
-      // Deep cave base stays near-black; torch light warms it smoothly
-      const baseR = 8 + depth * 5;
-      const baseG = 7 + depth * 4;
-      const baseB = 12 + depth * 7;
-      const r = Math.min(255, (baseR + warm * 110) * bri + warm * 36);
-      const g = Math.min(255, (baseG + warm * 70) * bri + warm * 20);
-      const b = Math.min(255, (baseB + warm * 28) * bri + warm * 6);
-      // Extra black veil so unlit areas stay deep
-      const veil = below ? (1 - bri) * 0.92 : (1 - bri) * 0.7;
-      const vr = r * (1 - veil * 0.85);
-      const vg = g * (1 - veil * 0.85);
-      const vb = b * (1 - veil * 0.9);
-      // Full opacity underground so sky never shows through torch squares
-      let a = below ? 255 : Math.floor(Math.min(255, (1 - Math.min(1, lvl / 13)) * 230));
+      const pulseWarm = warm * (0.85 + 0.25 * fl);
+      const baseR = 4 + depth * 4;
+      const baseG = 4 + depth * 3;
+      const baseB = 8 + depth * 6;
+      // Hot core: more orange/yellow when strongly lit
+      const r = Math.min(255, (baseR + pulseWarm * 140) * bri + pulseWarm * 48 * fl);
+      const g = Math.min(255, (baseG + pulseWarm * 78) * bri + pulseWarm * 22 * fl);
+      const b = Math.min(255, (baseB + pulseWarm * 22) * bri + pulseWarm * 4);
+      // Deeper black veil in unlit cave
+      const veil = below ? (1 - bri) * 0.96 : (1 - bri) * 0.72;
+      const vr = r * (1 - veil * 0.9);
+      const vg = g * (1 - veil * 0.9);
+      const vb = b * (1 - veil * 0.94);
+      let a = below ? 255 : Math.floor(Math.min(255, (1 - Math.min(1, lvl / 13)) * 235));
       if (!below && a < 20) a = 0;
 
       data[p] = vr | 0;
@@ -584,46 +705,83 @@ function drawSmoothCaveBackdrop(ctx, world, cam, ts, startTX, startTY, tilesX, t
   ctx.restore();
 }
 
-/** Soft additive blooms for torch/lantern so cave light isn't a hard tile grid. */
-function drawEmitterBlooms(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY) {
+/**
+ * Multi-layer additive blooms: bright dancing core, mid halo, soft outer wash.
+ * Each emitter has independent phase + slight center drift (flame dance).
+ */
+function drawEmitterBlooms(ctx, world, cam, ts, emitters, now) {
+  if (!emitters || !emitters.length) return;
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
-  const now = performance.now();
-  for (let ty = startTY; ty <= startTY + tilesY; ty++) {
-    if (ty < 0 || ty >= WORLD_H) continue;
-    for (let tx = startTX; tx <= startTX + tilesX; tx++) {
-      const wx = wrapX(tx);
-      const id = getTile(world, wx, ty);
-      let radius = 0;
-      let r = 255;
-      let g = 160;
-      let b = 40;
-      let a = 0.18;
-      if (id === BLOCK.TORCH) {
-        radius = ts * 4.2;
-        a = 0.28;
-      } else if (id === BLOCK.LANTERN) {
-        radius = ts * 5.0;
-        a = 0.32;
-        g = 175;
-      } else if (id === BLOCK.LAVA || id === BLOCK.CAMPFIRE) {
-        radius = ts * 3.2;
-        a = 0.2;
-        r = 255; g = 90; b = 20;
-      } else {
-        continue;
-      }
-      const flicker = 0.82 + 0.18 * Math.sin(now / 95 + wx * 1.7 + ty * 0.9);
-      const cx = (tx - cam.x) * ts + W / 2 + ts * 0.5;
-      const cy = (ty - cam.y) * ts + H / 2 + ts * 0.4;
-      const grad = ctx.createRadialGradient(cx, cy, ts * 0.2, cx, cy, radius);
-      grad.addColorStop(0, `rgba(${r},${g + 50},${b},${a * flicker})`);
-      grad.addColorStop(0.25, `rgba(${r},${g},${b},${a * 0.55 * flicker})`);
-      grad.addColorStop(0.6, `rgba(${r},${Math.max(0, g - 20)},${b},${a * 0.18 * flicker})`);
-      grad.addColorStop(1, `rgba(${r},${Math.max(0, g - 40)},${b},0)`);
-      ctx.fillStyle = grad;
+  const t = now * 0.001;
+
+  for (let i = 0; i < emitters.length; i++) {
+    const e = emitters[i];
+    const ph = e.phase;
+    // Independent multi-rate flicker
+    const fl = 0.7
+      + 0.18 * Math.sin(t * 6.0 + ph)
+      + 0.08 * Math.sin(t * 14.5 + ph * 1.8)
+      + 0.05 * Math.sin(t * 29.0 + ph * 0.5);
+    // Flame center drifts a few pixels
+    const jx = Math.sin(t * 7.3 + ph * 2.1) * ts * 0.12
+      + Math.sin(t * 18.0 + ph) * ts * 0.05;
+    const jy = Math.cos(t * 5.8 + ph * 1.4) * ts * 0.1
+      + Math.sin(t * 21.0 + ph * 0.7) * ts * 0.06;
+
+    const cx = (e.tx - cam.x) * ts + W / 2 + ts * 0.5 + jx;
+    const cy = (e.ty - cam.y) * ts + H / 2 + ts * 0.38 + jy;
+
+    let r = 255;
+    let g = 165;
+    let b = 40;
+    let coreA = 0.42;
+    let midR = ts * 2.8;
+    let outR = ts * 5.2;
+    if (e.kind === 'lantern') {
+      g = 185; b = 55; coreA = 0.48; midR = ts * 3.4; outR = ts * 6.2;
+    } else if (e.kind === 'lava' || e.kind === 'fire') {
+      g = 100; b = 20; coreA = 0.38; midR = ts * 2.4; outR = ts * 4.4;
+    } else if (e.kind === 'furnace') {
+      g = 120; b = 30; coreA = 0.22; midR = ts * 1.6; outR = ts * 3.0;
+    }
+
+    const breathe = 0.9 + 0.12 * Math.sin(t * 3.4 + ph);
+    midR *= breathe * (0.92 + 0.1 * fl);
+    outR *= breathe * (0.94 + 0.08 * fl);
+
+    // Outer soft wash
+    {
+      const g1 = ctx.createRadialGradient(cx, cy, ts * 0.3, cx, cy, outR);
+      g1.addColorStop(0, `rgba(${r},${g},${b},${0.16 * fl * e.power})`);
+      g1.addColorStop(0.45, `rgba(${r},${Math.max(0, g - 30)},${b},${0.07 * fl * e.power})`);
+      g1.addColorStop(1, `rgba(${r},80,10,0)`);
+      ctx.fillStyle = g1;
       ctx.beginPath();
-      ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+      ctx.arc(cx, cy, outR, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Mid halo
+    {
+      const g2 = ctx.createRadialGradient(cx, cy, ts * 0.1, cx, cy, midR);
+      g2.addColorStop(0, `rgba(${r},${g + 40},${b + 20},${0.32 * fl * e.power})`);
+      g2.addColorStop(0.4, `rgba(${r},${g},${b},${0.16 * fl * e.power})`);
+      g2.addColorStop(1, `rgba(${r},${Math.max(0, g - 40)},${b},0)`);
+      ctx.fillStyle = g2;
+      ctx.beginPath();
+      ctx.arc(cx, cy, midR, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Hot white-yellow core
+    {
+      const cr = ts * (0.45 + 0.12 * fl);
+      const g3 = ctx.createRadialGradient(cx, cy, 0, cx, cy, cr);
+      g3.addColorStop(0, `rgba(255,250,210,${coreA * fl})`);
+      g3.addColorStop(0.35, `rgba(255,200,80,${coreA * 0.55 * fl})`);
+      g3.addColorStop(1, `rgba(255,120,20,0)`);
+      ctx.fillStyle = g3;
+      ctx.beginPath();
+      ctx.arc(cx, cy, cr, 0, Math.PI * 2);
       ctx.fill();
     }
   }
@@ -632,7 +790,13 @@ function drawEmitterBlooms(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY
 
 /** Procedural torch — upright on floor, angled off walls, hanging from ceiling. */
 export function drawTorchSprite(ctx, sx, sy, ts, facing, seed) {
-  const flicker = 0.7 + 0.3 * Math.sin(performance.now() / 90 + (seed || 0));
+  const t = performance.now() * 0.001;
+  const s = seed || 0;
+  // Livelier irregular flame
+  const flicker = 0.62
+    + 0.22 * Math.sin(t * 7.1 + s)
+    + 0.1 * Math.sin(t * 15.3 + s * 1.7)
+    + 0.08 * Math.sin(t * 31.0 + s * 0.4);
   let baseX;
   let baseY;
   let tipX;
