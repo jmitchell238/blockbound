@@ -321,9 +321,32 @@ function wireUI() {
   });
 }
 
-// Bootstrap
+// Bootstrap — force SW onto latest cache (kills sticky v1.5.x installs)
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('./sw.js').catch(() => {});
+  let refreshing = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (refreshing) return;
+    refreshing = true;
+    // One-shot reload so the new SW + modules actually run
+    location.reload();
+  });
+
+  navigator.serviceWorker.register('./sw.js?v=' + GAME_VERSION_LABEL).then(reg => {
+    // Proactively check for updates every load
+    try { reg.update(); } catch (_) {}
+    if (reg.waiting) {
+      reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+    }
+    reg.addEventListener('updatefound', () => {
+      const nw = reg.installing;
+      if (!nw) return;
+      nw.addEventListener('statechange', () => {
+        if (nw.state === 'installed' && navigator.serviceWorker.controller) {
+          nw.postMessage({ type: 'SKIP_WAITING' });
+        }
+      });
+    });
+  }).catch(() => {});
 }
 
 loadSave();

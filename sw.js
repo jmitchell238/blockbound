@@ -1,5 +1,5 @@
 // Blockbound — keep CACHE in sync with GAME_VERSION in js/core/constants.js
-const CACHE = 'blockbound-1.6.001';
+const CACHE = 'blockbound-1.6.002';
 
 const ASSETS = [
   './',
@@ -132,12 +132,18 @@ self.addEventListener('fetch', e => {
   if (request.method !== 'GET') return;
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
+  // Never intercept SW itself — browser handles update checks
   if (url.pathname.endsWith('/sw.js')) return;
-  // Always fresh shell / version constants
+
+  // Shell + all JS must stay fresh so ESM refactors / version bumps aren't stuck
+  // behind an old cache-first entry (was stranding clients on v1.5.x).
+  const path = url.pathname;
   if (
-    url.pathname.endsWith('.html') ||
-    url.pathname.endsWith('/') ||
-    url.pathname.endsWith('constants.js')
+    path.endsWith('.html') ||
+    path.endsWith('/') ||
+    path.endsWith('.js') ||
+    path.endsWith('.mjs') ||
+    path.endsWith('manifest.webmanifest')
   ) {
     e.respondWith(networkFirst(request));
     return;
