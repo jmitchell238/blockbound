@@ -1,4 +1,5 @@
 import { BLOCK, BLOCK_META } from '../content/blocks.js';
+import { GAME_VERSION } from '../core/constants.js';
 
 /**
  * Texture atlas loader + softer cube bake (less harsh outlines/seams).
@@ -75,7 +76,9 @@ export function loadImage(src) {
     const img = new Image();
     img.onload = () => resolve(img);
     img.onerror = () => reject(new Error('fail ' + src));
-    img.src = src;
+    // Bust SW/browser cache when GAME_VERSION changes (critical for sprite fixes)
+    const join = src.includes('?') ? '&' : '?';
+    img.src = src + join + 'v=' + GAME_VERSION;
   });
 }
 
