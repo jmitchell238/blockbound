@@ -372,7 +372,7 @@ function gameUpdate(dt) {
 
   // Weather (rain cycles)
   const dayAmt = Math.sin(s.timeOfDay * Math.PI * 2 - Math.PI / 2) * 0.5 + 0.5;
-  const rainWave = Math.sin(s.timeOfDay * Math.PI * 4 + seed * 0.001);
+  const rainWave = Math.sin(s.timeOfDay * Math.PI * 4 + (s.seed || 0) * 0.001);
   ui.weather = dayAmt > 0.2 && rainWave > 0.55 ? Math.min(1, (rainWave - 0.55) * 3) : Math.max(0, ui.weather - dt * 0.3);
   if (ui.weather > 0.3 && Math.random() < dt * 20) {
     // rain splash particles near player
