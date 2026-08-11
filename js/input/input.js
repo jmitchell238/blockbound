@@ -19,6 +19,8 @@ export function makeInput() {
     down: false,
     jump: false,
     jumpPressed: false,
+    /** True while on-screen JUMP is held (keyboard Space is polled separately). */
+    _touchJump: false,
     stickX: 0,
     stickY: 0,
     mineTx: null,
@@ -134,6 +136,7 @@ export function handlePointer(input, p, phase, getCam) {
       return;
     }
     if (inJump) {
+      input._touchJump = true;
       input.jump = true;
       input.jumpPressed = true;
       return;
@@ -196,7 +199,12 @@ export function handlePointer(input, p, phase, getCam) {
       input.pressStart = 0;
       input._worldId = null;
     }
-    if (inJump || input.jump) input.jump = false;
+    // End touch jump (and clear sticky jump if this release is the jump pad)
+    if (inJump || input._touchJump) {
+      input._touchJump = false;
+      // Only clear jump if Space isn't still held — pollInput will re-apply keys
+      if (!input.keys[' ']) input.jump = false;
+    }
   }
 }
 
@@ -243,6 +251,8 @@ export function pollInput(input, mode, cam) {
   input.right = !!(k['d'] || k['arrowright']);
   input.up = !!(k['w'] || k['arrowup']);
   input.down = !!(k['s'] || k['arrowdown']);
-  input.jump = !!(k[' '] || input.jump);
+  // Space held OR on-screen JUMP held — never latch from previous frame
+  // (old bug: jump = space || jump → infinite bunny-hop after one press)
+  input.jump = !!(k[' '] || input._touchJump);
   updateHoldMine(input);
 }
