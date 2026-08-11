@@ -1,6 +1,14 @@
-'use strict';
+import {
+  WORLD_H, SKY_LIMIT, MAGMA_Y, GRAVITY, MOVE_SPEED, JUMP_VEL, MAX_FALL,
+  COYOTE, JUMP_BUFFER, REACH, TILE,
+} from '../core/constants.js';
+import { WORLD_W } from '../core/worldSize.js';
+import { BLOCK, BLOCK_META, isPlatform, isBlockItem } from '../content/blocks.js';
+import {
+  getTile, setTile, isSolid, isClimbable, wrapX, wrapDeltaX,
+} from '../world/index.js';
 
-function makePlayer(spawnTileX, spawnTileY) {
+export function makePlayer(spawnTileX, spawnTileY) {
   return {
     // Continuous world coords in tiles (x wraps conceptually via camera)
     x: spawnTileX + 0.5,
@@ -35,7 +43,7 @@ function makePlayer(spawnTileX, spawnTileY) {
   };
 }
 
-function playerAABB(p) {
+export function playerAABB(p) {
   return {
     left: p.x - p.w / 2,
     right: p.x + p.w / 2,
@@ -48,7 +56,7 @@ function playerAABB(p) {
  * Integrate platformer movement with wrapping tile collision.
  * @returns {{ mined: null|{tx,ty,id}, hurt: number }}
  */
-function updatePlayer(p, world, input, dt, toolPower) {
+export function updatePlayer(p, world, input, dt, toolPower) {
   const result = { mined: null, hurt: 0, placed: false };
 
   if (p.invuln > 0) p.invuln = Math.max(0, p.invuln - dt);
@@ -220,7 +228,7 @@ function updatePlayer(p, world, input, dt, toolPower) {
   return result;
 }
 
-function resolveAxis(p, world, axis) {
+export function resolveAxis(p, world, axis) {
   const box = playerAABB(p);
   const minTX = Math.floor(box.left);
   const maxTX = Math.floor(box.right);
@@ -291,7 +299,7 @@ function resolveAxis(p, world, axis) {
 }
 
 /** Tile world-x as continuous coordinate nearest to playerX. */
-function nearestTileX(playerX, tileX) {
+export function nearestTileX(playerX, tileX) {
   const base = wrapX(tileX);
   // candidates: base + k*WORLD_W
   let best = base;
@@ -313,37 +321,106 @@ function nearestTileX(playerX, tileX) {
   return best;
 }
 
-function tryPlace(p, world, tx, ty, blockId) {
+/**
+ * When the player taps a solid block with an attachable item (torch, ladder, campfire),
+ * place into the adjacent empty cell on the face toward the player.
+ * @returns {{tx:number,ty:number}|null}
+ */
+export function adjacentPlaceCell(p, world, solidTx, solidTy) {
+  const scx = nearestTileX(p.x, solidTx) + 0.5;
+  const scy = solidTy + 0.5;
+  const pcy = p.y - p.h * 0.5;
+  const dx = p.x - scx;
+  const dy = pcy - scy;
+
+  // Prefer dominant axis (face the player is looking at), then other sides
+  const order = Math.abs(dx) >= Math.abs(dy)
+    ? [
+        { tx: solidTx + (dx >= 0 ? 1 : -1), ty: solidTy },
+        { tx: solidTx, ty: solidTy + (dy >= 0 ? 1 : -1) },
+        { tx: solidTx, ty: solidTy + (dy >= 0 ? -1 : 1) },
+        { tx: solidTx + (dx >= 0 ? -1 : 1), ty: solidTy },
+      ]
+    : [
+        { tx: solidTx, ty: solidTy + (dy >= 0 ? 1 : -1) },
+        { tx: solidTx + (dx >= 0 ? 1 : -1), ty: solidTy },
+        { tx: solidTx + (dx >= 0 ? -1 : 1), ty: solidTy },
+        { tx: solidTx, ty: solidTy + (dy >= 0 ? -1 : 1) },
+      ];
+
+  for (const c of order) {
+    if (c.ty < SKY_LIMIT || c.ty >= MAGMA_Y) continue;
+    const t = getTile(world, c.tx, c.ty);
+    if (t !== BLOCK.AIR && t !== BLOCK.WATER) continue;
+    const dist = Math.hypot(wrapDeltaX(p.x, c.tx + 0.5), pcy - (c.ty + 0.5));
+    if (dist > REACH) continue;
+    return c;
+  }
+  return null;
+}
+
+/** Non-solid attachables: tap a solid face to place against it (torch, ladder, campfire). */
+export function isAttachableBlock(blockId) {
+  const meta = BLOCK_META[blockId];
+  if (!meta || meta.solid) return false;
+  return !!(meta.light || meta.climb || blockId === BLOCK.CAMPFIRE);
+}
+
+/**
+ * Try to place a block. On success returns { tx, ty } of the cell written.
+ * Tap solid wall with torch/ladder/campfire → places on the face toward the player.
+ */
+export function tryPlace(p, world, tx, ty, blockId) {
   if (p.placeCooldown > 0) return false;
   if (!isBlockItem(blockId)) return false;
   if (blockId === BLOCK.LAVA || blockId === BLOCK.BEDROCK || blockId === BLOCK.WATER) return false;
   ty = Math.floor(ty);
+  tx = Math.floor(tx);
   if (ty < SKY_LIMIT || ty >= MAGMA_Y) return false;
-  const dist = Math.hypot(wrapDeltaX(p.x, tx + 0.5), (p.y - p.h * 0.5) - (ty + 0.5));
-  if (dist > REACH) return false;
-  const cur = getTile(world, tx, ty);
-  if (cur !== BLOCK.AIR && cur !== BLOCK.WATER) return false;
-  // Campfire/torch can sit in air with support; water bucket handled elsewhere
-  const rel = nearestTileX(p.x, tx);
-  const box = playerAABB(p);
-  if (box.right > rel && box.left < rel + 1 && box.bottom > ty && box.top < ty + 1) return false;
+
   const meta = BLOCK_META[blockId];
-  const needSupport = !(meta && (meta.light || meta.climb || meta.platform || blockId === BLOCK.CAMPFIRE));
-  if (needSupport) {
-    const adj =
-      isSolid(world, tx - 1, ty) ||
-      isSolid(world, tx + 1, ty) ||
-      isSolid(world, tx, ty - 1) ||
-      isSolid(world, tx, ty + 1) ||
-      isPlatform(getTile(world, tx, ty + 1));
+  let placeTx = tx;
+  let placeTy = ty;
+  let cur = getTile(world, placeTx, placeTy);
+
+  // Tap solid/occupied: attachables go on the face toward the player
+  if (cur !== BLOCK.AIR && cur !== BLOCK.WATER) {
+    if (!isAttachableBlock(blockId)) return false;
+    const adj = adjacentPlaceCell(p, world, placeTx, placeTy);
     if (!adj) return false;
+    placeTx = adj.tx;
+    placeTy = adj.ty;
+    cur = getTile(world, placeTx, placeTy);
   }
-  setTile(world, tx, ty, blockId);
+
+  if (cur !== BLOCK.AIR && cur !== BLOCK.WATER) return false;
+
+  const dist = Math.hypot(wrapDeltaX(p.x, placeTx + 0.5), (p.y - p.h * 0.5) - (placeTy + 0.5));
+  if (dist > REACH) return false;
+
+  // Don't place inside the player
+  const rel = nearestTileX(p.x, placeTx);
+  const box = playerAABB(p);
+  if (box.right > rel && box.left < rel + 1 && box.bottom > placeTy && box.top < placeTy + 1) return false;
+
+  // Full blocks need a neighbor; attachables need support too (no floating mid-air torches)
+  const skipSupport = meta && meta.platform;
+  if (!skipSupport) {
+    const hasSupport =
+      isSolid(world, placeTx - 1, placeTy) ||
+      isSolid(world, placeTx + 1, placeTy) ||
+      isSolid(world, placeTx, placeTy - 1) ||
+      isSolid(world, placeTx, placeTy + 1) ||
+      isPlatform(getTile(world, placeTx, placeTy + 1));
+    if (!hasSupport) return false;
+  }
+
+  setTile(world, placeTx, placeTy, blockId);
   p.placeCooldown = 0.12;
-  return true;
+  return { tx: wrapX(placeTx), ty: placeTy };
 }
 
-function findSpawn(world, player) {
+export function findSpawn(world, player) {
   if (player && player.spawnX != null && player.spawnY != null) {
     const sx = wrapX(player.spawnX);
     let sy = player.spawnY | 0;

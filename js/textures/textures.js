@@ -1,4 +1,4 @@
-'use strict';
+import { BLOCK, BLOCK_META } from '../content/blocks.js';
 
 /**
  * Texture atlas loader + softer cube bake (less harsh outlines/seams).
@@ -29,7 +29,7 @@ const TILE_FILES = {
   [BLOCK.BRICK]: 'brick',
 };
 
-const textures = {
+export const textures = {
   ready: false,
   tiles: Object.create(null),
   cube: Object.create(null),
@@ -40,7 +40,7 @@ const textures = {
   crack: [],
 };
 
-function loadImage(src) {
+export function loadImage(src) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => resolve(img);
@@ -50,7 +50,7 @@ function loadImage(src) {
 }
 
 /** Soft 2.5D cube — shallow depth, no hard black outline. */
-function bakeCube(faceImg, transparent) {
+export function bakeCube(faceImg, transparent) {
   const S = 72;
   const c = document.createElement('canvas');
   c.width = S;
@@ -121,7 +121,7 @@ function bakeCube(faceImg, transparent) {
 }
 
 /** Flat soft tile for seamless terrain (slight padding for overlap). */
-function bakeSoftFace(faceImg) {
+export function bakeSoftFace(faceImg) {
   const S = 68;
   const c = document.createElement('canvas');
   c.width = S;
@@ -142,7 +142,7 @@ function bakeSoftFace(faceImg) {
   return c;
 }
 
-function bakeCracks() {
+export function bakeCracks() {
   textures.crack = [];
   for (let stage = 1; stage <= 5; stage++) {
     const c = document.createElement('canvas');
@@ -168,7 +168,7 @@ function bakeCracks() {
   }
 }
 
-function makeFallbackFace(id) {
+export function makeFallbackFace(id) {
   const c = document.createElement('canvas');
   c.width = TEX_SIZE;
   c.height = TEX_SIZE;
@@ -184,7 +184,7 @@ function makeFallbackFace(id) {
   return c;
 }
 
-async function loadTextures() {
+export async function loadTextures() {
   bakeCracks();
   const jobs = [];
   for (const [idStr, name] of Object.entries(TILE_FILES)) {
@@ -217,14 +217,14 @@ async function loadTextures() {
   return textures;
 }
 
-function getTileTex(id) {
+export function getTileTex(id) {
   return textures.tiles[id] || null;
 }
 
-function getCubeTex(id) {
+export function getCubeTex(id) {
   return textures.cube[id] || null;
 }
 
-function getSoftTex(id) {
+export function getSoftTex(id) {
   return textures.soft[id] || textures.tiles[id] || null;
 }

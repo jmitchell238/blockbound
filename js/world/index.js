@@ -1,4 +1,11 @@
-'use strict';
+import {
+  WORLD_H, SURFACE_Y, MAGMA_Y, SKY_LIMIT, LIGHT_RADIUS,
+} from '../core/constants.js';
+import { WORLD_W, applyWorldSize, WORLD_SIZE_PRESETS } from '../core/worldSize.js';
+import { makeRng, valueNoise1D, valueNoise2D } from '../core/rng.js';
+import { BLOCK, BLOCK_META, BIOME_NAMES, isPlatform, isGravityBlock } from '../content/blocks.js';
+import { tileKey } from '../content/items.js';
+import { makeWorldMeta, serializeMeta, deserializeMeta } from '../interact/meta.js';
 
 /**
  * Wrapping 2D tile world — the signature Blockheads feel:
@@ -10,15 +17,15 @@
  * - Lighting after gen is column-local so mining/placing stays fast at Epic size.
  */
 
-function wrapX(x) {
+export function wrapX(x) {
   return ((x % WORLD_W) + WORLD_W) % WORLD_W;
 }
 
-function clampY(y) {
+export function clampY(y) {
   return Math.max(0, Math.min(WORLD_H - 1, y));
 }
 
-function makeWorld(seed) {
+export function makeWorld(seed) {
   const tiles = new Uint8Array(WORLD_W * WORLD_H);
   const light = new Uint8Array(WORLD_W * WORLD_H);
   const surface = new Int16Array(WORLD_W);
@@ -33,21 +40,21 @@ function makeWorld(seed) {
     biome,
     dirtyLight: false,
     lightDirtyCols: null, // Set of column indices, or null
-    meta: typeof makeWorldMeta === 'function' ? makeWorldMeta() : { openDoors: {}, chests: {}, milestones: {} },
+    meta: makeWorldMeta(),
   };
 }
 
-function idx(x, y) {
+export function idx(x, y) {
   return wrapX(x) + y * WORLD_W;
 }
 
-function getTile(world, x, y) {
+export function getTile(world, x, y) {
   y = Math.floor(y);
   if (y < 0 || y >= WORLD_H) return BLOCK.BEDROCK;
   return world.tiles[idx(x, y)];
 }
 
-function setTile(world, x, y, id, opts) {
+export function setTile(world, x, y, id, opts) {
   y = Math.floor(y);
   if (y < 0 || y >= WORLD_H) return false;
   const i = idx(x, y);
@@ -59,7 +66,7 @@ function setTile(world, x, y, id, opts) {
   return true;
 }
 
-function markLightDirty(world, x, y) {
+export function markLightDirty(world, x, y) {
   world.dirtyLight = true;
   if (!world.lightDirtyCols) world.lightDirtyCols = new Set();
   const r = LIGHT_RADIUS;
@@ -68,7 +75,7 @@ function markLightDirty(world, x, y) {
   }
 }
 
-function isSolid(world, x, y) {
+export function isSolid(world, x, y) {
   const t = getTile(world, x, y);
   // Open doors are walkable
   if (t === BLOCK.DOOR && world.meta && world.meta.openDoors && world.meta.openDoors[tileKey(x, y)]) {
@@ -79,7 +86,7 @@ function isSolid(world, x, y) {
 }
 
 /** Platforms only block from above (one-way). */
-function blocksFromAbove(world, x, y) {
+export function blocksFromAbove(world, x, y) {
   const t = getTile(world, x, y);
   if (isPlatform(t)) return true;
   return isSolid(world, x, y);
@@ -89,7 +96,7 @@ function blocksFromAbove(world, x, y) {
  * Local sand/snow gravity near a column (and player neighborhood).
  * Returns number of blocks that fell.
  */
-function tickGravityNear(world, cx, cy, radius) {
+export function tickGravityNear(world, cx, cy, radius) {
   radius = radius == null ? 10 : radius;
   let moved = 0;
   // Bottom-up so cascades work in one pass
@@ -114,17 +121,17 @@ function tickGravityNear(world, cx, cy, radius) {
   return moved;
 }
 
-function biomeNameAt(world, x) {
+export function biomeNameAt(world, x) {
   const b = world.biome[wrapX(Math.floor(x))];
   return (BIOME_NAMES && BIOME_NAMES[b]) || 'Wilds';
 }
 
-function isClimbable(world, x, y) {
+export function isClimbable(world, x, y) {
   const t = getTile(world, x, y);
   return !!(BLOCK_META[t] && BLOCK_META[t].climb);
 }
 
-function isHazard(world, x, y) {
+export function isHazard(world, x, y) {
   const t = getTile(world, x, y);
   return !!(BLOCK_META[t] && BLOCK_META[t].hazard);
 }
@@ -133,7 +140,7 @@ function isHazard(world, x, y) {
  * Generate a full wrapping world. Optional onProgress(0..1) for UI.
  * Strip-based so huge (16k) worlds don't feel like a permanent freeze.
  */
-function generateWorld(seed, onProgress) {
+export function generateWorld(seed, onProgress) {
   const world = makeWorld(seed | 0);
   const rng = makeRng(seed);
   const report = typeof onProgress === 'function' ? onProgress : function () {};
@@ -302,7 +309,7 @@ function generateWorld(seed, onProgress) {
   return world;
 }
 
-function _yieldFrame() {
+export function _yieldFrame() {
   return new Promise(resolve => {
     if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => resolve());
     else setTimeout(resolve, 0);
@@ -313,7 +320,7 @@ function _yieldFrame() {
  * Same as generateWorld but yields between strips so the progress UI can paint
  * (important for Epic 16k on slower devices).
  */
-async function generateWorldAsync(seed, onProgress) {
+export async function generateWorldAsync(seed, onProgress) {
   // For small maps, sync path is fine
   if (WORLD_W <= 2048) {
     return generateWorld(seed, onProgress);
@@ -460,7 +467,7 @@ async function generateWorldAsync(seed, onProgress) {
   return world;
 }
 
-function ensureSpawn(world, sx) {
+export function ensureSpawn(world, sx) {
   const surface = world.surface[wrapX(sx)];
   for (let y = 0; y <= surface; y++) {
     if (getTile(world, sx, y) !== BLOCK.WATER) {
@@ -474,12 +481,12 @@ function ensureSpawn(world, sx) {
   }
 }
 
-function isLightTransparent(t) {
+export function isLightTransparent(t) {
   return t === BLOCK.AIR || t === BLOCK.WATER || t === BLOCK.LADDER
     || t === BLOCK.TORCH || t === BLOCK.LEAVES || t === BLOCK.GLASS;
 }
 
-function emitLight(t) {
+export function emitLight(t) {
   const m = BLOCK_META[t];
   if (m && m.light) return m.light;
   if (t === BLOCK.LAVA) return 12;
@@ -487,7 +494,7 @@ function emitLight(t) {
 }
 
 /** Full-column sky light for whole world (gen / load). O(W×H), one pass. */
-function recomputeSkyLight(world) {
+export function recomputeSkyLight(world) {
   const L = world.light;
   L.fill(0);
   for (let x = 0; x < WORLD_W; x++) {
@@ -495,7 +502,7 @@ function recomputeSkyLight(world) {
   }
 }
 
-function fillSkyColumn(world, x) {
+export function fillSkyColumn(world, x) {
   const L = world.light;
   let sky = 15;
   for (let y = 0; y < WORLD_H; y++) {
@@ -517,7 +524,7 @@ function fillSkyColumn(world, x) {
  * Local light update for dirty columns: sky refill + limited flood.
  * Safe at 16k width because we never scan the whole map on mine/place.
  */
-function flushLight(world) {
+export function flushLight(world) {
   if (!world.dirtyLight && (!world.lightDirtyCols || world.lightDirtyCols.size === 0)) {
     world.dirtyLight = false;
     return;
@@ -576,7 +583,7 @@ function flushLight(world) {
 }
 
 /** Cheap whole-map flood (few passes) — only for load fallbacks. */
-function floodLightAll(world, passes) {
+export function floodLightAll(world, passes) {
   const L = world.light;
   passes = passes || 4;
   for (let pass = 0; pass < passes; pass++) {
@@ -600,7 +607,7 @@ function floodLightAll(world, passes) {
 }
 
 /** Back-compat name used by game loop / load. */
-function recomputeLight(world) {
+export function recomputeLight(world) {
   if (world.lightDirtyCols && world.lightDirtyCols.size > 0) {
     flushLight(world);
     return;
@@ -613,21 +620,21 @@ function recomputeLight(world) {
   world.lightDirtyCols = null;
 }
 
-function getLight(world, x, y) {
+export function getLight(world, x, y) {
   y = Math.floor(y);
   if (y < 0) return 15;
   if (y >= WORLD_H) return 0;
   return world.light[idx(x, y)];
 }
 
-function wrapDeltaX(from, to) {
+export function wrapDeltaX(from, to) {
   let d = wrapX(to) - wrapX(from);
   if (d > WORLD_W / 2) d -= WORLD_W;
   if (d < -WORLD_W / 2) d += WORLD_W;
   return d;
 }
 
-function serializeWorld(world) {
+export function serializeWorld(world) {
   const rle = [];
   let prev = world.tiles[0];
   let count = 1;
@@ -647,13 +654,11 @@ function serializeWorld(world) {
     rle,
     surface: Array.from(world.surface),
     biome: Array.from(world.biome),
-    meta: world.meta && typeof serializeMeta === 'function'
-      ? serializeMeta(world.meta)
-      : (world.meta || null),
+    meta: world.meta ? serializeMeta(world.meta) : null,
   };
 }
 
-function deserializeWorld(data) {
+export function deserializeWorld(data) {
   if (!data || !data.rle || !data.w || !data.h) return null;
   if (data.h !== WORLD_H) return null;
   if (!WORLD_SIZE_PRESETS.some(p => p.w === data.w)) return null;
@@ -669,8 +674,10 @@ function deserializeWorld(data) {
   if (i !== need) return null;
   if (data.surface && data.surface.length === WORLD_W) world.surface.set(data.surface);
   if (data.biome && data.biome.length === WORLD_W) world.biome.set(data.biome);
-  if (data.meta && typeof deserializeMeta === 'function') {
+  if (data.meta) {
     world.meta = deserializeMeta(data.meta);
+  } else if (!world.meta) {
+    world.meta = makeWorldMeta();
   }
   recomputeSkyLight(world);
   if (WORLD_W <= 4096) floodLightAll(world, 3);

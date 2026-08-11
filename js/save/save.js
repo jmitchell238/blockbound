@@ -1,4 +1,8 @@
-'use strict';
+import { SAVE_KEY } from '../core/constants.js';
+import { WORLD_W, WORLD_SIZE_PRESETS } from '../core/worldSize.js';
+import { serializeWorld } from '../world/index.js';
+import { serializeInv } from '../inventory/inventory.js';
+import { serializeEntities } from '../entities/state.js';
 
 const defaultSave = () => ({
   muted: false,
@@ -18,9 +22,9 @@ const defaultSave = () => ({
   milestones: 0,
 });
 
-let save = defaultSave();
+export let save = defaultSave();
 
-function loadSave() {
+export function loadSave() {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) {
@@ -36,13 +40,13 @@ function loadSave() {
   }
 }
 
-function writeSave() {
+export function writeSave() {
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify(save));
   } catch (_) { /* quota */ }
 }
 
-function clearWorldSave() {
+export function clearWorldSave() {
   save.hasWorld = false;
   save.world = null;
   save.player = null;
@@ -52,7 +56,7 @@ function clearWorldSave() {
   writeSave();
 }
 
-function persistSession(world, player, inv, timeOfDay, stats, ents) {
+export function persistSession(world, player, inv, timeOfDay, stats, ents) {
   save.hasWorld = true;
   save.world = serializeWorld(world);
   save.player = {
@@ -66,7 +70,7 @@ function persistSession(world, player, inv, timeOfDay, stats, ents) {
     inBoat: !!player.inBoat,
   };
   save.inv = serializeInv(inv);
-  if (ents && typeof serializeEntities === 'function') {
+  if (ents) {
     save.ents = serializeEntities(ents);
   }
   save.timeOfDay = timeOfDay;

@@ -1,7 +1,5 @@
-'use strict';
-
 /** Mulberry32 seeded PRNG. */
-function makeRng(seed) {
+export function makeRng(seed) {
   let a = (seed >>> 0) || 1;
   return function next() {
     a |= 0;
@@ -12,7 +10,7 @@ function makeRng(seed) {
   };
 }
 
-function hash2(x, y, seed) {
+export function hash2(x, y, seed) {
   let n = (x * 374761393 + y * 668265263 + seed * 1274126177) | 0;
   n = (n ^ (n >>> 13)) * 1274126177;
   n = n ^ (n >>> 16);
@@ -20,7 +18,7 @@ function hash2(x, y, seed) {
 }
 
 /** Value noise 1D for heightmap (smooth). */
-function valueNoise1D(x, seed, scale) {
+export function valueNoise1D(x, seed, scale) {
   const sx = x / scale;
   const i = Math.floor(sx);
   const f = sx - i;
@@ -31,7 +29,7 @@ function valueNoise1D(x, seed, scale) {
 }
 
 /** 2D value noise for caves. */
-function valueNoise2D(x, y, seed, scale) {
+export function valueNoise2D(x, y, seed, scale) {
   const sx = x / scale;
   const sy = y / scale;
   const ix = Math.floor(sx);

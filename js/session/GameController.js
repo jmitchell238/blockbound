@@ -1,14 +1,54 @@
-'use strict';
+import {
+  DAY_LEN, SURFACE_Y, WORLD_H, W, H,
+} from '../core/constants.js';
+import { WORLD_W, applyWorldSize, worldSizePreset } from '../core/worldSize.js';
+import { BLOCK, BLOCK_META } from '../content/blocks.js';
+import { TOOLS, isTool, isFood, isWeapon } from '../content/tools.js';
+import { isBlockItem, tileKey, itemName } from '../content/items.js';
+import {
+  generateWorldAsync, deserializeWorld, getTile, flushLight, tickGravityNear,
+  wrapDeltaX, wrapX,
+} from '../world/index.js';
+import {
+  makePlayer, updatePlayer, tryPlace, findSpawn, isAttachableBlock,
+} from '../player/index.js';
+import {
+  makeInventory, starterKit, addItem, removeItem, selectedSlot, selectHotbar,
+  syncEquippedTool, toolPowerFor, canCraft, craft, deserializeInv,
+  moveOrSwap, stowToBag, HOTBAR_SIZE, getMeleeWeapon, getHeldTool,
+} from '../inventory/inventory.js';
+import {
+  makeWorldMeta, getChest, removeChest, nearInteract, isDoorOpen, toggleDoor,
+  tryEat, trySleep, tryBucket, tryMountBoat, tryDismountBoat,
+  unlockMilestone, recipesInTab, stationAvailable, missingMaterials, stationHint,
+} from '../interact/index.js';
+import {
+  makeEntityState, seedCritters, deserializeEntities, updateDrops, updateCritters,
+  updateHostiles, tryMeleeAttack, spawnDrop,
+} from '../entities/state.js';
+import { makeParticleSystem, spawnBurst, updateParticles } from '../particles/particles.js';
+import { makeInput, pollInput } from '../input/input.js';
+import { renderWorld, skyColors } from '../render/index.js';
+import {
+  sfxJump, sfxMine, sfxPlace, sfxHurt, sfxPickup, sfxDoor, sfxSleep, sfxCraft,
+} from '../audio/audio.js';
+import { save, persistSession } from '../save/save.js';
+import { toast } from '../ui/toast.js';
+import { updateSurvival } from '../systems/survival.js';
+import { updateCamera } from '../systems/camera.js';
+import { updateWeather } from '../systems/weather.js';
+import { updateWorldServices } from '../systems/autosave.js';
 
-let session = null;
+export let session = null;
 
-function _finishSession(world, player, inv, timeOfDay, seed, ents) {
+export function _finishSession(world, player, inv, timeOfDay, seed, ents, sharedInput) {
   if (!world.meta) world.meta = makeWorldMeta();
   if (!ents) {
     ents = makeEntityState();
     seedCritters(ents, world);
   }
-  const input = makeInput();
+  // Single InputState (DIP): app may inject the bound input; no dual-buffer sync.
+  const input = sharedInput || makeInput();
   const ui = {
     mode: 'mine',
     craftOpen: false,
@@ -27,6 +67,7 @@ function _finishSession(world, player, inv, timeOfDay, seed, ents) {
     zoom: 1,
     hoverTx: null,
     hoverTy: null,
+    holdMining: false,
     weather: 0, // 0 clear, 1 rain intensity
     wasNight: false,
   };
@@ -47,7 +88,7 @@ function _finishSession(world, player, inv, timeOfDay, seed, ents) {
   };
 }
 
-async function createSession(opts) {
+export async function createSession(opts) {
   opts = opts || {};
   let world;
   let player;
@@ -98,20 +139,21 @@ async function createSession(opts) {
     seedCritters(ents, world);
   }
 
-  return _finishSession(world, player, inv, timeOfDay, seed, ents);
+  return _finishSession(world, player, inv, timeOfDay, seed, ents, opts.input);
 }
 
-async function enterPlay(continueSave, extra) {
+export async function enterPlay(continueSave, extra) {
   extra = extra || {};
   session = await createSession({
     continueSave: !!continueSave,
     worldSizeId: extra.worldSizeId,
     onProgress: extra.onProgress,
+    input: extra.input,
   });
   return session;
 }
 
-function enterMenu() {
+export function enterMenu() {
   if (session) {
     try {
       persistSession(session.world, session.player, session.inv, session.timeOfDay, session.stats, session.ents);
@@ -120,12 +162,7 @@ function enterMenu() {
   session = null;
 }
 
-function toast(ui, msg) {
-  ui.toast = msg;
-  ui.toastT = 2.4;
-}
-
-function gameUpdate(dt) {
+export function gameUpdate(dt) {
   if (!session) return;
   const s = session;
   const { world, player, inv, input, ui, cam, stats, ents } = s;
@@ -181,7 +218,21 @@ function gameUpdate(dt) {
     input.hotbarTap = -1;
   }
 
-  // Hover under finger
+  // Use / interact (F)
+  if (input.usePressed) {
+    input.usePressed = false;
+    handleUse(s);
+  }
+
+  // Attack (X / J / Attack button)
+  if (input.attackPressed) {
+    input.attackPressed = false;
+    doPlayerAttack(s);
+  }
+
+  // Promote long-press → mine; refresh hover after hold state is known
+  pollInput(input, ui.mode, cam);
+  ui.holdMining = !!input.holdMining;
   if (input.holdMining && input.mineTx != null) {
     ui.hoverTx = input.mineTx;
     ui.hoverTy = input.mineTy;
@@ -193,84 +244,39 @@ function gameUpdate(dt) {
     ui.hoverTy = input.tapPlace.ty;
   }
 
-  // Use / interact (F)
-  if (input.usePressed) {
-    input.usePressed = false;
-    handleUse(s);
-  }
-
-  // Attack (X / J / Attack button / tap near mob)
-  if (input.attackPressed) {
-    input.attackPressed = false;
-    doPlayerAttack(s);
-  }
-
-  pollInput(input, ui.mode, cam);
-
   if (input.jumpPressed) {
     sfxJump();
     input.jumpPressed = false;
   }
 
   if (ui.craftOpen || ui.chestOpen || ui.bagOpen) {
-    // Don't mine/place while menus are open
-    input.pointerDown = false;
+    // Don't mine/place while menus are open (keep pointer flags for UI)
     input.mineTx = null;
     input.mineTy = null;
     input.placeTx = null;
     input.placeTy = null;
+    input.tapPlace = null;
+    input.holdMining = false;
     s.timeOfDay = (s.timeOfDay + dt / DAY_LEN * 0.25) % 1;
     return;
   }
 
-  // Hunger drain
-  s.hungerTimer += dt;
-  const moving = Math.abs(player.vx) > 0.15 || Math.abs(player.vy) > 0.5;
-  player.hunger = Math.max(0, player.hunger - dt * (moving ? 1.1 : 0.45));
-  if (player.hunger <= 0) {
-    if (s.hungerTimer > 1.2) {
-      s.hungerTimer = 0;
-      player.hp -= 4;
-      if (player.invuln <= 0) {
-        player.invuln = 0.4;
-        sfxHurt();
-        toast(ui, 'Starving!');
-      }
-    }
-  } else if (player.hunger > 50 && player.hp < player.maxHp && Math.abs(player.vx) < 0.1) {
-    player.hp = Math.min(player.maxHp, player.hp + dt * 3);
-  }
-
-  // Energy
-  if (moving) player.energy = Math.max(0, player.energy - dt * 1.4);
-  else player.energy = Math.min(player.maxEnergy, player.energy + dt * 5);
-  if (player.energy < 8) {
-    // sluggish
-    player.vx *= 0.92;
-  }
-
-  if (player.hp <= 0) {
-    player.hp = player.maxHp;
-    player.energy = player.maxEnergy;
-    player.hunger = Math.max(40, player.hunger);
-    player.inBoat = false;
-    const sp = findSpawn(world, player);
-    player.x = sp.x + 0.5;
-    player.y = sp.y;
-    player.vx = 0;
-    player.vy = 0;
-    toast(ui, player.spawnX != null ? 'Respawned at your bed' : 'You collapsed — respawned at spawn');
-  }
+  updateSurvival(s, dt);
 
   let minePower = TOOLS[inv.tool] ? TOOLS[inv.tool].power : 1;
   if (player.mining) {
     minePower = toolPowerFor(inv, getTile(world, player.mining.tx, player.mining.ty));
   }
 
-  // Hold-to-mine only: clear mine targets until hold engages
+  // Hold-to-mine only: until hold engages, force mine target clear
+  // (placeTx still tracks the finger for tap-place / hover)
   if (input.pointerDown && !input.holdMining) {
     input.mineTx = null;
     input.mineTy = null;
+  } else if (input.holdMining && input.placeTx != null) {
+    // Keep mine locked to the held tile
+    input.mineTx = input.placeTx;
+    input.mineTy = input.placeTy;
   }
 
   const prevX = player.x;
@@ -345,20 +351,12 @@ function gameUpdate(dt) {
     const pty = input.tapPlace.ty;
     input.tapPlace = null;
 
-    let nearMob = false;
-    if (ents.hostiles) {
-      for (const h of ents.hostiles) {
-        if (Math.hypot(wrapDeltaX(player.x, h.x), (player.y - 0.5) - h.y) < 2.5) {
-          nearMob = true;
-          break;
-        }
-      }
-    }
     const slot = selectedSlot(inv);
     const tid = getTile(world, ptx, pty);
+    // Prefer combat when the tap is on/near a mob (click enemy to hit — no Attack button required)
+    const mobAtTap = findMobAtTile(ents, player, ptx, pty);
 
-    if (nearMob && (tid === BLOCK.AIR || tid === BLOCK.WATER || tid === BLOCK.LEAVES
-        || !slot || !isBlockItem(slot.id))) {
+    if (mobAtTap) {
       doPlayerAttack(s);
     } else if (slot && (slot.id === 'bucket' || slot.id === 'bucket_water')) {
       const r = tryBucket(inv, world, player, ptx, pty);
@@ -367,19 +365,24 @@ function gameUpdate(dt) {
         else toast(ui, r.reason);
       }
     } else if (slot && isBlockItem(slot.id)) {
-      if (tryPlace(player, world, ptx, pty, slot.id)) {
+      const placed = tryPlace(player, world, ptx, pty, slot.id);
+      if (placed) {
         removeItem(inv, slot.id, 1);
         sfxPlace();
         const m = BLOCK_META[slot.id];
-        spawnBurst(s.particles, ptx + 0.5, pty + 0.5, (m && m.color) || '#fff', 5);
+        const bx = placed.tx;
+        const by = placed.ty;
+        spawnBurst(s.particles, bx + 0.5, by + 0.5, (m && m.color) || '#fff', 5);
         if (slot.id === BLOCK.BED) unlockMilestone(world.meta, stats, ui, 'first_bed');
         if (slot.id === BLOCK.FURNACE) unlockMilestone(world.meta, stats, ui, 'first_furnace');
         if (slot.id === BLOCK.TORCH) unlockMilestone(world.meta, stats, ui, 'first_torch');
         if (slot.id === BLOCK.CAMPFIRE) unlockMilestone(world.meta, stats, ui, 'first_campfire');
         if (slot.id === BLOCK.PLATFORM) unlockMilestone(world.meta, stats, ui, 'first_platform');
-        if (slot.id === BLOCK.CHEST) getChest(world.meta, ptx, pty);
-        tickGravityNear(world, ptx, pty, 6);
+        if (slot.id === BLOCK.CHEST) getChest(world.meta, bx, by);
+        tickGravityNear(world, bx, by, 6);
       }
+    } else if (slot && isFood(slot.id) && tid !== BLOCK.AIR && tid !== BLOCK.WATER) {
+      // Food selected on a solid tile: still allow eat on empty/air taps only via F; here ignore
     } else if (slot && isFood(slot.id)) {
       const ate = tryEat(inv, player);
       if (ate && ate.ok) {
@@ -387,8 +390,15 @@ function gameUpdate(dt) {
         toast(ui, 'Ate ' + ate.food.name);
         unlockMilestone(world.meta, stats, ui, 'fed');
       }
-    } else if (nearMob || (slot && isTool(slot.id) && isWeapon(slot.id))) {
-      doPlayerAttack(s);
+    } else if (
+      tid === BLOCK.AIR || tid === BLOCK.WATER || tid === BLOCK.LEAVES
+      || (slot && isTool(slot.id))
+      || !slot
+    ) {
+      // Empty hand / tool / air tap near a close hostile still swings
+      if (isHostileNearPlayer(ents, player, 2.8) || (slot && isWeapon(slot.id))) {
+        doPlayerAttack(s);
+      }
     }
   }
 
@@ -415,19 +425,7 @@ function gameUpdate(dt) {
     toast(ui, label);
   }
 
-  // Weather (rain cycles)
-  const dayAmt = Math.sin(s.timeOfDay * Math.PI * 2 - Math.PI / 2) * 0.5 + 0.5;
-  const rainWave = Math.sin(s.timeOfDay * Math.PI * 4 + (s.seed || 0) * 0.001);
-  ui.weather = dayAmt > 0.2 && rainWave > 0.55 ? Math.min(1, (rainWave - 0.55) * 3) : Math.max(0, ui.weather - dt * 0.3);
-  if (ui.weather > 0.3 && Math.random() < dt * 20) {
-    // rain splash particles near player
-    spawnBurst(s.particles, player.x + (Math.random() - 0.5) * 8, player.y - 4 - Math.random() * 6, '#8ec8ff', 1);
-  }
-
-  // Night survival milestone
-  const isNight = dayAmt < 0.35;
-  if (ui.wasNight && !isNight) unlockMilestone(world.meta, stats, ui, 'survived_night');
-  ui.wasNight = isNight;
+  updateWeather(s, dt);
 
   // Recover boat if left on shore
   if (!player.inBoat && s._hadBoat) {
@@ -452,52 +450,23 @@ function gameUpdate(dt) {
       : player.inBoat ? 'F · Leave boat'
       : slot && isFood(slot.id) ? 'F · Eat'
       : slot && (slot.id === 'bucket' || slot.id === 'bucket_water') ? 'Tap to use bucket'
-      : slot && isBlockItem(slot.id) ? 'Tap to place · hold to dig'
+      : slot && isAttachableBlock(slot.id) ? 'Tap wall/floor to place · hold to dig'
+      : slot && isBlockItem(slot.id) ? 'Tap empty tile to place · hold to dig'
       : 'Hold to dig · ⚔ to fight'
       );
 
-  // Camera
-  const targetX = player.x;
-  const targetY = player.y - 0.8;
-  let dCam = targetX - cam.x;
-  if (dCam > WORLD_W / 2) cam.x += WORLD_W;
-  if (dCam < -WORLD_W / 2) cam.x -= WORLD_W;
-  cam.x += (targetX - cam.x) * Math.min(1, dt * 8);
-  cam.y += (targetY - cam.y) * Math.min(1, dt * 8);
-  cam.y = Math.max(8, Math.min(WORLD_H - 8, cam.y));
-  cam.zoom = ui.zoom || 1;
-
-  updateParticles(s.particles, dt);
-  s.timeOfDay = (s.timeOfDay + dt / DAY_LEN) % 1;
-
-  // Occasional gravity settle near player
-  s.gravTimer = (s.gravTimer || 0) + dt;
-  if (s.gravTimer > 0.25) {
-    s.gravTimer = 0;
-    tickGravityNear(world, player.x, player.y, 12);
-  }
-
-  s.lightTimer += dt;
-  if (world.dirtyLight && s.lightTimer > 0.08) {
-    flushLight(world);
-    s.lightTimer = 0;
-  }
-
-  s.saveTimer += dt;
-  if (s.saveTimer > 12) {
-    s.saveTimer = 0;
-    persistSession(world, player, inv, s.timeOfDay, stats, ents);
-  }
+  updateCamera(s, dt);
+  updateWorldServices(s, dt);
 }
 
-function handleUse(s) {
+export function handleUse(s) {
   const { world, player, inv, ui, stats } = s;
   // Prefer eat if food selected and no interact
   const hit = nearInteract(world, world.meta, player.x, player.y);
 
   if (hit && hit.kind === 'door') {
     const open = toggleDoor(world.meta, hit.x, hit.y);
-    if (typeof sfxDoor === 'function') sfxDoor(); else sfxPlace();
+    sfxDoor();
     toast(ui, open ? 'Door opened' : 'Door closed');
     return;
   }
@@ -583,7 +552,7 @@ function handleUse(s) {
   }
 }
 
-function gameRender(ctx) {
+export function gameRender(ctx) {
   if (!session) return;
   const s = session;
   s.ui.showTouch = window.matchMedia('(pointer: coarse)').matches;
@@ -601,14 +570,14 @@ function gameRender(ctx) {
   }
 }
 
-function getInvArray(s, from) {
+export function getInvArray(s, from) {
   if (from === 'hotbar') return s.inv.hotbar;
   if (from === 'bag') return s.inv.bag;
   if (from === 'chest' && s.ui.chestOpen) return s.ui.chestOpen.slots;
   return null;
 }
 
-function handleInvSlotClick(s, from, i) {
+export function handleInvSlotClick(s, from, i) {
   const ui = s.ui;
   const arr = getInvArray(s, from);
   if (!arr) return;
@@ -644,7 +613,7 @@ function handleInvSlotClick(s, from, i) {
   }
 }
 
-function stowHotbarToBag(s) {
+export function stowHotbarToBag(s) {
   let moved = 0;
   // Stow from end of hotbar (keep selected tool if possible)
   for (let i = 0; i < HOTBAR_SIZE; i++) {
@@ -659,7 +628,7 @@ function stowHotbarToBag(s) {
   }
 }
 
-function gameClickCraft(x, y) {
+export function gameClickCraft(x, y) {
   if (!session) return false;
   const ui = session.ui;
   const inv = session.inv;
@@ -765,11 +734,55 @@ function gameClickCraft(x, y) {
   return true; // swallow clicks while open
 }
 
-function doPlayerAttack(s) {
+/** True if a hostile is close enough that a swing should connect. */
+export function isHostileNearPlayer(ents, player, range) {
+  range = range == null ? 2.8 : range;
+  if (!ents || !ents.hostiles) return false;
+  for (const h of ents.hostiles) {
+    if (Math.hypot(wrapDeltaX(player.x, h.x), (player.y - 0.5) - h.y) < range) return true;
+  }
+  return false;
+}
+
+/**
+ * Tap hit-test: is the tapped tile on/near a living mob (hostiles first, then critters)?
+ * Lets the player click an enemy to attack without the Attack button.
+ */
+export function findMobAtTile(ents, player, tx, ty) {
+  if (!ents) return null;
+  const lists = [ents.hostiles, ents.critters];
+  let best = null;
+  let bestD = 1.65;
+  for (const list of lists) {
+    if (!list) continue;
+    for (const m of list) {
+      // Mob body occupies roughly [feet-h, feet] vertically and ~w around x
+      const mx = m.x;
+      const my = m.y - (m.h || 1) * 0.5;
+      const d = Math.hypot(wrapDeltaX(tx + 0.5, mx), (ty + 0.5) - my);
+      const reach = 0.95 + (m.w || 0.6) * 0.5;
+      if (d < reach && d < bestD) {
+        bestD = d;
+        best = m;
+      }
+    }
+  }
+  // Also accept "near player + near tap" for hostiles slightly off-tile
+  if (!best && ents.hostiles) {
+    for (const h of ents.hostiles) {
+      const toPlayer = Math.hypot(wrapDeltaX(player.x, h.x), (player.y - 0.5) - h.y);
+      const toTap = Math.hypot(wrapDeltaX(tx + 0.5, h.x), (ty + 0.5) - (h.y - (h.h || 1) * 0.5));
+      if (toPlayer < 3.2 && toTap < 2.0) return h;
+    }
+  }
+  return best;
+}
+
+export function doPlayerAttack(s) {
   const { player, inv, ents, world, ui, stats } = s;
   if (player.attackCd > 0) return;
   const result = tryMeleeAttack(player, inv, ents, world);
-  if (typeof sfxMine === 'function') sfxMine();
+  sfxMine();
   if (result.hits > 0) {
     const col = result.fist ? '#ffcc88' : '#fff';
     spawnBurst(s.particles, player.x + player.facing * 0.8, player.y - 0.7, col, result.fist ? 8 : 6);
@@ -778,10 +791,10 @@ function doPlayerAttack(s) {
       unlockMilestone(world.meta, stats, ui, 'first_kill');
     }
   }
-  const tool = typeof getMeleeWeapon === 'function' ? getMeleeWeapon(inv) : getHeldTool(inv);
+  const tool = getMeleeWeapon(inv);
   if (tool && tool.weapon) unlockMilestone(world.meta, stats, ui, 'first_sword');
 }
 
-function getSession() {
+export function getSession() {
   return session;
 }

@@ -1,9 +1,29 @@
-'use strict';
+/**
+ * Blockbound composition root — DOM, rAF loop, menu wiring.
+ * Game rules live in session/systems; this file only bootstraps.
+ */
+import {
+  W, H, SURFACE_Y, GAME_VERSION_LABEL,
+} from './core/constants.js';
+import { WORLD_W, WORLD_SIZE_PRESETS, applyWorldSize, worldSizePreset } from './core/worldSize.js';
+import { BLOCK } from './content/blocks.js';
+import { makeInput, bindInput } from './input/input.js';
+import { loadTextures } from './textures/textures.js';
+import { save, loadSave, writeSave, clearWorldSave, persistSession } from './save/save.js';
+import { audioSetMuted, ensureAudio } from './audio/audio.js';
+import {
+  enterPlay, enterMenu, getSession, gameUpdate, gameRender, gameClickCraft,
+} from './session/index.js';
+import { skyColors, drawParallax, drawBlock } from './render/index.js';
 
 const cv = document.getElementById('cv');
 let ctx = null;
 let last = performance.now();
 let screenName = 'menu';
+
+/** Single input instance bound to DOM and injected into the session. */
+const appInput = makeInput();
+let listenersReady = false;
 
 function resizeCanvas() {
   const vw = window.innerWidth;
@@ -108,13 +128,10 @@ function showMenu() {
   }
 }
 
-const liveInput = makeInput();
-let listenersReady = false;
-
 function ensureListeners() {
   if (listenersReady) return;
   listenersReady = true;
-  bindInput(liveInput, cv, () => {
+  bindInput(appInput, cv, () => {
     const s = getSession();
     return s ? s.cam : { x: WORLD_W / 2, y: SURFACE_Y };
   });
@@ -124,30 +141,30 @@ function ensureListeners() {
     const s = getSession();
     if (!s) return;
     const p = eventToStage(e);
-    // Craft / chest / bag capture all taps so mining doesn't steal them
     if (s.ui.craftOpen || s.ui.chestOpen || s.ui.bagOpen) {
       gameClickCraft(p.x, p.y);
       e.preventDefault();
       e.stopPropagation();
-      // Cancel any mine/place from the shared input binder
-      liveInput.pointerDown = false;
-      liveInput.mineTx = null;
-      liveInput.mineTy = null;
-      liveInput.placeTx = null;
-      liveInput.placeTy = null;
+      appInput.pointerDown = false;
+      appInput.mineTx = null;
+      appInput.mineTy = null;
+      appInput.placeTx = null;
+      appInput.placeTy = null;
     }
-  }, true); // capture phase — run before mine/place binder
+  }, true);
 }
 
 async function startPlay(continueSave) {
   ensureAudio();
   ensureListeners();
-  liveInput.pointerDown = false;
-  liveInput.mineTx = null;
-  liveInput.mineTy = null;
-  liveInput.stickX = 0;
-  liveInput.stickY = 0;
-  liveInput.jump = false;
+  appInput.pointerDown = false;
+  appInput.mineTx = null;
+  appInput.mineTy = null;
+  appInput.stickX = 0;
+  appInput.stickY = 0;
+  appInput.jump = false;
+  appInput.tapPlace = null;
+  appInput.holdMining = false;
 
   const sizeId = save.worldSizeId || 'standard';
   if (!continueSave) {
@@ -159,7 +176,6 @@ async function startPlay(continueSave) {
     : worldSizePreset(sizeId).w;
   const needsProgress = !continueSave && width >= 2048;
   if (needsProgress) setGenProgress(0);
-  // Disable buttons while generating
   const playBtn = document.getElementById('btnPlay');
   const contBtn = document.getElementById('btnContinue');
   if (playBtn) playBtn.disabled = true;
@@ -169,6 +185,7 @@ async function startPlay(continueSave) {
     await enterPlay(continueSave, {
       worldSizeId: sizeId,
       onProgress: needsProgress ? setGenProgress : null,
+      input: appInput,
     });
     setGenProgress(null);
     setScreen('play');
@@ -182,46 +199,16 @@ async function startPlay(continueSave) {
   }
 }
 
-function syncInput(session) {
-  if (!session) return;
-  const a = session.input;
-  const b = liveInput;
-  a.left = b.left;
-  a.right = b.right;
-  a.up = b.up;
-  a.down = b.down;
-  a.jump = b.jump;
-  a.stickX = b.stickX;
-  a.stickY = b.stickY;
-  a.mineTx = b.mineTx;
-  a.mineTy = b.mineTy;
-  a.placeTx = b.placeTx;
-  a.placeTy = b.placeTy;
-  a.pointerDown = b.pointerDown;
-  if (b.craftToggle) { a.craftToggle = true; b.craftToggle = false; }
-  if (b.modeToggle) { a.modeToggle = true; b.modeToggle = false; }
-  if (b.usePressed) { a.usePressed = true; b.usePressed = false; }
-  if (b.pauseToggle) { a.pauseToggle = true; b.pauseToggle = false; }
-  if (b.bagToggle) { a.bagToggle = true; b.bagToggle = false; }
-  if (b.attackPressed) { a.attackPressed = true; b.attackPressed = false; }
-  if (b.zoomDelta) { a.zoomDelta = (a.zoomDelta || 0) + b.zoomDelta; b.zoomDelta = 0; }
-  if (b.hotbarTap >= 0) { a.hotbarTap = b.hotbarTap; b.hotbarTap = -1; }
-  if (b.jumpPressed) { a.jumpPressed = true; b.jumpPressed = false; }
-  a.keys = b.keys;
-}
-
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
 
   if (screenName === 'play') {
     const s = getSession();
-    if (s) syncInput(s);
     try {
       if (s) gameUpdate(dt);
     } catch (err) {
       console.error('[blockbound] update error', err);
-      // Keep loop alive — show toast if possible
       if (s && s.ui) {
         s.ui.toast = 'Update glitch (see console)';
         s.ui.toastT = 2;
@@ -231,16 +218,12 @@ function frame(now) {
       try {
         ctx.clearRect(0, 0, W, H);
         if (s) gameRender(ctx);
-        else {
-          // No session — bounce to menu instead of blank sky
-          drawMenuBackdrop(ctx, now);
-        }
+        else drawMenuBackdrop(ctx, now);
       } catch (err) {
         console.error('[blockbound] render error', err);
       }
     }
   } else if (ctx) {
-    // Idle menu backdrop
     drawMenuBackdrop(ctx, now);
   }
 
@@ -248,7 +231,6 @@ function frame(now) {
 }
 
 function drawMenuBackdrop(ctx, now) {
-  const t = (now / 1000 / 60) % 1;
   const sky = skyColors(0.3 + Math.sin(now / 8000) * 0.05);
   const g = ctx.createLinearGradient(0, 0, 0, H);
   g.addColorStop(0, sky.top);
@@ -257,7 +239,6 @@ function drawMenuBackdrop(ctx, now) {
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, W, H);
   drawParallax(ctx, now / 1000, sky.day);
-  // Decorative blocks
   for (let i = 0; i < 14; i++) {
     const x = (i * 32 + (now / 50) * 0.2) % (W + 40) - 20;
     const y = H * 0.62 + Math.sin(i + now / 900) * 8;
@@ -265,7 +246,6 @@ function drawMenuBackdrop(ctx, now) {
   }
 }
 
-// UI buttons
 function wireUI() {
   document.getElementById('btnPlay').addEventListener('click', () => {
     clearWorldSave();
@@ -314,7 +294,6 @@ function wireUI() {
       s.ui.bagOpen = !s.ui.bagOpen;
     });
   }
-  // Mine/Place toggle removed — tap = place, hold = dig
   const modeBtn = document.getElementById('btnMode');
   if (modeBtn) {
     modeBtn.classList.add('hidden');
@@ -335,7 +314,6 @@ function wireUI() {
     });
   }
 
-  // Version tags
   const ver = GAME_VERSION_LABEL;
   ['versionTag', 'versionMenu'].forEach(id => {
     const el = document.getElementById(id);
@@ -343,7 +321,7 @@ function wireUI() {
   });
 }
 
-// PWA SW
+// Bootstrap
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./sw.js').catch(() => {});
 }
@@ -355,8 +333,5 @@ wireUI();
 updateMenuStats();
 setScreen('menu');
 
-// Load textures in background; menu uses fallbacks until ready
-if (typeof loadTextures === 'function') {
-  loadTextures().catch(err => console.warn('texture load', err));
-}
+loadTextures().catch(err => console.warn('texture load', err));
 requestAnimationFrame(frame);

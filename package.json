@@ -1,0 +1,6 @@
+{
+  "name": "blockbound",
+  "private": true,
+  "type": "module",
+  "description": "Blockheads-inspired 2D sandbox (ES modules)"
+}

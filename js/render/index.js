@@ -1,11 +1,26 @@
-'use strict';
+import {
+  W, H, TILE, WORLD_H, SURFACE_Y,
+} from '../core/constants.js';
+import { WORLD_W } from '../core/worldSize.js';
+import { BLOCK, BLOCK_META, isPlatform } from '../content/blocks.js';
+import { TOOLS, FOOD, isTool, isFood, isWeapon } from '../content/tools.js';
+import { itemName, isBlockItem } from '../content/items.js';
+import { wrapX, getTile, getLight, isSolid, biomeNameAt } from '../world/index.js';
+import { textures, getCubeTex, getTileTex, getSoftTex } from '../textures/textures.js';
+import { drawEntities } from '../entities/draw.js';
+import { drawParticles } from '../particles/particles.js';
+import { HOTBAR_SIZE, BAG_SIZE, canCraft, bagUsed, countItem } from '../inventory/inventory.js';
+import {
+  CRAFT_TABS, recipesInTab, missingMaterials, stationHint,
+  stationAvailable, getChest,
+} from '../interact/index.js';
 
 /**
  * High-quality 2.5D Blockheads-style renderer:
  * textured cubes, ambient occlusion, clouds, day/night, sprite player.
  */
 
-function skyColors(timeOfDay) {
+export function skyColors(timeOfDay) {
   const t = timeOfDay;
   const day = Math.sin(t * Math.PI * 2 - Math.PI / 2) * 0.5 + 0.5;
   const top = lerpColor('#07071c', '#3d7ec4', day);
@@ -24,31 +39,31 @@ function skyColors(timeOfDay) {
   };
 }
 
-function lerpColor(a, b, t) { return mixHex(a, b, t); }
+export function lerpColor(a, b, t) { return mixHex(a, b, t); }
 
-function hexToRgb(h) {
+export function hexToRgb(h) {
   const n = parseInt(h.slice(1), 16);
   return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
 }
 
-function rgbToHex(r, g, b) {
+export function rgbToHex(r, g, b) {
   const c = (v) => Math.max(0, Math.min(255, v | 0)).toString(16).padStart(2, '0');
   return '#' + c(r) + c(g) + c(b);
 }
 
-function mixHex(a, b, t) {
+export function mixHex(a, b, t) {
   t = Math.max(0, Math.min(1, t));
   const A = hexToRgb(a);
   const B = hexToRgb(b);
   return rgbToHex(A.r + (B.r - A.r) * t, A.g + (B.g - A.g) * t, A.b + (B.b - A.b) * t);
 }
 
-function shadeHex(hex, mul) {
+export function shadeHex(hex, mul) {
   const c = hexToRgb(hex);
   return rgbToHex(c.r * mul, c.g * mul, c.b * mul);
 }
 
-function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particles, ents) {
+export function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particles, ents) {
   const sky = skyColors(timeOfDay);
   const g = ctx.createLinearGradient(0, 0, 0, H);
   g.addColorStop(0, sky.top);
@@ -126,8 +141,7 @@ function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particles, ent
     const hsy = (ui.hoverTy - cam.y) * ts + H / 2;
     ctx.save();
     // White while aiming; blue-ish when placing (not hold-mining)
-    ctx.strokeStyle = (ui.hoverTx != null && typeof getSession === 'function' && getSession()
-      && getSession().input && getSession().input.holdMining)
+    ctx.strokeStyle = (ui.hoverTx != null && ui.holdMining)
       ? 'rgba(255,200,100,0.9)'
       : 'rgba(140,210,255,0.85)';
     ctx.lineWidth = 2;
@@ -144,7 +158,7 @@ function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particles, ent
     drawCrack(ctx, sx, sy, ts, p);
   }
 
-  if (ents && typeof drawEntities === 'function') drawEntities(ctx, ents, cam, ts);
+  if (ents) drawEntities(ctx, ents, cam, ts);
   if (particles) drawParticles(ctx, particles, cam, ts);
 
   drawPlayer(ctx, player, cam, ts);
@@ -168,7 +182,7 @@ function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particles, ent
   if (ui.bagOpen) drawBagPanel(ctx, inv, ui);
 }
 
-function drawRain(ctx, intensity, cam, timeOfDay) {
+export function drawRain(ctx, intensity, cam, timeOfDay) {
   ctx.save();
   ctx.strokeStyle = `rgba(180,210,255,${0.25 + intensity * 0.35})`;
   ctx.lineWidth = 1;
@@ -185,7 +199,7 @@ function drawRain(ctx, intensity, cam, timeOfDay) {
   ctx.restore();
 }
 
-function nearestViewX(camX, tileX) {
+export function nearestViewX(camX, tileX) {
   const base = wrapX(tileX);
   let best = base;
   let bestD = Infinity;
@@ -198,7 +212,7 @@ function nearestViewX(camX, tileX) {
 }
 
 /** Soft ambient occlusion — keep light so seams don't look like a grid. */
-function blockAO(world, x, y) {
+export function blockAO(world, x, y) {
   let s = 0;
   if (isSolid(world, x - 1, y)) s += 0.04;
   if (isSolid(world, x + 1, y)) s += 0.04;
@@ -207,7 +221,7 @@ function blockAO(world, x, y) {
   return Math.min(0.18, s);
 }
 
-function drawCelestial(ctx, sky, timeOfDay) {
+export function drawCelestial(ctx, sky, timeOfDay) {
   const ang = timeOfDay * Math.PI * 2 - Math.PI / 2;
   const cx = W / 2 + Math.cos(ang) * (W * 0.38);
   const cy = H * 0.38 + Math.sin(ang) * (H * 0.3);
@@ -253,7 +267,7 @@ function drawCelestial(ctx, sky, timeOfDay) {
   }
 }
 
-function drawClouds(ctx, camX, sky, timeOfDay) {
+export function drawClouds(ctx, camX, sky, timeOfDay) {
   if (sky.day < 0.15) return;
   const img = textures.clouds;
   const t = timeOfDay;
@@ -279,7 +293,7 @@ function drawClouds(ctx, camX, sky, timeOfDay) {
   ctx.restore();
 }
 
-function drawParallax(ctx, camX, day) {
+export function drawParallax(ctx, camX, day) {
   ctx.save();
   const far = mixHex('#3a5c48', '#151a28', 1 - day);
   const near = mixHex('#2d4a38', '#1a2030', 1 - day);
@@ -304,21 +318,21 @@ function drawParallax(ctx, camX, day) {
 }
 
 /** Terrain types that should look seamless rather than toy-cubes. */
-function isTerrainBlock(id) {
+export function isTerrainBlock(id) {
   return id === BLOCK.GRASS || id === BLOCK.DIRT || id === BLOCK.STONE || id === BLOCK.SAND
     || id === BLOCK.SNOW || id === BLOCK.CLAY || id === BLOCK.COAL || id === BLOCK.IRON
     || id === BLOCK.GOLD || id === BLOCK.COPPER || id === BLOCK.BEDROCK || id === BLOCK.PLANKS
     || id === BLOCK.BRICK || id === BLOCK.WOOD;
 }
 
-function drawBlock(ctx, sx, sy, ts, id, lightMul, wx, ty, ao) {
+export function drawBlock(ctx, sx, sy, ts, id, lightMul, wx, ty, ao) {
   const m = BLOCK_META[id];
   if (!m || !m.color) return;
   ao = ao || 0;
   const alpha = m.alpha != null ? m.alpha : 1;
-  const cube = typeof getCubeTex === 'function' ? getCubeTex(id) : null;
-  const face = typeof getTileTex === 'function' ? getTileTex(id) : null;
-  const soft = typeof getSoftTex === 'function' ? getSoftTex(id) : face;
+  const cube = getCubeTex(id);
+  const face = getTileTex(id);
+  const soft = getSoftTex(id) || face;
 
   ctx.save();
   ctx.globalAlpha = alpha;
@@ -436,7 +450,7 @@ function drawBlock(ctx, sx, sy, ts, id, lightMul, wx, ty, ao) {
   ctx.restore();
 }
 
-function drawTexturedCube(ctx, sx, sy, ts, face, id) {
+export function drawTexturedCube(ctx, sx, sy, ts, face, id) {
   const depth = Math.max(3, ts * 0.18);
   ctx.imageSmoothingEnabled = false;
 
@@ -473,7 +487,7 @@ function drawTexturedCube(ctx, sx, sy, ts, face, id) {
   ctx.restore();
 }
 
-function drawFurniture(ctx, sx, sy, ts, id, lightMul) {
+export function drawFurniture(ctx, sx, sy, ts, id, lightMul) {
   const L = 0.5 + 0.5 * lightMul;
   if (id === BLOCK.PLATFORM) {
     ctx.fillStyle = shadeHex('#c4a060', L);
@@ -540,7 +554,7 @@ function drawFurniture(ctx, sx, sy, ts, id, lightMul) {
   }
 }
 
-function drawCrack(ctx, sx, sy, ts, p) {
+export function drawCrack(ctx, sx, sy, ts, p) {
   const stage = Math.min(4, Math.floor(p * 5));
   if (textures.crack && textures.crack[stage]) {
     ctx.globalAlpha = 0.55 + p * 0.4;
@@ -564,7 +578,7 @@ function drawCrack(ctx, sx, sy, ts, p) {
   ctx.restore();
 }
 
-function drawPlayer(ctx, p, cam, ts) {
+export function drawPlayer(ctx, p, cam, ts) {
   const sx = (p.x - cam.x) * ts + W / 2;
   const sy = (p.y - cam.y) * ts + H / 2;
   const pw = p.w * ts;
@@ -700,7 +714,7 @@ function drawPlayer(ctx, p, cam, ts) {
   ctx.restore();
 }
 
-function roundRect(ctx, x, y, w, h, r) {
+export function roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
   ctx.arcTo(x + w, y, x + w, y + h, r);
@@ -710,7 +724,7 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-function drawHUD(ctx, player, inv, world, cam, ui, sky) {
+export function drawHUD(ctx, player, inv, world, cam, ui, sky) {
   // Status bars — clear top-left (menu chrome lives above the hotbar now)
   const barX = 12;
   const barY = 10;
@@ -721,7 +735,7 @@ function drawHUD(ctx, player, inv, world, cam, ui, sky) {
   // Coords + biome under bars
   const bx2 = wrapX(Math.floor(player.x));
   const by2 = Math.floor(player.y);
-  const biome = typeof biomeNameAt === 'function' ? biomeNameAt(world, player.x) : '';
+  const biome = biomeNameAt(world, player.x);
   ctx.fillStyle = 'rgba(6,14,10,0.55)';
   roundRect(ctx, 12, 62, 150, 34, 8);
   ctx.fill();
@@ -824,7 +838,7 @@ function drawHUD(ctx, player, inv, world, cam, ui, sky) {
   ctx.textAlign = 'left';
   const tname = (TOOLS[inv.tool] && TOOLS[inv.tool].name) || 'Hands';
   ctx.fillText('Tool: ' + tname, 20, 115);
-  const bu = typeof bagUsed === 'function' ? bagUsed(inv) : 0;
+  const bu = bagUsed(inv);
   ctx.fillStyle = bu >= BAG_SIZE ? '#ff8a80' : '#9ec5b0';
   ctx.font = '600 10px system-ui';
   ctx.fillText('🎒 Backpack ' + bu + '/' + BAG_SIZE, 20, 130);
@@ -861,7 +875,7 @@ function drawHUD(ctx, player, inv, world, cam, ui, sky) {
   }
 }
 
-function drawBar(ctx, x, y, w, h, pct, color, icon) {
+export function drawBar(ctx, x, y, w, h, pct, color, icon) {
   ctx.fillStyle = 'rgba(0,0,0,0.5)';
   roundRect(ctx, x, y, w, h, 6);
   ctx.fill();
@@ -880,7 +894,7 @@ function drawBar(ctx, x, y, w, h, pct, color, icon) {
   ctx.fillText(icon, x + 4, y + h - 2);
 }
 
-function drawItemIcon(ctx, x, y, s, id) {
+export function drawItemIcon(ctx, x, y, s, id) {
   if (isTool(id)) {
     const metal = id.indexOf('gold') >= 0 ? '#ffd700' : id.indexOf('iron') >= 0 ? '#c5ced6' : id.indexOf('stone') >= 0 ? '#8a9098' : '#c4a060';
     ctx.strokeStyle = '#6b4420';
@@ -962,8 +976,8 @@ function drawItemIcon(ctx, x, y, s, id) {
     return;
   }
   if (typeof id === 'number') {
-    const cube = typeof getCubeTex === 'function' ? getCubeTex(id) : null;
-    const face = typeof getTileTex === 'function' ? getTileTex(id) : null;
+    const cube = getCubeTex(id);
+    const face = getTileTex(id);
     ctx.imageSmoothingEnabled = false;
     if (cube) ctx.drawImage(cube, x, y, s, s);
     else if (face) ctx.drawImage(face, x, y, s, s);
@@ -971,7 +985,7 @@ function drawItemIcon(ctx, x, y, s, id) {
   }
 }
 
-function drawMinimap(ctx, world, player, cam) {
+export function drawMinimap(ctx, world, player, cam) {
   const mw = 88;
   const mh = 56;
   const mx = W - mw - 12;
@@ -1014,7 +1028,7 @@ function drawMinimap(ctx, world, player, cam) {
   ctx.strokeRect(mx - 4.5, my - 4.5, mw + 8, mh + 8);
 }
 
-function drawInvSlot(ctx, x, y, cell, slot, selected) {
+export function drawInvSlot(ctx, x, y, cell, slot, selected) {
   ctx.fillStyle = selected ? 'rgba(125,255,160,0.2)' : 'rgba(255,255,255,0.07)';
   roundRect(ctx, x, y, cell, cell, 8);
   ctx.fill();
@@ -1037,7 +1051,7 @@ function drawInvSlot(ctx, x, y, cell, slot, selected) {
   }
 }
 
-function drawChestPanel(ctx, inv, ui) {
+export function drawChestPanel(ctx, inv, ui) {
   const pw = 340;
   const ph = 560;
   const px = (W - pw) / 2;
@@ -1111,7 +1125,7 @@ function drawChestPanel(ctx, inv, ui) {
 
   // Bag
   const bLabelY = hy + cell + 22;
-  const used = typeof bagUsed === 'function' ? bagUsed(inv) : 0;
+  const used = bagUsed(inv);
   ctx.fillStyle = '#7dffa0';
   ctx.font = '700 13px system-ui';
   ctx.fillText('Backpack ' + used + '/' + BAG_SIZE, px + 16, bLabelY);
@@ -1133,7 +1147,7 @@ function drawChestPanel(ctx, inv, ui) {
   ctx.fillText(ui.invPick ? 'Tap a slot to move there · tap again to cancel' : 'Tap item to pick up · ⚒ to close', W / 2, py + ph - 14);
 }
 
-function drawBagPanel(ctx, inv, ui) {
+export function drawBagPanel(ctx, inv, ui) {
   const pw = 340;
   const ph = 480;
   const px = (W - pw) / 2;
@@ -1150,7 +1164,7 @@ function drawBagPanel(ctx, inv, ui) {
   ctx.lineWidth = 2;
   ctx.stroke();
 
-  const used = typeof bagUsed === 'function' ? bagUsed(inv) : 0;
+  const used = bagUsed(inv);
   ctx.fillStyle = '#7dffa0';
   ctx.font = '700 20px system-ui';
   ctx.textAlign = 'left';
@@ -1224,7 +1238,7 @@ function drawBagPanel(ctx, inv, ui) {
   );
 }
 
-function drawCraftPanel(ctx, inv, world, player, ui) {
+export function drawCraftPanel(ctx, inv, world, player, ui) {
   const pw = 340;
   const ph = 520;
   const px = (W - pw) / 2;
@@ -1261,8 +1275,8 @@ function drawCraftPanel(ctx, inv, world, player, ui) {
   ui.craftHit.push({ kind: 'close', x: cx, y: cy, w: 32, h: 32 });
 
   // Station status
-  const atBench = nearWorkbench(world, player.x, player.y);
-  const atFurn = typeof nearBlock === 'function' && nearBlock(world, player.x, player.y, BLOCK.FURNACE, 3);
+  const atBench = stationAvailable(world, player.x, player.y, 'workbench');
+  const atFurn = stationAvailable(world, player.x, player.y, 'furnace');
   ctx.font = '11px system-ui';
   ctx.textAlign = 'left';
   ctx.fillStyle = atBench ? '#7dffa0' : '#8899aa';
@@ -1272,11 +1286,7 @@ function drawCraftPanel(ctx, inv, world, player, ui) {
 
   // Tabs
   const tabY = py + 80;
-  const tabs = typeof CRAFT_TABS !== 'undefined' ? CRAFT_TABS : [
-    { id: 'basic', label: 'Basic' },
-    { id: 'tools', label: 'Tools' },
-    { id: 'smelt', label: 'Smelt' },
-  ];
+  const tabs = CRAFT_TABS;
   const tabW = (pw - 36) / tabs.length;
   if (!ui.craftTab) ui.craftTab = 'basic';
   for (let i = 0; i < tabs.length; i++) {
@@ -1299,9 +1309,7 @@ function drawCraftPanel(ctx, inv, world, player, ui) {
   }
 
   // Recipe list
-  const rows = typeof recipesInTab === 'function'
-    ? recipesInTab(ui.craftTab, world, player.x, player.y)
-    : [];
+  const rows = recipesInTab(ui.craftTab, world, player.x, player.y);
   const listTop = tabY + 44;
   const listH = 200;
   const rowH = 48;
@@ -1356,32 +1364,46 @@ function drawCraftPanel(ctx, inv, world, player, ui) {
     const outId = r.out[0];
     drawItemIcon(ctx, px + 20, y + 8, 30, outId);
 
-    ctx.fillStyle = can ? '#f0fff6' : '#99a';
-    ctx.font = '700 14px system-ui';
+    // Name (single line, ellipsize if long)
+    ctx.fillStyle = can ? '#f0fff6' : '#99aabb';
+    ctx.font = '700 13px system-ui';
     ctx.textAlign = 'left';
-    ctx.fillText(r.name, px + 58, y + 22);
-
-    // Material chips: have/need
-    let mx = px + 58;
-    ctx.font = '600 11px system-ui';
-    for (const [id, n] of r.in) {
-      const have = countItem(inv, id);
-      const okM = have >= n;
-      ctx.fillStyle = okM ? 'rgba(125,255,160,0.2)' : 'rgba(255,100,100,0.18)';
-      const label = have + '/' + n + ' ' + itemName(id);
-      const tw = Math.min(110, ctx.measureText(label).width + 10);
-      roundRect(ctx, mx, y + 28, tw, 14, 4);
-      ctx.fill();
-      ctx.fillStyle = okM ? '#b8f5c8' : '#ffb0b0';
-      ctx.fillText(label, mx + 5, y + 39);
-      mx += tw + 4;
-      if (mx > px + pw - 70) break;
+    const nameMaxW = pw - 100;
+    let name = r.name;
+    if (ctx.measureText(name).width > nameMaxW) {
+      while (name.length > 4 && ctx.measureText(name + '…').width > nameMaxW) {
+        name = name.slice(0, -1);
+      }
+      name += '…';
     }
+    ctx.fillText(name, px + 58, y + 18);
 
+    // Second line: locked station badge OR material chips (never both overlapping the name)
     if (!row.stationOk) {
-      ctx.fillStyle = '#ffb347';
+      const hint = stationHint(r.station) || 'Need station';
       ctx.font = '600 10px system-ui';
-      ctx.fillText(stationHint(r.station), px + 58, y + 14);
+      const hw = Math.min(pw - 100, ctx.measureText(hint).width + 12);
+      ctx.fillStyle = 'rgba(255, 160, 60, 0.22)';
+      roundRect(ctx, px + 58, y + 24, hw, 16, 5);
+      ctx.fill();
+      ctx.fillStyle = '#ffc878';
+      ctx.fillText(hint, px + 64, y + 36);
+    } else {
+      let mx = px + 58;
+      ctx.font = '600 10px system-ui';
+      for (const [id, n] of r.in) {
+        const have = countItem(inv, id);
+        const okM = have >= n;
+        ctx.fillStyle = okM ? 'rgba(125,255,160,0.2)' : 'rgba(255,100,100,0.18)';
+        const label = have + '/' + n + ' ' + itemName(id);
+        const tw = Math.min(100, ctx.measureText(label).width + 10);
+        if (mx + tw > px + pw - 60) break;
+        roundRect(ctx, mx, y + 24, tw, 16, 5);
+        ctx.fill();
+        ctx.fillStyle = okM ? '#b8f5c8' : '#ffb0b0';
+        ctx.fillText(label, mx + 5, y + 36);
+        mx += tw + 4;
+      }
     }
 
     ui.craftHit.push({

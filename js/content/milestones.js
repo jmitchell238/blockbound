@@ -1,0 +1,17 @@
+export const MILESTONES = {
+  first_mine: 'First block mined!',
+  first_craft: 'First craft!',
+  first_tool: 'Tool time!',
+  first_torch: 'Let there be light!',
+  first_bed: 'Home sweet bed!',
+  first_furnace: 'Fired up the furnace!',
+  deep_dig: 'Deep underground…',
+  loop: 'Circumnavigated the world! 🌍',
+  fed: 'A proper meal!',
+  first_boat: 'Set sail!',
+  first_platform: 'Skywalk ready!',
+  survived_night: 'Survived the night!',
+  first_campfire: 'Warmth!',
+  first_sword: 'Armed and ready!',
+  first_kill: 'Monster down!',
+};

@@ -1,4 +1,5 @@
-'use strict';
+import { W, H, TILE } from '../core/constants.js';
+import { HOTBAR_SIZE } from '../inventory/inventory.js';
 
 /**
  * Controls:
@@ -7,9 +8,10 @@
  *  - No mine/place mode toggle
  */
 
-const HOLD_MINE_MS = 200;
+/** Hold this long to dig (short press still places / attacks). */
+export const HOLD_MINE_MS = 160;
 
-function makeInput() {
+export function makeInput() {
   return {
     left: false,
     right: false,
@@ -42,7 +44,7 @@ function makeInput() {
   };
 }
 
-function bindInput(input, canvas, getCam) {
+export function bindInput(input, canvas, getCam) {
   const onKey = (e, down) => {
     const k = e.key.toLowerCase();
     input.keys[k] = down;
@@ -114,12 +116,12 @@ function bindInput(input, canvas, getCam) {
   canvas.addEventListener('contextmenu', e => e.preventDefault());
 }
 
-function handlePointer(input, p, phase, getCam) {
+export function handlePointer(input, p, phase, getCam) {
   const inStick = p.x < 140 && p.y > H - 240;
   const inJump = p.x > W - 130 && p.y > H - 230 && p.y < H - 90;
   const inHotbar = p.y > H - 70;
-  // Bottom chrome buttons zone — don't treat as world
-  const inChrome = p.y > H - 120 && p.x < 340;
+  // Stick + jump only — HTML chrome buttons are separate DOM and don't need a canvas dead-zone.
+  // (A wide dead-zone here blocked mining/placing on the lower world.)
 
   if (phase === 'down') {
     if (inHotbar) {
@@ -141,7 +143,6 @@ function handlePointer(input, p, phase, getCam) {
       updateStick(input, p);
       return;
     }
-    if (inChrome) return;
 
     // World press — may become hold-mine or tap-place
     input.pointerDown = true;
@@ -199,7 +200,7 @@ function handlePointer(input, p, phase, getCam) {
   }
 }
 
-function updateStick(input, p) {
+export function updateStick(input, p) {
   const cx = 70;
   const cy = H - 160;
   const dx = (p.x - cx) / 48;
@@ -210,7 +211,7 @@ function updateStick(input, p) {
   input.stickY = (dy / len) * m;
 }
 
-function mapPointerToTile(input, p, cam) {
+export function mapPointerToTile(input, p, cam) {
   const ts = TILE * ((cam && cam.zoom) || 1);
   const tx = Math.floor(cam.x + (p.x - W / 2) / ts);
   const ty = Math.floor(cam.y + (p.y - H / 2) / ts);
@@ -226,7 +227,7 @@ function mapPointerToTile(input, p, cam) {
 /**
  * Call each frame: promote long press to mining.
  */
-function updateHoldMine(input) {
+export function updateHoldMine(input) {
   if (!input.pointerDown || input.holdMining) return;
   if (!input.pressStart) return;
   if (performance.now() - input.pressStart >= HOLD_MINE_MS) {
@@ -236,7 +237,7 @@ function updateHoldMine(input) {
   }
 }
 
-function pollInput(input, mode, cam) {
+export function pollInput(input, mode, cam) {
   const k = input.keys;
   input.left = !!(k['a'] || k['arrowleft']);
   input.right = !!(k['d'] || k['arrowright']);

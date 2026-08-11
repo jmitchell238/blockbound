@@ -1,11 +1,11 @@
-'use strict';
+import { W, H } from '../core/constants.js';
 
 /** Lightweight mining / place / spark particles. */
-function makeParticleSystem() {
+export function makeParticleSystem() {
   return { list: [] };
 }
 
-function spawnBurst(ps, x, y, color, n) {
+export function spawnBurst(ps, x, y, color, n) {
   n = n || 8;
   for (let i = 0; i < n; i++) {
     const a = Math.random() * Math.PI * 2;
@@ -22,7 +22,7 @@ function spawnBurst(ps, x, y, color, n) {
   }
 }
 
-function updateParticles(ps, dt) {
+export function updateParticles(ps, dt) {
   for (let i = ps.list.length - 1; i >= 0; i--) {
     const p = ps.list[i];
     p.life -= dt;
@@ -36,7 +36,7 @@ function updateParticles(ps, dt) {
   }
 }
 
-function drawParticles(ctx, ps, cam, ts) {
+export function drawParticles(ctx, ps, cam, ts) {
   for (const p of ps.list) {
     const sx = (p.x - cam.x) * ts + W / 2;
     const sy = (p.y - cam.y) * ts + H / 2;

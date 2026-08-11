@@ -1,25 +1,46 @@
-// Blockbound — bump with GAME_VERSION in js/config.js
-const CACHE = 'blockbound-1.5.003';
+// Blockbound — keep CACHE in sync with GAME_VERSION in js/core/constants.js
+const CACHE = 'blockbound-1.6.001';
 
 const ASSETS = [
   './',
   './index.html',
   './css/style.css',
-  './js/config.js',
-  './js/rng.js',
-  './js/world.js',
-  './js/player.js',
-  './js/inventory.js',
-  './js/interact.js',
-  './js/entities.js',
-  './js/textures.js',
-  './js/particles.js',
-  './js/render.js',
-  './js/input.js',
-  './js/audio.js',
-  './js/save.js',
-  './js/game.js',
   './js/main.js',
+  './js/core/constants.js',
+  './js/core/worldSize.js',
+  './js/core/rng.js',
+  './js/content/blocks.js',
+  './js/content/tools.js',
+  './js/content/recipes.js',
+  './js/content/milestones.js',
+  './js/content/items.js',
+  './js/world/index.js',
+  './js/player/index.js',
+  './js/inventory/inventory.js',
+  './js/interact/index.js',
+  './js/interact/meta.js',
+  './js/interact/use.js',
+  './js/interact/stations.js',
+  './js/interact/milestones.js',
+  './js/entities/index.js',
+  './js/entities/state.js',
+  './js/entities/mobs.js',
+  './js/entities/draw.js',
+  './js/textures/textures.js',
+  './js/particles/particles.js',
+  './js/render/index.js',
+  './js/input/input.js',
+  './js/audio/audio.js',
+  './js/save/save.js',
+  './js/session/index.js',
+  './js/session/GameController.js',
+  './js/systems/survival.js',
+  './js/systems/camera.js',
+  './js/systems/weather.js',
+  './js/systems/autosave.js',
+  './js/ui/toast.js',
+  './js/compat/api.js',
+  './js/compat/entities_bridge.js',
   './manifest.webmanifest',
   './icons/icon-180.png',
   './icons/icon-192.png',
@@ -112,8 +133,12 @@ self.addEventListener('fetch', e => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
   if (url.pathname.endsWith('/sw.js')) return;
-  // Always fresh shell HTML / config for version checks
-  if (url.pathname.endsWith('.html') || url.pathname.endsWith('/') || url.pathname.endsWith('config.js')) {
+  // Always fresh shell / version constants
+  if (
+    url.pathname.endsWith('.html') ||
+    url.pathname.endsWith('/') ||
+    url.pathname.endsWith('constants.js')
+  ) {
     e.respondWith(networkFirst(request));
     return;
   }

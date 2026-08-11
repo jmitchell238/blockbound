@@ -1,13 +1,11 @@
-'use strict';
-
 let actx = null;
 let muted = false;
 
-function audioSetMuted(m) {
+export function audioSetMuted(m) {
   muted = !!m;
 }
 
-function ensureAudio() {
+export function ensureAudio() {
   if (!actx) {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return null;
@@ -17,7 +15,7 @@ function ensureAudio() {
   return actx;
 }
 
-function beep(freq, dur, type, gain) {
+export function beep(freq, dur, type, gain) {
   if (muted) return;
   const ctx = ensureAudio();
   if (!ctx) return;
@@ -34,39 +32,39 @@ function beep(freq, dur, type, gain) {
   o.stop(t0 + dur + 0.02);
 }
 
-function sfxMine() {
+export function sfxMine() {
   beep(120 + Math.random() * 40, 0.06, 'triangle', 0.05);
 }
 
-function sfxPlace() {
+export function sfxPlace() {
   beep(320, 0.05, 'square', 0.03);
 }
 
-function sfxCraft() {
+export function sfxCraft() {
   beep(440, 0.08, 'sine', 0.04);
   setTimeout(() => beep(550, 0.1, 'sine', 0.04), 80);
 }
 
-function sfxHurt() {
+export function sfxHurt() {
   beep(90, 0.15, 'sawtooth', 0.05);
 }
 
-function sfxPickup() {
+export function sfxPickup() {
   beep(520, 0.05, 'sine', 0.035);
   setTimeout(() => beep(680, 0.06, 'sine', 0.03), 40);
 }
 
-function sfxJump() {
+export function sfxJump() {
   beep(180, 0.05, 'square', 0.025);
   beep(260, 0.06, 'square', 0.02);
 }
 
-function sfxDoor() {
+export function sfxDoor() {
   beep(140, 0.08, 'triangle', 0.04);
   setTimeout(() => beep(100, 0.06, 'triangle', 0.03), 50);
 }
 
-function sfxSleep() {
+export function sfxSleep() {
   beep(320, 0.12, 'sine', 0.03);
   setTimeout(() => beep(240, 0.18, 'sine', 0.025), 100);
 }
