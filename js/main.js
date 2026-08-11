@@ -314,13 +314,12 @@ function wireUI() {
       s.ui.bagOpen = !s.ui.bagOpen;
     });
   }
-  document.getElementById('btnMode').addEventListener('click', () => {
-    const s = getSession();
-    if (!s) return;
-    s.ui.mode = s.ui.mode === 'mine' ? 'place' : 'mine';
-    document.getElementById('btnMode').textContent = s.ui.mode === 'mine' ? '⛏ Mine' : '🧱 Place';
-    toast(s.ui, s.ui.mode === 'place' ? 'Place mode' : 'Mine mode');
-  });
+  // Mine/Place toggle removed — tap = place, hold = dig
+  const modeBtn = document.getElementById('btnMode');
+  if (modeBtn) {
+    modeBtn.classList.add('hidden');
+    modeBtn.style.display = 'none';
+  }
   const useBtn = document.getElementById('btnUse');
   if (useBtn) {
     useBtn.addEventListener('click', () => {

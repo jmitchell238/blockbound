@@ -125,7 +125,11 @@ function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particles, ent
     const hsx = (htx - cam.x) * ts + W / 2;
     const hsy = (ui.hoverTy - cam.y) * ts + H / 2;
     ctx.save();
-    ctx.strokeStyle = ui.mode === 'place' ? 'rgba(100,200,255,0.85)' : 'rgba(255,255,255,0.7)';
+    // White while aiming; blue-ish when placing (not hold-mining)
+    ctx.strokeStyle = (ui.hoverTx != null && typeof getSession === 'function' && getSession()
+      && getSession().input && getSession().input.holdMining)
+      ? 'rgba(255,200,100,0.9)'
+      : 'rgba(140,210,255,0.85)';
     ctx.lineWidth = 2;
     ctx.strokeRect(hsx + 1, hsy + 1, ts - 2, ts - 2);
     ctx.restore();
@@ -770,16 +774,6 @@ function drawHUD(ctx, player, inv, world, cam, ui, sky) {
     ctx.font = '600 12px system-ui';
     ctx.textAlign = 'center';
     ctx.fillText(ui.prompt, W / 2, H - 100);
-  }
-
-  if (ui.mode === 'place') {
-    ctx.fillStyle = 'rgba(60,160,255,0.9)';
-    roundRect(ctx, W / 2 - 42, 10, 84, 24, 10);
-    ctx.fill();
-    ctx.fillStyle = '#fff';
-    ctx.font = '700 12px system-ui';
-    ctx.textAlign = 'center';
-    ctx.fillText('PLACE', W / 2, 27);
   }
 
   // Hotbar with textured icons

@@ -172,8 +172,7 @@ function gameUpdate(dt) {
     input.bagToggle = false;
   }
   if (input.modeToggle) {
-    ui.mode = ui.mode === 'mine' ? 'place' : 'mine';
-    toast(ui, ui.mode === 'place' ? 'Place mode (Q to mine)' : 'Mine mode (Q to place)');
+    // Legacy no-op (mine/place is tap vs hold now)
     input.modeToggle = false;
   }
   if (input.hotbarTap >= 0) {
@@ -182,13 +181,16 @@ function gameUpdate(dt) {
     input.hotbarTap = -1;
   }
 
-  // Hover target for outline
-  if (input.mineTx != null) {
+  // Hover under finger
+  if (input.holdMining && input.mineTx != null) {
     ui.hoverTx = input.mineTx;
     ui.hoverTy = input.mineTy;
   } else if (input.placeTx != null) {
     ui.hoverTx = input.placeTx;
     ui.hoverTy = input.placeTy;
+  } else if (input.tapPlace) {
+    ui.hoverTx = input.tapPlace.tx;
+    ui.hoverTy = input.tapPlace.ty;
   }
 
   // Use / interact (F)
@@ -265,31 +267,10 @@ function gameUpdate(dt) {
     minePower = toolPowerFor(inv, getTile(world, player.mining.tx, player.mining.ty));
   }
 
-  if (input.pointerDown && ui.mode === 'place') {
+  // Hold-to-mine only: clear mine targets until hold engages
+  if (input.pointerDown && !input.holdMining) {
     input.mineTx = null;
     input.mineTy = null;
-  }
-
-  // Tap near a mob (or empty air while they're close) → sword swing instead of mine
-  if (input.pointerDown && ui.mode === 'mine' && player.attackCd <= 0) {
-    let nearMob = false;
-    if (ents.hostiles) {
-      for (const h of ents.hostiles) {
-        if (Math.hypot(wrapDeltaX(player.x, h.x), (player.y - 0.5) - h.y) < 2.5) {
-          nearMob = true;
-          break;
-        }
-      }
-    }
-    if (nearMob) {
-      const tid = input.mineTx != null ? getTile(world, input.mineTx, input.mineTy) : BLOCK.AIR;
-      // Prefer attack over mining air / leaves when a monster is in range
-      if (tid === BLOCK.AIR || tid === BLOCK.WATER || tid === BLOCK.LEAVES || input.mineTx == null) {
-        input.mineTx = null;
-        input.mineTy = null;
-        doPlayerAttack(s);
-      }
-    }
   }
 
   const prevX = player.x;
@@ -358,30 +339,46 @@ function gameUpdate(dt) {
     if (result.fall) toast(ui, 'Ouch — fall damage!');
   }
 
-  // Place / bucket
-  const wantPlace = (input.pointerDown && ui.mode === 'place') || input._rightPlace || input._rightHeld;
-  if (wantPlace && input.placeTx != null) {
+  // TAP place (short press) — HOLD digs via mineTx
+  if (input.tapPlace) {
+    const ptx = input.tapPlace.tx;
+    const pty = input.tapPlace.ty;
+    input.tapPlace = null;
+
+    let nearMob = false;
+    if (ents.hostiles) {
+      for (const h of ents.hostiles) {
+        if (Math.hypot(wrapDeltaX(player.x, h.x), (player.y - 0.5) - h.y) < 2.5) {
+          nearMob = true;
+          break;
+        }
+      }
+    }
     const slot = selectedSlot(inv);
-    if (slot && (slot.id === 'bucket' || slot.id === 'bucket_water')) {
-      const r = tryBucket(inv, world, player, input.placeTx, input.placeTy);
+    const tid = getTile(world, ptx, pty);
+
+    if (nearMob && (tid === BLOCK.AIR || tid === BLOCK.WATER || tid === BLOCK.LEAVES
+        || !slot || !isBlockItem(slot.id))) {
+      doPlayerAttack(s);
+    } else if (slot && (slot.id === 'bucket' || slot.id === 'bucket_water')) {
+      const r = tryBucket(inv, world, player, ptx, pty);
       if (r) {
         if (r.ok) { sfxPlace(); toast(ui, r.msg); }
         else toast(ui, r.reason);
       }
     } else if (slot && isBlockItem(slot.id)) {
-      if (tryPlace(player, world, input.placeTx, input.placeTy, slot.id)) {
+      if (tryPlace(player, world, ptx, pty, slot.id)) {
         removeItem(inv, slot.id, 1);
         sfxPlace();
         const m = BLOCK_META[slot.id];
-        spawnBurst(s.particles, input.placeTx + 0.5, input.placeTy + 0.5, (m && m.color) || '#fff', 5);
+        spawnBurst(s.particles, ptx + 0.5, pty + 0.5, (m && m.color) || '#fff', 5);
         if (slot.id === BLOCK.BED) unlockMilestone(world.meta, stats, ui, 'first_bed');
         if (slot.id === BLOCK.FURNACE) unlockMilestone(world.meta, stats, ui, 'first_furnace');
         if (slot.id === BLOCK.TORCH) unlockMilestone(world.meta, stats, ui, 'first_torch');
         if (slot.id === BLOCK.CAMPFIRE) unlockMilestone(world.meta, stats, ui, 'first_campfire');
         if (slot.id === BLOCK.PLATFORM) unlockMilestone(world.meta, stats, ui, 'first_platform');
-        if (slot.id === BLOCK.CHEST) getChest(world.meta, input.placeTx, input.placeTy);
-        // Gravity cascade after place
-        tickGravityNear(world, input.placeTx, input.placeTy, 6);
+        if (slot.id === BLOCK.CHEST) getChest(world.meta, ptx, pty);
+        tickGravityNear(world, ptx, pty, 6);
       }
     } else if (slot && isFood(slot.id)) {
       const ate = tryEat(inv, player);
@@ -390,18 +387,14 @@ function gameUpdate(dt) {
         toast(ui, 'Ate ' + ate.food.name);
         unlockMilestone(world.meta, stats, ui, 'fed');
       }
-    } else if (slot && isTool(slot.id) && ui.mode === 'place') {
-      toast(ui, 'Select a block to place');
+    } else if (nearMob || (slot && isTool(slot.id) && isWeapon(slot.id))) {
+      doPlayerAttack(s);
     }
   }
+
   // Gravity after mine
   if (result.mined) {
     tickGravityNear(world, result.mined.tx, result.mined.ty, 8);
-  }
-  if (input._rightHeld || input._rightPlace) {
-    input.mineTx = null;
-    input.mineTy = null;
-    input._rightPlace = false;
   }
 
   // Entities
@@ -458,8 +451,10 @@ function gameUpdate(dt) {
     : (slot && slot.id === 'boat' ? 'F · Launch boat (in water)'
       : player.inBoat ? 'F · Leave boat'
       : slot && isFood(slot.id) ? 'F · Eat'
-      : slot && (slot.id === 'bucket' || slot.id === 'bucket_water') ? 'Place mode · use bucket'
-      : '');
+      : slot && (slot.id === 'bucket' || slot.id === 'bucket_water') ? 'Tap to use bucket'
+      : slot && isBlockItem(slot.id) ? 'Tap to place · hold to dig'
+      : 'Hold to dig · ⚔ to fight'
+      );
 
   // Camera
   const targetX = player.x;

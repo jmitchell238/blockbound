@@ -1,9 +1,13 @@
 'use strict';
 
 /**
- * Keyboard + touch controls for platformer sandbox.
- * Touch: left stick, jump button, tap world to mine/place, hotbar taps.
+ * Controls:
+ *  - TAP world  → place selected block (or attack if near a mob / empty hand)
+ *  - HOLD world → mine the block under your finger
+ *  - No mine/place mode toggle
  */
+
+const HOLD_MINE_MS = 200;
 
 function makeInput() {
   return {
@@ -19,11 +23,15 @@ function makeInput() {
     mineTy: null,
     placeTx: null,
     placeTy: null,
+    /** One-shot place from a short tap */
+    tapPlace: null, // { tx, ty }
     pointerDown: false,
     pointerX: 0,
     pointerY: 0,
+    pressStart: 0,
+    holdMining: false,
     craftToggle: false,
-    modeToggle: false,
+    modeToggle: false, // unused for mine/place; kept for compat
     usePressed: false,
     pauseToggle: false,
     bagToggle: false,
@@ -43,16 +51,17 @@ function bindInput(input, canvas, getCam) {
     }
     if (down) {
       if (k === 'c' || k === 'e') input.craftToggle = true;
-      if (k === 'q' || k === 'tab') {
-        e.preventDefault();
-        input.modeToggle = true;
-      }
       if (k === 'f' || k === 'enter') input.usePressed = true;
       if (k === 'escape' || k === 'p') input.pauseToggle = true;
       if (k === 'i' || k === 'b') input.bagToggle = true;
       if (k === 'x' || k === 'j' || k === 'control') input.attackPressed = true;
       if (k >= '1' && k <= '8') input.hotbarTap = parseInt(k, 10) - 1;
       if (k === ' ') input.jumpPressed = true;
+      // Q no longer toggles mode — optional attack
+      if (k === 'q') {
+        e.preventDefault();
+        input.attackPressed = true;
+      }
     }
   };
   window.addEventListener('keydown', e => onKey(e, true));
@@ -84,7 +93,6 @@ function bindInput(input, canvas, getCam) {
     const p = stagePos(e);
     pointers.set(e.pointerId, p);
     handlePointer(input, p, 'move', getCam);
-    if (input._rightHeld) mapPointerToTile(input, p, getCam());
   });
   canvas.addEventListener('pointerup', e => {
     const p = stagePos(e);
@@ -97,42 +105,21 @@ function bindInput(input, canvas, getCam) {
     input.stickY = 0;
     input.jump = false;
     input.pointerDown = false;
+    input.holdMining = false;
     input.mineTx = null;
     input.mineTy = null;
+    input.pressStart = 0;
   });
 
-  // Right-click = place (desktop); left-click = mine
-  canvas.addEventListener('contextmenu', e => {
-    e.preventDefault();
-    const p = stagePos(e);
-    const cam = getCam();
-    const tx = Math.floor(cam.x + (p.x - W / 2) / TILE);
-    const ty = Math.floor(cam.y + (p.y - H / 2) / TILE);
-    input.placeTx = tx;
-    input.placeTy = ty;
-    input._rightPlace = true;
-  });
-  canvas.addEventListener('mousedown', e => {
-    if (e.button === 2) {
-      input._rightHeld = true;
-      const p = stagePos(e);
-      mapPointerToTile(input, p, getCam());
-      input._rightPlace = true;
-    }
-  });
-  window.addEventListener('mouseup', e => {
-    if (e.button === 2) {
-      input._rightHeld = false;
-      input._rightPlace = false;
-    }
-  });
+  canvas.addEventListener('contextmenu', e => e.preventDefault());
 }
 
 function handlePointer(input, p, phase, getCam) {
-  // Virtual controls zones
   const inStick = p.x < 140 && p.y > H - 240;
   const inJump = p.x > W - 130 && p.y > H - 230 && p.y < H - 90;
   const inHotbar = p.y > H - 70;
+  // Bottom chrome buttons zone — don't treat as world
+  const inChrome = p.y > H - 120 && p.x < 340;
 
   if (phase === 'down') {
     if (inHotbar) {
@@ -154,12 +141,19 @@ function handlePointer(input, p, phase, getCam) {
       updateStick(input, p);
       return;
     }
-    // World interact
+    if (inChrome) return;
+
+    // World press — may become hold-mine or tap-place
     input.pointerDown = true;
+    input.holdMining = false;
+    input.pressStart = performance.now();
     input.pointerX = p.x;
     input.pointerY = p.y;
     input._worldId = p.id;
     mapPointerToTile(input, p, getCam());
+    // Don't mine yet until hold threshold
+    input.mineTx = null;
+    input.mineTy = null;
   }
 
   if (phase === 'move') {
@@ -168,6 +162,11 @@ function handlePointer(input, p, phase, getCam) {
       input.pointerX = p.x;
       input.pointerY = p.y;
       mapPointerToTile(input, p, getCam());
+      // If already hold-mining, keep mine target updated
+      if (input.holdMining) {
+        input.mineTx = input.placeTx;
+        input.mineTy = input.placeTy;
+      }
     }
   }
 
@@ -178,11 +177,22 @@ function handlePointer(input, p, phase, getCam) {
       input._stickId = null;
     }
     if (input._worldId === p.id) {
+      const held = performance.now() - (input.pressStart || 0);
+      const tx = input.placeTx;
+      const ty = input.placeTy;
+
+      if (!input.holdMining && held < HOLD_MINE_MS && tx != null && ty != null) {
+        // Short tap → place
+        input.tapPlace = { tx, ty };
+      }
+
       input.pointerDown = false;
+      input.holdMining = false;
       input.mineTx = null;
       input.mineTy = null;
       input.placeTx = null;
       input.placeTy = null;
+      input.pressStart = 0;
       input._worldId = null;
     }
     if (inJump || input.jump) input.jump = false;
@@ -204,31 +214,34 @@ function mapPointerToTile(input, p, cam) {
   const ts = TILE * ((cam && cam.zoom) || 1);
   const tx = Math.floor(cam.x + (p.x - W / 2) / ts);
   const ty = Math.floor(cam.y + (p.y - H / 2) / ts);
-  input.mineTx = tx;
-  input.mineTy = ty;
+  // placeTx always tracks finger tile; mineTx only while hold-mining
   input.placeTx = tx;
   input.placeTy = ty;
+  if (input.holdMining) {
+    input.mineTx = tx;
+    input.mineTy = ty;
+  }
 }
 
 /**
- * Poll keyboard into input each frame. mode: 'mine' | 'place'
+ * Call each frame: promote long press to mining.
  */
+function updateHoldMine(input) {
+  if (!input.pointerDown || input.holdMining) return;
+  if (!input.pressStart) return;
+  if (performance.now() - input.pressStart >= HOLD_MINE_MS) {
+    input.holdMining = true;
+    input.mineTx = input.placeTx;
+    input.mineTy = input.placeTy;
+  }
+}
+
 function pollInput(input, mode, cam) {
   const k = input.keys;
   input.left = !!(k['a'] || k['arrowleft']);
   input.right = !!(k['d'] || k['arrowright']);
   input.up = !!(k['w'] || k['arrowup']);
   input.down = !!(k['s'] || k['arrowdown']);
-  if (k[' '] || k['w'] || k['arrowup']) {
-    // jump also from space; climb uses up
-  }
   input.jump = !!(k[' '] || input.jump);
-
-  // Desktop mouse held mining via pointer already set
-  // Right-click place: if buttons — use mode toggle instead for simplicity
-  if (mode === 'place' && input.pointerDown) {
-    // place handled in game loop via placeTx
-  }
-
-  // Mouse position continuous for hover mine when button held — already in mapPointerToTile
+  updateHoldMine(input);
 }

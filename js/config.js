@@ -1,7 +1,7 @@
 'use strict';
 
 // Blockbound — keep CACHE in sw.js in sync: 'blockbound-' + GAME_VERSION
-const GAME_VERSION = '1.5.002';
+const GAME_VERSION = '1.5.003';
 const GAME_VERSION_LABEL = 'v' + GAME_VERSION;
 const GAME_NAME = 'Blockbound';
 
