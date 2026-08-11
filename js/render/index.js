@@ -874,15 +874,16 @@ export function drawPlayer(ctx, p, cam, ts, inv) {
 
   const img = getPlayerFrame(p, inv) || textures.player;
   if (img) {
-    // Fixed draw size for ALL frames so jump/mine never shrink the character.
-    // Sprites are authored on a shared 96×176 canvas with feet on the bottom.
-    const drawH = ph * (p.crouching ? 0.92 : 1.12);
-    const drawW = drawH * (96 / 176); // fixed aspect of our sprite canvas
+    // Fixed draw height for ALL frames so jump/mine never shrink the character.
+    // Width follows the sprite's natural aspect (feet authored on canvas bottom).
+    const drawH = ph * (p.crouching ? 0.92 : 1.15);
+    const aspect = (img.naturalWidth || img.width || 128) / (img.naturalHeight || img.height || 160);
+    const drawW = drawH * aspect;
     const footY = sy + (p.inBoat ? -6 : 0);
     ctx.save();
     ctx.translate(sx, footY);
     if (p.facing < 0) ctx.scale(-1, 1);
-    ctx.imageSmoothingEnabled = false; // crisp pixel art
+    ctx.imageSmoothingEnabled = true;
     ctx.drawImage(img, -drawW / 2, -drawH, drawW, drawH);
     ctx.restore();
   } else {

@@ -1,0 +1,5 @@
+FlatBoy / "The Boy" free sprites
+Source: https://opengameart.org/content/the-boy-free-sprites
+Original: GameArt2D.com (published on OpenGameArt as CC0)
+License: CC0 1.0 Universal — public domain dedication
+Recolored (shirt→orange, shorts→blue) for Blockbound.
