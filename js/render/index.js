@@ -93,35 +93,34 @@ export function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particl
   // Cave backdrop + smooth dynamic light (flicker + warm pulse)
   drawSmoothCaveBackdrop(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY, emitters, now);
 
-  // Solid blocks first, then non-solid (leaves, water, torch, ladder)
+  // Terrain → soft offscreen layer (feathered tiles + smooth light + blur) so no grid
+  drawBlendedTerrainLayer(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY, sky, emitters, now);
+
+  // Non-terrain solids + deferred non-solids (leaves, water, torch, ladder)
   const deferred = [];
   for (let ty = startTY; ty <= startTY + tilesY; ty++) {
     if (ty < 0 || ty >= WORLD_H) continue;
     for (let tx = startTX; tx <= startTX + tilesX; tx++) {
       const wx = wrapX(tx);
       const id = getTile(world, wx, ty);
-      if (id === BLOCK.AIR) continue;
+      if (id === BLOCK.AIR || isTerrainBlock(id)) continue;
       const meta = BLOCK_META[id];
       const sx = (tx - cam.x) * ts + W / 2;
       const sy = (ty - cam.y) * ts + H / 2;
-      // Average light at corners so neighboring solid faces blend softer
       let lvl = (
         sampleLight(world, wx + 0.2, ty + 0.2)
         + sampleLight(world, wx + 0.8, ty + 0.2)
         + sampleLight(world, wx + 0.2, ty + 0.8)
         + sampleLight(world, wx + 0.8, ty + 0.8)
       ) * 0.25;
-      // Subtle live pulse on lit faces near emitters
       const fl = emitterFlickerAt(wx + 0.5, ty + 0.5, emitters, now);
       if (lvl > 2) lvl = Math.min(15, lvl * (0.9 + 0.12 * fl));
       let dayMul = lightToBrightness(lvl, { ambient: 0.03 });
-      // Surface / open sky: blend in daylight
       const nearSurface = ty <= (world.surface[wx] || SURFACE_Y) + 1;
       if (nearSurface && lvl >= 8) {
         const skyMul = 0.2 + 0.8 * sky.day;
         dayMul = Math.max(dayMul, skyMul * lightToBrightness(lvl, { ambient: 0.15 }));
       }
-      // Warm tint on strongly lit underground faces
       if (!nearSurface && lvl > 5) {
         dayMul = Math.min(1.15, dayMul * (1 + (lvl / 15) * 0.12 * fl));
       }
@@ -254,11 +253,157 @@ export function nearestViewX(camX, tileX) {
 /** Soft ambient occlusion — very light so it doesn't outline every tile. */
 export function blockAO(world, x, y) {
   let s = 0;
-  if (isSolid(world, x - 1, y)) s += 0.015;
-  if (isSolid(world, x + 1, y)) s += 0.015;
-  if (isSolid(world, x, y - 1)) s += 0.01;
-  if (isSolid(world, x, y + 1)) s += 0.02;
-  return Math.min(0.06, s);
+  if (isSolid(world, x - 1, y)) s += 0.01;
+  if (isSolid(world, x + 1, y)) s += 0.01;
+  if (isSolid(world, x, y - 1)) s += 0.008;
+  if (isSolid(world, x, y + 1)) s += 0.012;
+  return Math.min(0.04, s);
+}
+
+/** Offscreen buffers for seamless terrain compositing. */
+let _terrainLayer = null;
+let _terrainLayerCtx = null;
+let _terrainLight = null;
+let _terrainLightCtx = null;
+
+/**
+ * Draw all terrain tiles onto a soft layer:
+ * 1) full-bright feathered textures with heavy overlap
+ * 2) smooth light multiply (no per-tile black squares)
+ * 3) slight blur so remaining seams melt
+ */
+function drawBlendedTerrainLayer(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY, sky, emitters, now) {
+  if (!_terrainLayer) {
+    _terrainLayer = document.createElement('canvas');
+    _terrainLayerCtx = _terrainLayer.getContext('2d');
+    _terrainLight = document.createElement('canvas');
+    _terrainLightCtx = _terrainLight.getContext('2d');
+  }
+  if (_terrainLayer.width !== W || _terrainLayer.height !== H) {
+    _terrainLayer.width = W;
+    _terrainLayer.height = H;
+    _terrainLight.width = W;
+    _terrainLight.height = H;
+  }
+  const tctx = _terrainLayerCtx;
+  const lctx = _terrainLightCtx;
+  tctx.clearRect(0, 0, W, H);
+  lctx.clearRect(0, 0, W, H);
+
+  // Build a smooth light field at ~3 samples/tile, upscale with bilinear
+  const RES = 3;
+  const padT = 1;
+  const tw = tilesX + 2 + padT * 2;
+  const th = tilesY + 2 + padT * 2;
+  const bw = Math.max(1, tw * RES);
+  const bh = Math.max(1, th * RES);
+  const otx = startTX - padT;
+  const oty = startTY - padT;
+
+  // Small light field canvas
+  if (!drawBlendedTerrainLayer._lf) {
+    drawBlendedTerrainLayer._lf = document.createElement('canvas');
+    drawBlendedTerrainLayer._lfc = drawBlendedTerrainLayer._lf.getContext('2d', { willReadFrequently: true });
+  }
+  const lf = drawBlendedTerrainLayer._lf;
+  const lfc = drawBlendedTerrainLayer._lfc;
+  if (lf.width !== bw || lf.height !== bh) {
+    lf.width = bw;
+    lf.height = bh;
+  }
+  const img = lfc.createImageData(bw, bh);
+  const data = img.data;
+
+  for (let j = 0; j < bh; j++) {
+    for (let i = 0; i < bw; i++) {
+      const p = (j * bw + i) * 4;
+      const fx = otx + (i + 0.5) / RES;
+      const fy = oty + (j + 0.5) / RES;
+      const tileX = Math.floor(fx);
+      const tileY = Math.floor(fy);
+      if (tileY < 0 || tileY >= WORLD_H) {
+        data[p] = data[p + 1] = data[p + 2] = 0;
+        data[p + 3] = 255;
+        continue;
+      }
+      const wx = wrapX(tileX);
+      let lvl = sampleLight(world, fx, fy);
+      const fl = emitterFlickerAt(fx, fy, emitters, now);
+      const dyn = dynamicEmitterBoost(fx, fy, emitters, now);
+      if (dyn > 0.05) lvl = Math.min(15, lvl + dyn * fl);
+      else if (lvl > 1.5) lvl = Math.min(15, lvl * (0.92 + 0.1 * fl));
+
+      let bri = lightToBrightness(lvl, { ambient: 0.04 });
+      const nearSurface = fy <= ((world.surface && world.surface[wx]) || SURFACE_Y) + 1;
+      if (nearSurface && lvl >= 8 && sky) {
+        const skyMul = 0.25 + 0.75 * sky.day;
+        bri = Math.max(bri, skyMul * lightToBrightness(lvl, { ambient: 0.18 }));
+      }
+      // Keep a floor so unlit rock still reads as shape (cave backdrop is black)
+      const v = Math.floor(Math.max(8, Math.min(255, bri * 255)));
+      data[p] = v;
+      data[p + 1] = v;
+      data[p + 2] = Math.floor(v * 0.97);
+      data[p + 3] = 255;
+    }
+  }
+  lfc.putImageData(img, 0, 0);
+
+  // Stretch smooth light field over the view
+  const sx0 = (otx - cam.x) * ts + W / 2;
+  const sy0 = (oty - cam.y) * ts + H / 2;
+  lctx.imageSmoothingEnabled = true;
+  lctx.imageSmoothingQuality = 'high';
+  lctx.drawImage(lf, sx0, sy0, tw * ts, th * ts);
+
+  // Draw terrain tiles full-bright with heavy soft overlap
+  const pad = Math.max(3.5, ts * 0.18);
+  tctx.imageSmoothingEnabled = true;
+  for (let ty = startTY; ty <= startTY + tilesY; ty++) {
+    if (ty < 0 || ty >= WORLD_H) continue;
+    for (let tx = startTX; tx <= startTX + tilesX; tx++) {
+      const wx = wrapX(tx);
+      const id = getTile(world, wx, ty);
+      if (!isTerrainBlock(id)) continue;
+      const soft = getSoftTex(id) || getTileTex(id);
+      if (!soft) continue;
+      const sx = (tx - cam.x) * ts + W / 2;
+      const sy = (ty - cam.y) * ts + H / 2;
+      tctx.globalAlpha = 1;
+      tctx.drawImage(soft, sx - pad, sy - pad, ts + pad * 2, ts + pad * 2);
+      // Soft grass top (no hard rect)
+      if (id === BLOCK.GRASS || id === BLOCK.SNOW || id === BLOCK.SAND) {
+        const m = BLOCK_META[id];
+        const topH = Math.max(2, ts * 0.12);
+        const g = tctx.createLinearGradient(sx, sy - pad, sx, sy - pad + topH + 3);
+        g.addColorStop(0, m && m.top ? m.top : 'rgba(255,255,255,0.25)');
+        g.addColorStop(1, 'rgba(255,255,255,0)');
+        tctx.globalAlpha = 0.16;
+        tctx.fillStyle = g;
+        tctx.fillRect(sx - pad, sy - pad, ts + pad * 2, topH + 3);
+        tctx.globalAlpha = 1;
+      }
+    }
+  }
+
+  // Multiply continuous light onto terrain (no square shade plates)
+  tctx.save();
+  tctx.globalCompositeOperation = 'multiply';
+  tctx.drawImage(_terrainLight, 0, 0);
+  tctx.restore();
+
+  // Composite with a gentle blur so residual seams disappear
+  ctx.save();
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.filter = 'blur(1.1px)';
+  ctx.drawImage(_terrainLayer, 0, 0);
+  ctx.filter = 'none';
+  // Second unblurred pass at low alpha keeps some texture crispness
+  ctx.globalAlpha = 0.35;
+  ctx.drawImage(_terrainLayer, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.restore();
 }
 
 export function drawCelestial(ctx, sky, timeOfDay) {
@@ -902,26 +1047,19 @@ export function drawBlock(ctx, sx, sy, ts, id, lightMul, wx, ty, ao, world) {
     || id === BLOCK.LEAVES || id === BLOCK.GLASS || id === BLOCK.PLATFORM || id === BLOCK.CAMPFIRE
     || terrain;
 
-  // Generous overlap so same-type neighbors bleed into each other (hides seams)
-  const pad = terrain ? Math.max(2.5, ts * 0.12) : 0.6;
+  // Terrain is drawn in drawBlendedTerrainLayer — skip here to avoid double grid
+  if (terrain) {
+    ctx.restore();
+    return;
+  }
+
+  const pad = 0.6;
 
   if (useFlat && soft && id !== BLOCK.WATER && id !== BLOCK.TORCH && id !== BLOCK.LANTERN
       && id !== BLOCK.LADDER && id !== BLOCK.LEAVES && id !== BLOCK.CAMPFIRE && id !== BLOCK.PLATFORM) {
-    // Seamless terrain: oversized soft face + light via alpha (fades into cave black)
     ctx.imageSmoothingEnabled = true;
-    // Dim unlit blocks by drawing more transparent — blends with smooth backdrop
     ctx.globalAlpha = alpha * Math.min(1, 0.12 + shade * 0.92);
     ctx.drawImage(soft, sx - pad, sy - pad, ts + pad * 2, ts + pad * 2);
-    // Soft top highlight only on surface materials (very subtle, full width of pad)
-    if (shade > 0.7 && (id === BLOCK.GRASS || id === BLOCK.SNOW || id === BLOCK.SAND)) {
-      const topH = Math.max(2, ts * 0.1);
-      const tg = ctx.createLinearGradient(sx, sy - pad, sx, sy - pad + topH + 2);
-      tg.addColorStop(0, m.top || 'rgba(255,255,255,0.2)');
-      tg.addColorStop(1, 'rgba(255,255,255,0)');
-      ctx.globalAlpha = alpha * 0.14 * shade;
-      ctx.fillStyle = tg;
-      ctx.fillRect(sx - pad, sy - pad, ts + pad * 2, topH + 2);
-    }
   } else if (cube && !useFlat) {
     ctx.imageSmoothingEnabled = true;
     ctx.globalAlpha = alpha * Math.min(1, 0.15 + shade * 0.9);

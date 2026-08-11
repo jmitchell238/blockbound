@@ -155,7 +155,9 @@ export function bakeCube(faceImg, transparent) {
 
 /**
  * Flat soft tile for seamless terrain.
- * Edge-bleeds outward so overlapping neighbor draws don't show hard UV seams.
+ * - Edge-bleeds so neighbors overlap cleanly
+ * - Removes dark border bias (common in tile art)
+ * - Feathers alpha toward the rim so hard square outlines melt when overlapped
  */
 export function bakeSoftFace(faceImg) {
   const S = 72;
@@ -165,32 +167,67 @@ export function bakeSoftFace(faceImg) {
   const ctx = c.getContext('2d');
   ctx.imageSmoothingEnabled = true;
   // Draw face slightly inset, then bleed edges outward
-  const inset = 4;
+  const inset = 3;
   ctx.drawImage(faceImg, inset, inset, S - inset * 2, S - inset * 2);
-  // Edge bleed: stretch edge strips into the margin
   ctx.drawImage(c, inset, inset, S - inset * 2, 1, inset, 0, S - inset * 2, inset);
   ctx.drawImage(c, inset, S - inset - 1, S - inset * 2, 1, inset, S - inset, S - inset * 2, inset);
   ctx.drawImage(c, inset, 0, 1, S, 0, 0, inset, S);
   ctx.drawImage(c, S - inset - 1, 0, 1, S, S - inset, 0, inset, S);
-  // Soft blur via temp canvas (same-canvas drawImage is unreliable)
+
+  // Soft blur
   const tmp = document.createElement('canvas');
   tmp.width = S;
   tmp.height = S;
   const tctx = tmp.getContext('2d');
   tctx.imageSmoothingEnabled = true;
-  tctx.filter = 'blur(0.55px)';
+  tctx.filter = 'blur(0.7px)';
   tctx.drawImage(c, 0, 0);
   tctx.filter = 'none';
   ctx.clearRect(0, 0, S, S);
   ctx.drawImage(tmp, 0, 0);
-  // Micro noise to break perfect grid (sparse, mild)
+
   const img = ctx.getImageData(0, 0, S, S);
   const d = img.data;
-  for (let i = 0; i < d.length; i += 20) {
-    const n = ((i * 13) % 5) - 2;
-    d[i] = Math.max(0, Math.min(255, d[i] + n));
-    d[i + 1] = Math.max(0, Math.min(255, d[i + 1] + n));
-    d[i + 2] = Math.max(0, Math.min(255, d[i + 2] + n));
+  // Center brightness — lift dark edges toward it so seams don't form a grid
+  let cSum = 0;
+  let cN = 0;
+  for (let y = S * 0.3 | 0; y < S * 0.7; y++) {
+    for (let x = S * 0.3 | 0; x < S * 0.7; x++) {
+      const i = (y * S + x) * 4;
+      cSum += (d[i] + d[i + 1] + d[i + 2]) / 3;
+      cN++;
+    }
+  }
+  const center = cN ? cSum / cN : 128;
+  const feather = S * 0.28;
+
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      const i = (y * S + x) * 4;
+      const dx = Math.min(x, S - 1 - x);
+      const dy = Math.min(y, S - 1 - y);
+      const edgeDist = Math.min(dx, dy);
+      // Lift dark rim pixels
+      const avg = (d[i] + d[i + 1] + d[i + 2]) / 3;
+      if (edgeDist < feather && avg < center) {
+        const t = 1 - edgeDist / feather;
+        const lift = (center - avg) * t * 0.65;
+        d[i] = Math.min(255, d[i] + lift);
+        d[i + 1] = Math.min(255, d[i + 1] + lift);
+        d[i + 2] = Math.min(255, d[i + 2] + lift);
+      }
+      // Feather alpha at rim (soft square → blends with neighbors)
+      let a = edgeDist >= feather ? 1 : edgeDist / feather;
+      a = a * a * (3 - 2 * a); // smoothstep
+      d[i + 3] = Math.floor(Math.min(d[i + 3], 255) * a);
+      // Sparse micro-noise (interior only)
+      if (edgeDist > feather && ((i * 13) % 20) === 0) {
+        const n = ((i * 7) % 5) - 2;
+        d[i] = Math.max(0, Math.min(255, d[i] + n));
+        d[i + 1] = Math.max(0, Math.min(255, d[i + 1] + n));
+        d[i + 2] = Math.max(0, Math.min(255, d[i + 2] + n));
+      }
+    }
   }
   ctx.putImageData(img, 0, 0);
   return c;
