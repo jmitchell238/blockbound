@@ -883,7 +883,7 @@ export function drawPlayer(ctx, p, cam, ts, inv) {
     ctx.save();
     ctx.translate(sx, footY);
     if (p.facing < 0) ctx.scale(-1, 1);
-    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingEnabled = false; // crisp blocky / pixel sprites
     ctx.drawImage(img, -drawW / 2, -drawH, drawW, drawH);
     ctx.restore();
   } else {

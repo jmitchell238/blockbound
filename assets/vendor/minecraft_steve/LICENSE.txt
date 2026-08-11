@@ -1,0 +1,7 @@
+2D Minecraft Steve
+Source: https://opengameart.org/content/2d-minecraft-steve
+Author: Korba (OpenGameArt)
+License: CC0 1.0 Universal (public domain)
+Includes walking and mining animations.
+Upscaled nearest-neighbor for Blockbound.
+NOT affiliated with Mojang / Microsoft / Minecraft.
