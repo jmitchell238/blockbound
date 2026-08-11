@@ -38,6 +38,7 @@ ok(fs.existsSync(path.join(root, 'js/core/difficulty.js')), 'difficulty module e
 ok(sw.includes('difficulty.js'), 'SW caches difficulty.js');
 ok(fs.existsSync(path.join(root, 'js/core/seed.js')), 'seed module exists');
 ok(sw.includes('seed.js'), 'SW caches seed.js');
+ok(sw.includes('shelter.js'), 'SW caches shelter.js');
 ok(constants.includes('applyViewport') && constants.includes('export let W'), 'viewport mutable W/H');
 
 const worldSize = fs.readFileSync(path.join(root, 'js/core/worldSize.js'), 'utf8');
@@ -222,6 +223,123 @@ ok(port.ORIENTATION === 'portrait' && port.W === 390 && port.H >= 600, 'portrait
 const land = BB.applyViewport(900, 400);
 ok(land.ORIENTATION === 'landscape' && land.H === 400 && land.W >= 640, 'landscape viewport');
 ok(BB.W === land.W && BB.H === land.H, 'live W/H bindings');
+
+// ─── Cave shelter + sky + lighting (regressions for white caves / black outdoors) ───
+console.log('\nCave shelter + sky + light');
+
+// Roof id classification
+ok(BB.isRoofSolidId(BB.BLOCK.STONE) && BB.isRoofSolidId(BB.BLOCK.DIRT), 'stone/dirt count as cave roof');
+ok(!BB.isRoofSolidId(BB.BLOCK.WOOD) && !BB.isRoofSolidId(BB.BLOCK.LEAVES), 'trees do NOT count as cave roof');
+ok(!BB.isRoofSolidId(BB.BLOCK.AIR) && !BB.isRoofSolidId(BB.BLOCK.TORCH), 'air/torch not roof');
+ok(BB.isCaveOpenTile(BB.BLOCK.AIR) && BB.isCaveOpenTile(BB.BLOCK.TORCH), 'air/torch are open cells');
+ok(!BB.isCaveOpenTile(BB.BLOCK.STONE), 'stone is not open cell');
+
+// Build a tiny controlled world on a generated base
+BB.applyWorldSize(512);
+const caveWorld = BB.generateWorld(777);
+const cx = 100;
+const surf = caveWorld.surface[cx];
+ok(surf > 5 && surf < BB.WORLD_H - 20, 'surface in reasonable band');
+
+// Clear a sky column at surface air → not sheltered
+const skyY = Math.max(SKY_LIMIT_SAFE(BB, surf - 3), 2);
+// ensure open to sky above surface air cell
+for (let y = 0; y <= surf; y++) {
+  if (BB.getTile(caveWorld, cx, y) !== BB.BLOCK.AIR) BB.setTile(caveWorld, cx, y, BB.BLOCK.AIR);
+}
+ok(!BB.isShelteredAir(caveWorld, cx, surf - 2), 'open surface air is NOT sheltered (outdoor sky shows)');
+
+// Below surface air is sheltered even if we carve a pocket
+const deepY = Math.min(BB.WORLD_H - 10, surf + 8);
+// carve a 3×3 stone cave pocket with air inside
+for (let dy = -2; dy <= 2; dy++) {
+  for (let dx = -2; dx <= 2; dx++) {
+    BB.setTile(caveWorld, cx + dx, deepY + dy, BB.BLOCK.STONE);
+  }
+}
+BB.setTile(caveWorld, cx, deepY, BB.BLOCK.AIR);
+BB.setTile(caveWorld, cx, deepY - 1, BB.BLOCK.AIR);
+ok(BB.isShelteredAir(caveWorld, cx, deepY), 'air below surface is sheltered (cave)');
+ok(BB.isShelteredAir(caveWorld, cx, deepY - 1), 'cave chamber air is sheltered');
+
+// Under a dirt roof above surface height (ledge / overhang)
+const ledgeX = 120;
+const ledgeSurf = caveWorld.surface[ledgeX];
+// open sky column first
+for (let y = 0; y <= ledgeSurf + 2; y++) BB.setTile(caveWorld, ledgeX, y, BB.BLOCK.AIR);
+// place a dirt roof a few tiles above a mid-air cell
+const roofY = Math.max(3, ledgeSurf - 5);
+const underRoofY = roofY + 2;
+BB.setTile(caveWorld, ledgeX, roofY, BB.BLOCK.DIRT);
+BB.setTile(caveWorld, ledgeX, underRoofY, BB.BLOCK.AIR);
+// clear between roof and underRoof so only roof blocks sky
+for (let y = roofY + 1; y < underRoofY; y++) BB.setTile(caveWorld, ledgeX, y, BB.BLOCK.AIR);
+for (let y = 0; y < roofY; y++) BB.setTile(caveWorld, ledgeX, y, BB.BLOCK.AIR);
+ok(BB.isShelteredAir(caveWorld, ledgeX, underRoofY), 'air under dirt roof is sheltered');
+
+// Tree overhead alone must NOT shelter (outdoors under canopy)
+const treeX = 140;
+const treeSurf = caveWorld.surface[treeX];
+for (let y = 0; y <= treeSurf + 1; y++) BB.setTile(caveWorld, treeX, y, BB.BLOCK.AIR);
+BB.setTile(caveWorld, treeX, treeSurf - 2, BB.BLOCK.WOOD);
+BB.setTile(caveWorld, treeX, treeSurf - 3, BB.BLOCK.LEAVES);
+ok(!BB.isShelteredAir(caveWorld, treeX, treeSurf - 1), 'tree/leaves overhead still outdoor (not sheltered)');
+
+// Cave air color never white — even at full light + max flicker
+const dark = BB.caveAirColor(0, 1);
+const lit = BB.caveAirColor(15, 1.1);
+ok(dark.sum < 40, `unlit cave air very dark (sum=${dark.sum})`);
+ok(lit.sum < 80, `max-lit cave air still dim (sum=${lit.sum}, not white)`);
+ok(lit.r <= 30 && lit.g <= 24 && lit.b <= 18, 'cave air RGB hard-capped low');
+ok(lit.r >= dark.r && lit.g >= dark.g, 'torch light does brighten cave air slightly');
+
+// lightToBrightness monotonic + soft
+const b0 = BB.lightToBrightness(0);
+const b7 = BB.lightToBrightness(7);
+const b15 = BB.lightToBrightness(15);
+ok(b0 < b7 && b7 < b15, 'lightToBrightness monotonic');
+ok(b0 < 0.1 && b15 <= 1, 'brightness in range');
+ok(b7 > 0.15 && b7 < 0.85, 'mid light not clipped to extremes');
+
+// Sky colors: clear midday blue, raining gray
+const clearDay = BB.skyColors(0.5, 0); // noon-ish
+const rainyDay = BB.skyColors(0.5, 0.9);
+ok(clearDay.day > 0.5, 'midday day factor high');
+ok(BB.skyLooksBlue(clearDay.mid) || BB.skyLooksBlue(clearDay.top), 'clear sky is blue');
+ok(BB.skyLooksGray(rainyDay.mid) || rainyDay.rain > 0.5, 'rainy sky gray/overcast');
+// Rain should desaturate vs clear
+const clearRgb = hexToRgbTest(clearDay.mid);
+const rainRgb = hexToRgbTest(rainyDay.mid);
+const clearChroma = Math.max(clearRgb.r, clearRgb.g, clearRgb.b) - Math.min(clearRgb.r, clearRgb.g, clearRgb.b);
+const rainChroma = Math.max(rainRgb.r, rainRgb.g, rainRgb.b) - Math.min(rainRgb.r, rainRgb.g, rainRgb.b);
+ok(rainChroma < clearChroma, 'rain reduces sky chroma vs clear');
+
+// Torch light still works underground in carved cave
+BB.setTile(caveWorld, cx, deepY, BB.BLOCK.TORCH);
+BB.flushLight(caveWorld);
+const torchL = BB.getLight(caveWorld, cx, deepY);
+ok(torchL >= 10, `torch emits strong light underground (got ${torchL})`);
+const nearL = BB.getLight(caveWorld, cx, deepY - 1);
+ok(nearL > 5, 'light spreads to adjacent cave air');
+
+// Structural guard: render must always paint sky first (no stuck full-screen black mode)
+const renSrc = fs.readFileSync(path.join(root, 'js/render/index.js'), 'utf8');
+ok(renSrc.includes('Always draw outdoor sky first') || renSrc.includes('sky.top'), 'renderer draws sky base');
+ok(!renSrc.includes("fillStyle = '#020106'") && !renSrc.includes("fillStyle = '#030208'"), 'no full-screen cave black mode');
+ok(renSrc.includes('isShelteredAir') && renSrc.includes('caveAirColor'), 'renderer uses shelter helpers');
+// HUD must not lecture about weather
+ok(!renSrc.includes('🌧 Raining') && !renSrc.includes("'Explore'"), 'no weather HUD text');
+
+// Shelter module present
+ok(fs.existsSync(path.join(root, 'js/world/shelter.js')), 'shelter module exists');
+
+function SKY_LIMIT_SAFE(BB, y) {
+  return Math.max(BB.SKY_LIMIT || 2, y);
+}
+function hexToRgbTest(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+}
 
 if (failed) {
   console.error(`\n${failed} failed`);

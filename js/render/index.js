@@ -9,6 +9,11 @@ import { itemName, isBlockItem } from '../content/items.js';
 import {
   wrapX, wrapDeltaX, getTile, getLight, getRenderLight, sampleLight, lightToBrightness, isSolid, biomeNameAt,
 } from '../world/index.js';
+import {
+  isRoofSolidId, isCaveOpenTile, isShelteredAir, caveAirColor,
+} from '../world/shelter.js';
+// re-export for tests / tooling
+export { isRoofSolidId, isCaveOpenTile, isShelteredAir, caveAirColor } from '../world/shelter.js';
 import { textures, getCubeTex, getTileTex, getSoftTex, getPlayerPose, getItemIcon } from '../textures/textures.js';
 import { drawEntities } from '../entities/draw.js';
 import { drawParticles } from '../particles/particles.js';
@@ -82,35 +87,6 @@ export function mixHex(a, b, t) {
 export function shadeHex(hex, mul) {
   const c = hexToRgb(hex);
   return rgbToHex(c.r * mul, c.g * mul, c.b * mul);
-}
-
-/**
- * Terrain roof material (trees/leaves do NOT count — they were blacking out the outdoors).
- */
-function isRoofSolidId(id) {
-  if (id == null || id === BLOCK.AIR) return false;
-  if (id === BLOCK.LEAVES || id === BLOCK.WOOD || id === BLOCK.LADDER) return false;
-  if (id === BLOCK.TORCH || id === BLOCK.LANTERN || id === BLOCK.WATER) return false;
-  if (id === BLOCK.GLASS || id === BLOCK.PLATFORM || id === BLOCK.CAMPFIRE) return false;
-  const m = BLOCK_META[id];
-  return !!(m && m.solid);
-}
-
-/**
- * This air cell is cave/dug-out if it's below the natural surface line,
- * or any terrain roof sits between it and the sky.
- */
-function isShelteredAir(world, wx, fromY) {
-  fromY = Math.floor(fromY);
-  if (fromY < 0) return false;
-  const surf = (world.surface && world.surface[wx] != null) ? world.surface[wx] : SURFACE_Y;
-  // Below natural ground surface → underground
-  if (fromY > surf) return true;
-  // Terrain roof overhead (dirt/stone/etc., not trees)
-  for (let y = fromY - 1; y >= SKY_LIMIT; y--) {
-    if (isRoofSolidId(getTile(world, wx, y))) return true;
-  }
-  return false;
 }
 
 export function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particles, ents) {
@@ -674,16 +650,6 @@ export function drawLanternSprite(ctx, sx, sy, ts, mode, seed) {
   ctx.fill();
 }
 
-/**
- * Open cells that need a cave backdrop (air + torch/lantern so no gray “hole”
- * behind the sprite).
- */
-function isCaveOpenTile(id) {
-  return id === BLOCK.AIR || id === BLOCK.WATER || id === BLOCK.TORCH
-    || id === BLOCK.LANTERN || id === BLOCK.LADDER || id === BLOCK.CAMPFIRE
-    || id === BLOCK.GLASS || id === BLOCK.LEAVES || id === BLOCK.PLATFORM;
-}
-
 /** Reused offscreen buffer for smooth cave lighting. */
 let _caveLightCanvas = null;
 let _caveLightCtx = null;
@@ -820,10 +786,6 @@ function drawSmoothCaveBackdrop(ctx, world, cam, ts, startTX, startTY, tilesX, t
   const img = lctx.createImageData(bw, bh);
   const data = img.data;
 
-  // Void black → dim warm when torch-lit (hard RGB cap, no white)
-  const voidR = 2, voidG = 2, voidB = 5;
-  const litR = 22, litG = 16, litB = 10;
-
   for (let j = 0; j < bh; j++) {
     for (let i = 0; i < bw; i++) {
       const p = (j * bw + i) * 4;
@@ -847,17 +809,10 @@ function drawSmoothCaveBackdrop(ctx, world, cam, ts, startTX, startTY, tilesX, t
       const fl = emitterFlickerAt(fx, fy, emitters, now);
       if (dyn > 0.02) lvl = Math.min(15, lvl + dyn * (0.85 + 0.15 * fl));
 
-      const t = Math.max(0, Math.min(15, lvl)) / 15;
-      const smooth = t * t * (3 - 2 * t);
-      const bri = Math.pow(smooth, 1.25);
-      const flicker = 0.95 + 0.05 * fl;
-      const r = Math.min(litR, (voidR + (litR - voidR) * bri) * flicker);
-      const g = Math.min(litG, (voidG + (litG - voidG) * bri) * flicker);
-      const b = Math.min(litB, (voidB + (litB - voidB) * bri));
-
-      data[p] = r | 0;
-      data[p + 1] = g | 0;
-      data[p + 2] = b | 0;
+      const col = caveAirColor(lvl, 0.95 + 0.05 * fl);
+      data[p] = col.r;
+      data[p + 1] = col.g;
+      data[p + 2] = col.b;
       data[p + 3] = 255;
     }
   }

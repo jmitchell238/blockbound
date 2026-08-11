@@ -20,8 +20,13 @@ export { tileKey, itemName } from '../content/items.js';
 export {
   wrapX, wrapDeltaX, generateWorld, generateWorldAsync, getTile, setTile, getLight,
   getRenderLight, lightToBrightness, isSolid, serializeWorld, deserializeWorld,
-  markLightDirty, flushLight, recomputeSkyLight, tickGravityNear,
+  markLightDirty, flushLight, recomputeSkyLight, tickGravityNear, sampleLight,
 } from '../world/index.js';
+export {
+  isRoofSolidId, isCaveOpenTile, isShelteredAir, caveAirColor,
+  skyLooksBlue, skyLooksGray,
+} from '../world/shelter.js';
+export { skyColors } from '../render/index.js';
 export { LIGHT_RADIUS } from '../core/constants.js';
 export {
   makeInventory, addItem, canCraft, craft, countItem, removeItem, selectedSlot,
