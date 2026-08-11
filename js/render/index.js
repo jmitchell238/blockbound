@@ -23,22 +23,40 @@ import {
  * textured cubes, ambient occlusion, clouds, day/night, sprite player.
  */
 
-export function skyColors(timeOfDay) {
+/**
+ * Outdoor sky palette.
+ * Clear day = blue. Rain = gray overcast. Night = deep blue-black.
+ * @param {number} weather 0 clear … 1 heavy rain
+ */
+export function skyColors(timeOfDay, weather) {
   const t = timeOfDay;
   const day = Math.sin(t * Math.PI * 2 - Math.PI / 2) * 0.5 + 0.5;
-  const top = lerpColor('#07071c', '#3d7ec4', day);
-  const mid = lerpColor('#101028', '#7eb6e8', day);
-  const bot = lerpColor('#1a1430', '#d4e8f8', Math.min(1, day * 1.12));
+  // Clear blue daytime (not beige)
+  let top = lerpColor('#0a1028', '#3a7ec8', day);
+  let mid = lerpColor('#101830', '#6aabe8', day);
+  let bot = lerpColor('#182038', '#a8d0f5', Math.min(1, day * 1.1));
   const rise = Math.max(0, 1 - Math.abs(t - 0.25) * 11);
   const set = Math.max(0, 1 - Math.abs(t - 0.75) * 11);
-  const warm = Math.max(rise, set);
+  let warm = Math.max(rise, set);
+  const rain = Math.max(0, Math.min(1, weather || 0));
+  // Rain kills sunset warmth and washes sky gray
+  if (rain > 0.08) {
+    warm *= 1 - rain * 0.9;
+    const grayTop = lerpColor('#1a1e28', '#5a6570', day);
+    const grayMid = lerpColor('#222830', '#7a8490', day);
+    const grayBot = lerpColor('#2a3038', '#9aa4b0', day);
+    top = mixHex(top, grayTop, rain * 0.92);
+    mid = mixHex(mid, grayMid, rain * 0.92);
+    bot = mixHex(bot, grayBot, rain * 0.88);
+  }
   return {
-    top: mixHex(top, '#ff7a3a', warm * 0.5),
-    mid: mixHex(mid, '#ffb04a', warm * 0.4),
-    bot: mixHex(bot, '#ffd8a8', warm * 0.3),
+    top: mixHex(top, '#ff7a3a', warm * 0.45),
+    mid: mixHex(mid, '#ffb04a', warm * 0.32),
+    bot: mixHex(bot, '#ffd8a8', warm * 0.22),
     day,
     warm,
     sunAngle: t,
+    rain,
   };
 }
 
@@ -66,27 +84,39 @@ export function shadeHex(hex, mul) {
   return rgbToHex(c.r * mul, c.g * mul, c.b * mul);
 }
 
-/** True if player is in a cave / under ground (not open sky). */
+/**
+ * Air/column is "sheltered" (cave) if below the surface line OR any solid
+ * sits between this y and the sky — then we never show outdoor sky color.
+ */
+function isShelteredColumn(world, wx, fromY) {
+  const surf = (world.surface && world.surface[wx] != null) ? world.surface[wx] : SURFACE_Y;
+  if (fromY > surf) return true;
+  for (let y = fromY - 1; y >= SKY_LIMIT; y--) {
+    if (isSolid(world, wx, y)) return true;
+  }
+  return false;
+}
+
+/** True if player is in a cave / dug-out / under ground (not open sky). */
 function isPlayerUnderground(world, player) {
   const px = wrapX(Math.floor(player.x));
-  const headY = Math.floor(player.y - player.h * 0.85);
-  const surf = (world.surface && world.surface[px] != null) ? world.surface[px] : SURFACE_Y;
-  // Below world surface
-  if (player.y > surf + 1.0) return true;
-  // Solid roof overhead (cave under overhang / hill)
-  for (let y = headY; y >= Math.max(0, headY - 14); y--) {
-    if (isSolid(world, px, y)) return true;
+  const bodyY = Math.floor(player.y - player.h * 0.45);
+  if (isShelteredColumn(world, px, bodyY)) return true;
+  // Neighbor columns (standing under a ledge / side of a cave)
+  for (const dx of [-1, 1, -2, 2]) {
+    if (isShelteredColumn(world, wrapX(px + dx), bodyY)) return true;
   }
   return false;
 }
 
 export function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particles, ents) {
-  const sky = skyColors(timeOfDay);
+  const weather = (ui && ui.weather) || 0;
+  const sky = skyColors(timeOfDay, weather);
   const underground = isPlayerUnderground(world, player);
 
-  // ALWAYS solid near-black when underground — sky/white must never appear
+  // ALWAYS solid near-black when underground — outdoor sky must never appear
   if (underground) {
-    ctx.fillStyle = '#030208';
+    ctx.fillStyle = '#020106';
     ctx.fillRect(0, 0, W, H);
   } else {
     const g = ctx.createLinearGradient(0, 0, 0, H);
@@ -95,8 +125,8 @@ export function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particl
     g.addColorStop(1, sky.bot);
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, W, H);
-    drawCelestial(ctx, sky, timeOfDay);
-    drawClouds(ctx, cam.x, sky, timeOfDay);
+    if (weather < 0.45) drawCelestial(ctx, sky, timeOfDay);
+    drawClouds(ctx, cam.x, sky, timeOfDay, weather);
     drawParallax(ctx, cam.x, sky.day);
   }
 
@@ -449,22 +479,27 @@ export function drawCelestial(ctx, sky, timeOfDay) {
   }
 }
 
-export function drawClouds(ctx, camX, sky, timeOfDay) {
-  if (sky.day < 0.15) return;
+export function drawClouds(ctx, camX, sky, timeOfDay, weather) {
+  if (sky.day < 0.12) return;
+  const rain = Math.max(0, weather || sky.rain || 0);
   const img = textures.clouds;
   const t = timeOfDay;
   ctx.save();
-  ctx.globalAlpha = 0.25 + sky.day * 0.45;
-  for (let i = 0; i < 5; i++) {
+  // Heavier, grayer cover when raining
+  ctx.globalAlpha = (0.22 + sky.day * 0.4) * (1 + rain * 0.55);
+  const n = rain > 0.2 ? 8 : 5;
+  for (let i = 0; i < n; i++) {
     const parallax = 0.08 + i * 0.03;
     const base = (i * 180 + camX * TILE * parallax + t * 40 * (i % 2 === 0 ? 1 : -0.5));
     const x = ((base % (W + 200)) + W + 200) % (W + 200) - 100;
-    const y = 40 + i * 28 + Math.sin(t * 6 + i) * 6;
-    const sc = 0.55 + (i % 3) * 0.18;
+    const y = 30 + i * 24 + Math.sin(t * 6 + i) * 6;
+    const sc = 0.55 + (i % 3) * 0.2 + rain * 0.15;
     if (img) {
+      if (rain > 0.25) ctx.filter = 'brightness(0.65) saturate(0.4)';
       ctx.drawImage(img, x, y, 180 * sc, 70 * sc);
+      ctx.filter = 'none';
     } else {
-      ctx.fillStyle = 'rgba(255,255,255,0.7)';
+      ctx.fillStyle = rain > 0.25 ? 'rgba(90,95,105,0.75)' : 'rgba(255,255,255,0.7)';
       ctx.beginPath();
       ctx.ellipse(x + 40, y + 20, 40 * sc, 16 * sc, 0, 0, Math.PI * 2);
       ctx.ellipse(x + 70, y + 16, 30 * sc, 18 * sc, 0, 0, Math.PI * 2);
@@ -799,12 +834,12 @@ function drawSmoothCaveBackdrop(ctx, world, cam, ts, startTX, startTY, tilesX, t
       }
       const wx = wrapX(tileX);
       const id = getTile(world, wx, tileY);
-      const surf = (world.surface && world.surface[wx] != null) ? world.surface[wx] : SURFACE_Y;
-      const below = forceCave || fy > surf + 0.5;
+      // Sheltered = under surface OR has a solid roof toward the sky
+      const sheltered = forceCave || isShelteredColumn(world, wx, tileY);
 
-      // Non-open (solid) cells: still paint void when forceCave so nothing peeks through
+      // Non-open (solid) cells
       if (!isCaveOpenTile(id)) {
-        if (forceCave) {
+        if (forceCave || sheltered) {
           data[p] = voidR; data[p + 1] = voidG; data[p + 2] = voidB; data[p + 3] = 255;
         } else {
           data[p + 3] = 0;
@@ -812,12 +847,13 @@ function drawSmoothCaveBackdrop(ctx, world, cam, ts, startTX, startTY, tilesX, t
         continue;
       }
 
-      let lvl = sampleLight(world, fx, fy);
-      if (!below && lvl >= 12) {
-        data[p + 3] = 0; // real open sky
+      // True open sky — leave transparent so outdoor blue sky shows
+      if (!sheltered) {
+        data[p + 3] = 0;
         continue;
       }
 
+      let lvl = sampleLight(world, fx, fy);
       const dyn = dynamicEmitterBoost(fx, fy, emitters, now);
       const fl = emitterFlickerAt(fx, fy, emitters, now);
       if (dyn > 0.02) {
@@ -836,8 +872,7 @@ function drawSmoothCaveBackdrop(ctx, world, cam, ts, startTX, startTY, tilesX, t
       data[p] = r | 0;
       data[p + 1] = g | 0;
       data[p + 2] = b | 0;
-      data[p + 3] = (forceCave || below) ? 255 : Math.floor(Math.min(255, 40 + bri * 200));
-      if (!forceCave && !below && data[p + 3] < 20) data[p + 3] = 0;
+      data[p + 3] = 255; // opaque cave air — no sky leak
     }
   }
 
@@ -1628,8 +1663,10 @@ export function drawHUD(ctx, player, inv, world, cam, ui, sky) {
   const by2 = Math.floor(player.y);
   const biome = biomeNameAt(world, player.x);
   const infoTop = isCreative ? 46 : 62;
+  // Compact coords card — no weather label (player can see rain outside)
+  const infoH = player.spawnX != null || player.inBoat ? 34 : 22;
   ctx.fillStyle = 'rgba(6,14,10,0.55)';
-  roundRect(ctx, 12, infoTop, 150, 34, 8);
+  roundRect(ctx, 12, infoTop, 150, infoH, 8);
   ctx.fill();
   ctx.fillStyle = '#c8e8d8';
   ctx.font = '600 11px system-ui';
@@ -1639,10 +1676,10 @@ export function drawHUD(ctx, player, inv, world, cam, ui, sky) {
     ctx.fillStyle = '#7dffa0';
     ctx.font = '10px system-ui';
     ctx.fillText('Bed spawn set', 20, infoTop + 28);
-  } else {
+  } else if (player.inBoat) {
     ctx.fillStyle = '#9ec5b0';
     ctx.font = '10px system-ui';
-    ctx.fillText(ui.weather > 0.3 ? '🌧 Raining' : (player.inBoat ? '⛵ Sailing' : 'Explore'), 20, infoTop + 28);
+    ctx.fillText('⛵ Sailing', 20, infoTop + 28);
   }
 
   // World loop panel — top right, leave room for version tag
