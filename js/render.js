@@ -676,13 +676,37 @@ function roundRect(ctx, x, y, w, h, r) {
 }
 
 function drawHUD(ctx, player, inv, world, cam, ui, sky) {
-  // Frosted panels
-  drawBar(ctx, 12, 12, 124, 12, player.hp / player.maxHp, '#e74c3c', '♥');
-  drawBar(ctx, 12, 27, 124, 10, player.hunger != null ? player.hunger / player.maxHunger : 1, '#e67e22', '🍖');
-  drawBar(ctx, 12, 40, 124, 10, player.energy / player.maxEnergy, '#f1c40f', '⚡');
+  // Status bars — clear top-left (menu chrome lives above the hotbar now)
+  const barX = 12;
+  const barY = 10;
+  drawBar(ctx, barX, barY, 132, 14, player.hp / player.maxHp, '#e74c3c', '♥');
+  drawBar(ctx, barX, barY + 18, 132, 12, player.hunger != null ? player.hunger / player.maxHunger : 1, '#e67e22', '🍖');
+  drawBar(ctx, barX, barY + 34, 132, 12, player.energy / player.maxEnergy, '#f1c40f', '⚡');
 
+  // Coords + biome under bars
+  const bx2 = wrapX(Math.floor(player.x));
+  const by2 = Math.floor(player.y);
+  const biome = typeof biomeNameAt === 'function' ? biomeNameAt(world, player.x) : '';
+  ctx.fillStyle = 'rgba(6,14,10,0.55)';
+  roundRect(ctx, 12, 62, 150, 34, 8);
+  ctx.fill();
+  ctx.fillStyle = '#c8e8d8';
+  ctx.font = '600 11px system-ui';
+  ctx.textAlign = 'left';
+  ctx.fillText(biome + ' · x' + bx2 + ' y' + by2, 20, 76);
+  if (player.spawnX != null) {
+    ctx.fillStyle = '#7dffa0';
+    ctx.font = '10px system-ui';
+    ctx.fillText('Bed spawn set', 20, 90);
+  } else {
+    ctx.fillStyle = '#9ec5b0';
+    ctx.font = '10px system-ui';
+    ctx.fillText(ui.weather > 0.3 ? '🌧 Raining' : (player.inBoat ? '⛵ Sailing' : 'Explore'), 20, 90);
+  }
+
+  // World loop panel — top right, leave room for version tag
   ctx.fillStyle = 'rgba(8,16,12,0.5)';
-  roundRect(ctx, W - 128, 10, 116, 52, 10);
+  roundRect(ctx, W - 128, 28, 116, 48, 10);
   ctx.fill();
   ctx.strokeStyle = 'rgba(255,255,255,0.12)';
   ctx.stroke();
@@ -692,41 +716,19 @@ function drawHUD(ctx, player, inv, world, cam, ui, sky) {
   const circ = ((player.x % WORLD_W) + WORLD_W) % WORLD_W;
   const pct = ((circ / WORLD_W) * 100).toFixed(1);
   const wLabel = WORLD_W >= 1000 ? (WORLD_W / 1000).toFixed(WORLD_W % 1000 === 0 ? 0 : 1) + 'k' : String(WORLD_W);
-  ctx.fillText(wLabel + ' blocks around', W - 120, 25);
+  ctx.fillText(wLabel + ' blocks around', W - 120, 44);
   ctx.fillStyle = '#7dffa0';
   ctx.font = '700 13px system-ui,sans-serif';
-  ctx.fillText(pct + '% lap', W - 120, 42);
-  // mini progress bar
+  ctx.fillText(pct + '% lap', W - 120, 60);
   ctx.fillStyle = 'rgba(0,0,0,0.35)';
-  roundRect(ctx, W - 120, 48, 100, 6, 3);
+  roundRect(ctx, W - 120, 66, 100, 6, 3);
   ctx.fill();
   ctx.fillStyle = '#7dffa0';
-  roundRect(ctx, W - 120, 48, Math.max(2, 100 * (circ / WORLD_W)), 6, 3);
+  roundRect(ctx, W - 120, 66, Math.max(2, 100 * (circ / WORLD_W)), 6, 3);
   ctx.fill();
 
-  // Minimap
+  // Minimap under lap panel
   drawMinimap(ctx, world, player, cam);
-
-  // Coords + biome
-  const bx2 = wrapX(Math.floor(player.x));
-  const by2 = Math.floor(player.y);
-  const biome = typeof biomeNameAt === 'function' ? biomeNameAt(world, player.x) : '';
-  ctx.fillStyle = 'rgba(6,14,10,0.5)';
-  roundRect(ctx, 12, 56, 150, 32, 8);
-  ctx.fill();
-  ctx.fillStyle = '#c8e8d8';
-  ctx.font = '600 11px system-ui';
-  ctx.textAlign = 'left';
-  ctx.fillText(biome + ' · x' + bx2 + ' y' + by2, 20, 70);
-  if (player.spawnX != null) {
-    ctx.fillStyle = '#7dffa0';
-    ctx.font = '10px system-ui';
-    ctx.fillText('Bed spawn set', 20, 84);
-  } else {
-    ctx.fillStyle = '#9ec5b0';
-    ctx.font = '10px system-ui';
-    ctx.fillText(ui.weather > 0.3 ? '🌧 Raining' : (player.inBoat ? '⛵ Sailing' : 'Explore'), 20, 84);
-  }
 
   // Interact prompt
   if (ui.prompt) {
@@ -931,7 +933,7 @@ function drawMinimap(ctx, world, player, cam) {
   const mw = 88;
   const mh = 56;
   const mx = W - mw - 12;
-  const my = 70;
+  const my = 84;
   ctx.fillStyle = 'rgba(6,14,10,0.55)';
   roundRect(ctx, mx - 4, my - 4, mw + 8, mh + 8, 8);
   ctx.fill();
