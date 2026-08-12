@@ -24,7 +24,7 @@ import { drawParticles } from '../particles/particles.js';
 import { HOTBAR_SIZE, BAG_SIZE, canCraft, bagUsed, countItem } from '../inventory/inventory.js';
 import {
   CRAFT_TABS, recipesInTab, missingMaterials, stationHint,
-  stationAvailable, getChest, getTorchFacing, getLanternMode,
+  stationAvailable, getChest, getTorchFacing, getLanternMode, isDoorOpen,
 } from '../interact/index.js';
 
 /**
@@ -205,6 +205,8 @@ export function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particl
   if (particles) drawParticles(ctx, particles, cam, ts);
 
   drawPlayer(ctx, player, cam, ts, inv);
+  if (ui && ui.kidsQueue && ui.kidsQueue.length) drawKidsQueue(ctx, ui.kidsQueue, cam, ts);
+  else if (ui && ui.moveMarker) drawMoveMarker(ctx, ui.moveMarker, cam, ts);
 
   // Rain only under open sky (not in caves / dug-outs)
   if (ui && ui.weather > 0.05) {
@@ -267,6 +269,83 @@ export function nearestViewX(camX, tileX) {
     if (d < bestD) { bestD = d; best = c; }
   }
   return best;
+}
+
+/** Pulsing “go here” marker for Kids tap-to-walk. */
+export function drawMoveMarker(ctx, marker, cam, ts) {
+  if (!marker) return;
+  const vx = nearestViewX(cam.x, marker.x - 0.5) + 0.5;
+  const sx = W / 2 + (vx - cam.x) * ts;
+  const sy = H / 2 + (marker.y - cam.y) * ts;
+  const pulse = 0.55 + 0.45 * Math.sin(performance.now() / 180);
+  ctx.save();
+  ctx.strokeStyle = `rgba(125, 255, 160, ${0.35 + 0.45 * pulse})`;
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(sx, sy, ts * (0.35 + 0.08 * pulse), 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.fillStyle = `rgba(125, 255, 160, ${0.2 + 0.15 * pulse})`;
+  ctx.beginPath();
+  ctx.arc(sx, sy, ts * 0.18, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#7dffa0';
+  ctx.font = '700 14px system-ui';
+  ctx.textAlign = 'center';
+  ctx.fillText('▼', sx, sy - ts * 0.45);
+  ctx.restore();
+}
+
+/**
+ * Draw staged Kids jobs: walk (green), dig (orange), build (blue), use (purple).
+ * Active (first) job pulses harder.
+ */
+export function drawKidsQueue(ctx, queue, cam, ts) {
+  if (!queue || !queue.length) return;
+  const pulse = 0.55 + 0.45 * Math.sin(performance.now() / 160);
+  ctx.save();
+  for (let i = 0; i < queue.length; i++) {
+    const a = queue[i];
+    const active = i === 0;
+    const vx = nearestViewX(cam.x, a.tx) + 0.5;
+    const sx = W / 2 + (vx - cam.x) * ts;
+    const sy = H / 2 + (a.ty + 0.5 - cam.y) * ts;
+    let stroke = '125,255,160';
+    let icon = '▼';
+    if (a.kind === 'mine') { stroke = '255,170,70'; icon = '⛏'; }
+    else if (a.kind === 'place') { stroke = '100,190,255'; icon = '+'; }
+    else if (a.kind === 'use') { stroke = '200,140,255'; icon = '✋'; }
+    else if (a.kind === 'go') { stroke = '125,255,160'; icon = '▼'; }
+
+    const alpha = active ? (0.4 + 0.5 * pulse) : 0.35;
+    const pad = active ? 2 + pulse * 2 : 1;
+
+    // Tile highlight
+    ctx.strokeStyle = `rgba(${stroke},${alpha})`;
+    ctx.lineWidth = active ? 3 : 2;
+    ctx.strokeRect(sx - ts / 2 + 2, sy - ts / 2 + 2, ts - 4, ts - 4);
+
+    ctx.fillStyle = `rgba(${stroke},${active ? 0.18 + 0.1 * pulse : 0.1})`;
+    ctx.fillRect(sx - ts / 2 + 2, sy - ts / 2 + 2, ts - 4, ts - 4);
+
+    // Icon badge
+    ctx.fillStyle = `rgba(8,16,12,0.75)`;
+    ctx.beginPath();
+    ctx.arc(sx, sy - ts * 0.55 - pad, 11, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = `rgb(${stroke})`;
+    ctx.font = active ? '700 13px system-ui' : '600 11px system-ui';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(icon, sx, sy - ts * 0.55 - pad);
+    // Queue index for multi-job clarity
+    if (queue.length > 1) {
+      ctx.font = '700 10px system-ui';
+      ctx.fillStyle = '#fff';
+      ctx.fillText(String(i + 1), sx, sy + ts * 0.28);
+    }
+  }
+  ctx.restore();
+  ctx.textBaseline = 'alphabetic';
 }
 
 /** Soft ambient occlusion — very light so it doesn't outline every tile. */
@@ -1183,10 +1262,12 @@ export function drawBlock(ctx, sx, sy, ts, id, lightMul, wx, ty, ao, world) {
       || id === BLOCK.PLATFORM || id === BLOCK.CAMPFIRE) {
     ctx.globalAlpha = 1;
     ctx.filter = 'brightness(' + shade.toFixed(3) + ')';
-    if (face && id !== BLOCK.PLATFORM && id !== BLOCK.CAMPFIRE) {
+    const doorOpen = id === BLOCK.DOOR && world && world.meta && isDoorOpen(world.meta, wx, ty);
+    // Always draw doors procedurally so open/closed is visible
+    if (face && id !== BLOCK.PLATFORM && id !== BLOCK.CAMPFIRE && id !== BLOCK.DOOR) {
       ctx.drawImage(face, sx, sy, ts, ts);
     } else {
-      drawFurniture(ctx, sx, sy, ts, id, lightMul);
+      drawFurniture(ctx, sx, sy, ts, id, lightMul, doorOpen);
     }
     ctx.filter = 'none';
   }
@@ -1239,7 +1320,7 @@ export function drawTexturedCube(ctx, sx, sy, ts, face, id) {
   ctx.restore();
 }
 
-export function drawFurniture(ctx, sx, sy, ts, id, lightMul) {
+export function drawFurniture(ctx, sx, sy, ts, id, lightMul, doorOpen) {
   const L = 0.5 + 0.5 * lightMul;
   if (id === BLOCK.PLATFORM) {
     ctx.fillStyle = shadeHex('#c4a060', L);
@@ -1274,14 +1355,28 @@ export function drawFurniture(ctx, sx, sy, ts, id, lightMul) {
     return;
   }
   if (id === BLOCK.DOOR) {
-    ctx.fillStyle = shadeHex('#a07840', L);
-    ctx.fillRect(sx + ts * 0.15, sy + 2, ts * 0.7, ts - 4);
-    ctx.fillStyle = shadeHex('#6a4820', L);
-    ctx.fillRect(sx + ts * 0.15, sy + 2, 3, ts - 4);
-    ctx.fillStyle = '#ddd';
-    ctx.beginPath();
-    ctx.arc(sx + ts * 0.7, sy + ts * 0.55, 2.5, 0, Math.PI * 2);
-    ctx.fill();
+    if (doorOpen) {
+      // Open: thin leaf on the hinge side + visible doorway gap
+      ctx.fillStyle = shadeHex('#3a2a18', L * 0.7);
+      ctx.fillRect(sx + ts * 0.12, sy + 2, ts * 0.76, ts - 4);
+      ctx.fillStyle = shadeHex('#a07840', L);
+      ctx.fillRect(sx + ts * 0.12, sy + 2, ts * 0.22, ts - 4);
+      ctx.fillStyle = shadeHex('#6a4820', L);
+      ctx.fillRect(sx + ts * 0.12, sy + 2, 3, ts - 4);
+      ctx.fillStyle = '#ddd';
+      ctx.beginPath();
+      ctx.arc(sx + ts * 0.28, sy + ts * 0.55, 2, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.fillStyle = shadeHex('#a07840', L);
+      ctx.fillRect(sx + ts * 0.15, sy + 2, ts * 0.7, ts - 4);
+      ctx.fillStyle = shadeHex('#6a4820', L);
+      ctx.fillRect(sx + ts * 0.15, sy + 2, 3, ts - 4);
+      ctx.fillStyle = '#ddd';
+      ctx.beginPath();
+      ctx.arc(sx + ts * 0.7, sy + ts * 0.55, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
   } else if (id === BLOCK.BED) {
     ctx.fillStyle = shadeHex('#8b5a2b', L);
     ctx.fillRect(sx + 2, sy + ts * 0.55, ts - 4, ts * 0.4);
@@ -1778,6 +1873,8 @@ export function drawHUD(ctx, player, inv, world, cam, ui, sky) {
   ctx.fillStyle = isCreative ? '#7dffa0' : (player.sprinting ? '#f1c40f' : '#9ec5b0');
   ctx.font = '600 10px system-ui';
   const modeLine = diff.name
+    + (ui.controlMode === 'kids' ? ' · Kids' : '')
+    + (player.flying ? ' · ✈ fly' : '')
     + (player.sprinting ? ' · sprinting' : (player.canSprint === false ? ' · no sprint' : ''));
   ctx.fillText(modeLine, 20, toolTop + 41);
   // Seed (tiny) — helps recreate worlds
@@ -1790,20 +1887,94 @@ export function drawHUD(ctx, player, inv, world, cam, ui, sky) {
   if (ui.craftOpen) drawCraftPanel(ctx, inv, world, player, ui);
 
   if (ui.showTouch) {
-    ctx.fillStyle = 'rgba(255,255,255,0.1)';
+    const kids = ui.controlMode === 'kids';
+
+    // Classic only: virtual stick (kids use tap-to-walk instead)
+    if (!kids) {
+      ctx.fillStyle = 'rgba(255,255,255,0.14)';
+      ctx.beginPath();
+      ctx.arc(70, H - 160, 52, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    } else {
+      // Kids hint chip (lower-left)
+      const qn = (ui.kidsQueue && ui.kidsQueue.length) || 0;
+      ctx.fillStyle = 'rgba(10, 28, 18, 0.78)';
+      roundRect(ctx, 10, H - 128, 148, 54, 12);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(125,255,160,0.5)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.fillStyle = '#7dffa0';
+      ctx.font = '800 12px system-ui';
+      ctx.textAlign = 'left';
+      ctx.fillText('KIDS MODE', 20, H - 108);
+      ctx.fillStyle = '#e8fff0';
+      ctx.font = '600 11px system-ui';
+      ctx.fillText(qn ? (qn + ' job' + (qn > 1 ? 's' : '') + ' queued') : 'Tap walk · dig · build', 20, H - 90);
+      ctx.fillStyle = '#9ec5b0';
+      ctx.font = '600 10px system-ui';
+      ctx.fillText('Tap again = cancel', 20, H - 76);
+    }
+
+    // JUMP / UP pad — high contrast so kids can spot it on iPad
+    const jx = W - 70;
+    const jy = H - 160;
+    const jr = kids ? 50 : 46;
+    const flying = !!player.flying;
+    ctx.fillStyle = flying ? 'rgba(20, 50, 90, 0.78)' : 'rgba(20, 50, 32, 0.72)';
     ctx.beginPath();
-    ctx.arc(70, H - 160, 50, 0, Math.PI * 2);
+    ctx.arc(jx, jy, jr, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+    ctx.strokeStyle = flying ? 'rgba(120, 190, 255, 0.95)' : 'rgba(125, 255, 160, 0.95)';
+    ctx.lineWidth = 3.5;
     ctx.stroke();
-    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    // Inner fill
+    const jg = ctx.createRadialGradient(jx, jy - 6, 4, jx, jy, 40);
+    if (flying) {
+      jg.addColorStop(0, 'rgba(120, 190, 255, 0.55)');
+      jg.addColorStop(1, 'rgba(40, 90, 150, 0.35)');
+    } else {
+      jg.addColorStop(0, 'rgba(125, 255, 160, 0.55)');
+      jg.addColorStop(1, 'rgba(40, 120, 70, 0.35)');
+    }
+    ctx.fillStyle = jg;
     ctx.beginPath();
-    ctx.arc(W - 70, H - 160, 38, 0, Math.PI * 2);
+    ctx.arc(jx, jy, jr - 8, 0, Math.PI * 2);
     ctx.fill();
-    ctx.font = '700 12px system-ui';
-    ctx.fillStyle = 'rgba(255,255,255,0.4)';
+    ctx.fillStyle = '#e8fff0';
+    ctx.font = '800 20px system-ui';
     ctx.textAlign = 'center';
-    ctx.fillText('JUMP', W - 70, H - 156);
+    ctx.textBaseline = 'middle';
+    ctx.fillText('▲', jx, jy - 10);
+    ctx.font = '800 13px system-ui';
+    ctx.fillStyle = flying ? '#9fd4ff' : '#7dffa0';
+    ctx.fillText(flying ? 'UP' : 'JUMP', jx, jy + 14);
+    ctx.textBaseline = 'alphabetic';
+
+    // Creative fly: DOWN pad left of JUMP (away from hotbar)
+    if (flying) {
+      const dx = W - 168;
+      const dy = H - 160;
+      ctx.fillStyle = 'rgba(20, 50, 90, 0.78)';
+      ctx.beginPath();
+      ctx.arc(dx, dy, 36, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(120, 190, 255, 0.9)';
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+      ctx.fillStyle = '#e8f6ff';
+      ctx.font = '800 18px system-ui';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('▼', dx, dy - 6);
+      ctx.font = '800 12px system-ui';
+      ctx.fillStyle = '#9fd4ff';
+      ctx.fillText('DOWN', dx, dy + 12);
+      ctx.textBaseline = 'alphabetic';
+    }
   }
 
   if (ui.toast && ui.toastT > 0) {
@@ -2395,10 +2566,12 @@ export function drawBagPanel(ctx, inv, ui) {
 }
 
 export function drawCraftPanel(ctx, inv, world, player, ui) {
-  const pw = 340;
-  const ph = 520;
+  // Fit iPad landscape (H≈400) — old fixed ph=520 put CRAFT off-screen
+  const short = H < 520;
+  const pw = short ? Math.min(520, W - 20) : 340;
+  const ph = Math.min(short ? H - 12 : 520, H - 12);
   const px = (W - pw) / 2;
-  const py = Math.max(8, (H - ph) / 2 - 8);
+  const py = Math.max(4, (H - ph) / 2);
   ui.craftHit = [];
 
   // Dim world behind
@@ -2415,12 +2588,12 @@ export function drawCraftPanel(ctx, inv, world, player, ui) {
 
   // Title + close
   ctx.fillStyle = '#7dffa0';
-  ctx.font = '700 20px system-ui';
+  ctx.font = short ? '700 17px system-ui' : '700 20px system-ui';
   ctx.textAlign = 'left';
-  ctx.fillText('Craft', px + 18, py + 32);
+  ctx.fillText('Craft', px + 18, py + (short ? 26 : 32));
   // Close X
   const cx = px + pw - 44;
-  const cy = py + 12;
+  const cy = py + 10;
   ctx.fillStyle = 'rgba(255,255,255,0.1)';
   roundRect(ctx, cx, cy, 32, 32, 10);
   ctx.fill();
@@ -2433,15 +2606,18 @@ export function drawCraftPanel(ctx, inv, world, player, ui) {
   // Station status
   const atBench = stationAvailable(world, player.x, player.y, 'workbench');
   const atFurn = stationAvailable(world, player.x, player.y, 'furnace');
-  ctx.font = '11px system-ui';
+  const stY1 = py + (short ? 44 : 52);
+  const stY2 = py + (short ? 58 : 68);
+  ctx.font = short ? '10px system-ui' : '11px system-ui';
   ctx.textAlign = 'left';
   ctx.fillStyle = atBench ? '#7dffa0' : '#8899aa';
-  ctx.fillText(atBench ? '✓ Workbench nearby' : '○ No workbench (tools locked)', px + 18, py + 52);
+  ctx.fillText(atBench ? '✓ Workbench nearby' : '○ No workbench (tools locked)', px + 18, stY1);
   ctx.fillStyle = atFurn ? '#7dffa0' : '#8899aa';
-  ctx.fillText(atFurn ? '✓ Furnace nearby' : '○ No furnace (smelting locked)', px + 18, py + 68);
+  ctx.fillText(atFurn ? '✓ Furnace nearby' : '○ No furnace (smelting locked)', px + 18, stY2);
 
   // Tabs
-  const tabY = py + 80;
+  const tabY = py + (short ? 68 : 80);
+  const tabH = short ? 30 : 34;
   const tabs = CRAFT_TABS;
   const tabW = (pw - 36) / tabs.length;
   if (!ui.craftTab) ui.craftTab = 'basic';
@@ -2450,7 +2626,7 @@ export function drawCraftPanel(ctx, inv, world, player, ui) {
     const tx = px + 12 + i * tabW;
     const on = ui.craftTab === t.id;
     ctx.fillStyle = on ? 'rgba(125,255,160,0.22)' : 'rgba(255,255,255,0.06)';
-    roundRect(ctx, tx, tabY, tabW - 6, 34, 10);
+    roundRect(ctx, tx, tabY, tabW - 6, tabH, 10);
     ctx.fill();
     if (on) {
       ctx.strokeStyle = 'rgba(125,255,160,0.55)';
@@ -2458,18 +2634,21 @@ export function drawCraftPanel(ctx, inv, world, player, ui) {
       ctx.stroke();
     }
     ctx.fillStyle = on ? '#e8fff0' : '#9ec5b0';
-    ctx.font = '700 13px system-ui';
+    ctx.font = short ? '700 12px system-ui' : '700 13px system-ui';
     ctx.textAlign = 'center';
-    ctx.fillText(t.label, tx + (tabW - 6) / 2, tabY + 22);
-    ui.craftHit.push({ kind: 'tab', tab: t.id, x: tx, y: tabY, w: tabW - 6, h: 34 });
+    ctx.fillText(t.label, tx + (tabW - 6) / 2, tabY + (short ? 20 : 22));
+    ui.craftHit.push({ kind: 'tab', tab: t.id, x: tx, y: tabY, w: tabW - 6, h: tabH });
   }
 
-  // Recipe list
+  // Recipe list — shrink so detail + CRAFT always stay on screen
   const rows = recipesInTab(ui.craftTab, world, player.x, player.y);
-  const listTop = tabY + 44;
-  const listH = 200;
-  const rowH = 48;
-  const visible = Math.floor(listH / rowH);
+  const listTop = tabY + tabH + 10;
+  const footerH = short ? 18 : 22;
+  const detailH = short ? 96 : 120;
+  const detailY = py + ph - footerH - detailH - 4;
+  const listH = Math.max(short ? 72 : 120, detailY - listTop - 10);
+  const rowH = short ? 42 : 48;
+  const visible = Math.max(1, Math.floor(listH / rowH));
   const maxScroll = Math.max(0, rows.length - visible);
   ui.craftScroll = Math.max(0, Math.min(maxScroll, ui.craftScroll || 0));
 
@@ -2518,11 +2697,12 @@ export function drawCraftPanel(ctx, inv, world, player, ui) {
     }
 
     const outId = r.out[0];
-    drawItemIcon(ctx, px + 20, y + 8, 30, outId);
+    const iconS = short ? 26 : 30;
+    drawItemIcon(ctx, px + 20, y + (rowH - iconS) / 2, iconS, outId);
 
     // Name (single line, ellipsize if long)
     ctx.fillStyle = can ? '#f0fff6' : '#99aabb';
-    ctx.font = '700 13px system-ui';
+    ctx.font = short ? '700 12px system-ui' : '700 13px system-ui';
     ctx.textAlign = 'left';
     const nameMaxW = pw - 100;
     let name = r.name;
@@ -2532,18 +2712,18 @@ export function drawCraftPanel(ctx, inv, world, player, ui) {
       }
       name += '…';
     }
-    ctx.fillText(name, px + 58, y + 18);
+    ctx.fillText(name, px + 58, y + (short ? 15 : 18));
 
-    // Second line: locked station badge OR material chips (never both overlapping the name)
+    // Second line: locked station badge OR material chips
     if (!row.stationOk) {
       const hint = stationHint(r.station) || 'Need station';
       ctx.font = '600 10px system-ui';
       const hw = Math.min(pw - 100, ctx.measureText(hint).width + 12);
       ctx.fillStyle = 'rgba(255, 160, 60, 0.22)';
-      roundRect(ctx, px + 58, y + 24, hw, 16, 5);
+      roundRect(ctx, px + 58, y + (short ? 20 : 24), hw, 16, 5);
       ctx.fill();
       ctx.fillStyle = '#ffc878';
-      ctx.fillText(hint, px + 64, y + 36);
+      ctx.fillText(hint, px + 64, y + (short ? 32 : 36));
     } else {
       let mx = px + 58;
       ctx.font = '600 10px system-ui';
@@ -2554,10 +2734,10 @@ export function drawCraftPanel(ctx, inv, world, player, ui) {
         const label = have + '/' + n + ' ' + itemName(id);
         const tw = Math.min(100, ctx.measureText(label).width + 10);
         if (mx + tw > px + pw - 60) break;
-        roundRect(ctx, mx, y + 24, tw, 16, 5);
+        roundRect(ctx, mx, y + (short ? 20 : 24), tw, 16, 5);
         ctx.fill();
         ctx.fillStyle = okM ? '#b8f5c8' : '#ffb0b0';
-        ctx.fillText(label, mx + 5, y + 36);
+        ctx.fillText(label, mx + 5, y + (short ? 32 : 36));
         mx += tw + 4;
       }
     }
@@ -2574,8 +2754,7 @@ export function drawCraftPanel(ctx, inv, world, player, ui) {
   }
   ctx.restore();
 
-  // Detail + CRAFT button
-  const detailY = listTop + listH + 12;
+  // Detail + CRAFT button (always inside panel bounds)
   let selected = rows.find(row => row.recipe.id === ui.craftSelected);
   if (!selected && rows.length) {
     selected = rows[0];
@@ -2583,54 +2762,62 @@ export function drawCraftPanel(ctx, inv, world, player, ui) {
   }
 
   ctx.fillStyle = 'rgba(0,0,0,0.28)';
-  roundRect(ctx, px + 12, detailY, pw - 24, 120, 12);
+  roundRect(ctx, px + 12, detailY, pw - 24, detailH, 12);
   ctx.fill();
 
   if (selected) {
     const r = selected.recipe;
     const can = selected.stationOk && canCraft(inv, r);
-    drawItemIcon(ctx, px + 24, detailY + 16, 40, r.out[0]);
+    const iconSz = short ? 32 : 40;
+    drawItemIcon(ctx, px + 24, detailY + (short ? 10 : 16), iconSz, r.out[0]);
     ctx.fillStyle = '#e8fff0';
-    ctx.font = '700 16px system-ui';
+    ctx.font = short ? '700 14px system-ui' : '700 16px system-ui';
     ctx.textAlign = 'left';
-    ctx.fillText(r.name, px + 76, detailY + 34);
+    ctx.fillText(r.name, px + 76, detailY + (short ? 24 : 34));
 
-    ctx.font = '12px system-ui';
+    ctx.font = short ? '11px system-ui' : '12px system-ui';
     ctx.fillStyle = '#9ec5b0';
     let line = 'Needs: ';
     for (const [id, n] of r.in) {
       const have = countItem(inv, id);
       line += itemName(id) + ' ' + have + '/' + n + '   ';
     }
-    ctx.fillText(line.trim(), px + 76, detailY + 54);
+    ctx.fillText(line.trim(), px + 76, detailY + (short ? 40 : 54));
 
-    if (!selected.stationOk) {
-      ctx.fillStyle = '#ffb347';
-      ctx.font = '600 12px system-ui';
-      ctx.fillText(stationHint(r.station), px + 76, detailY + 72);
-    } else if (!can) {
-      const miss = missingMaterials(inv, r);
-      ctx.fillStyle = '#ff8a80';
-      ctx.font = '600 12px system-ui';
-      if (miss.length) {
-        ctx.fillText('Missing ' + itemName(miss[0].id) + ' (have ' + miss[0].have + ', need ' + miss[0].need + ')', px + 76, detailY + 72);
+    if (!short) {
+      if (!selected.stationOk) {
+        ctx.fillStyle = '#ffb347';
+        ctx.font = '600 12px system-ui';
+        ctx.fillText(stationHint(r.station), px + 76, detailY + 72);
+      } else if (!can) {
+        const miss = missingMaterials(inv, r);
+        ctx.fillStyle = '#ff8a80';
+        ctx.font = '600 12px system-ui';
+        if (miss.length) {
+          ctx.fillText('Missing ' + itemName(miss[0].id) + ' (have ' + miss[0].have + ', need ' + miss[0].need + ')', px + 76, detailY + 72);
+        }
+      } else {
+        ctx.fillStyle = '#7dffa0';
+        ctx.font = '600 12px system-ui';
+        ctx.fillText('Ready to craft!', px + 76, detailY + 72);
       }
-    } else {
-      ctx.fillStyle = '#7dffa0';
-      ctx.font = '600 12px system-ui';
-      ctx.fillText('Ready to craft!', px + 76, detailY + 72);
     }
 
-    // Big CRAFT button
-    const btnY = detailY + 82;
-    const btnH = 36;
-    ctx.fillStyle = can ? 'rgba(125,255,160,0.85)' : 'rgba(120,120,120,0.35)';
+    // Big CRAFT button — always on-screen and touch-friendly
+    const btnH = short ? 40 : 36;
+    const btnY = detailY + detailH - btnH - 8;
+    ctx.fillStyle = can ? 'rgba(125,255,160,0.9)' : 'rgba(120,120,120,0.4)';
     roundRect(ctx, px + 20, btnY, pw - 40, btnH, 12);
     ctx.fill();
-    ctx.fillStyle = can ? '#0a1f12' : '#666';
-    ctx.font = '700 16px system-ui';
+    if (can) {
+      ctx.strokeStyle = 'rgba(230,255,240,0.7)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+    ctx.fillStyle = can ? '#0a1f12' : '#888';
+    ctx.font = short ? '800 17px system-ui' : '700 16px system-ui';
     ctx.textAlign = 'center';
-    ctx.fillText(can ? '⚒  CRAFT' : (selected.stationOk ? 'Need materials' : 'Need station'), W / 2, btnY + 24);
+    ctx.fillText(can ? '⚒  CRAFT' : (selected.stationOk ? 'Need materials' : 'Need station'), px + pw / 2, btnY + btnH / 2 + 6);
     ui.craftHit.push({
       kind: 'craft',
       recipe: r,
@@ -2645,11 +2832,11 @@ export function drawCraftPanel(ctx, inv, world, player, ui) {
     ctx.fillStyle = '#8899aa';
     ctx.font = '14px system-ui';
     ctx.textAlign = 'center';
-    ctx.fillText('No recipes in this tab', W / 2, detailY + 60);
+    ctx.fillText('No recipes in this tab', W / 2, detailY + detailH / 2);
   }
 
   ctx.fillStyle = '#7a9a8a';
-  ctx.font = '11px system-ui';
+  ctx.font = short ? '10px system-ui' : '11px system-ui';
   ctx.textAlign = 'center';
-  ctx.fillText('Tap a recipe, then CRAFT · ⚒ or C to close', W / 2, py + ph - 14);
+  ctx.fillText('Tap a recipe, then CRAFT · ⚒ to close', W / 2, py + ph - 8);
 }

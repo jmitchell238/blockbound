@@ -3,13 +3,21 @@ import { HOTBAR_SIZE } from '../inventory/inventory.js';
 
 /**
  * Controls:
- *  - TAP world  → place selected block (or attack if near a mob / empty hand)
+ *  - TAP world  → place / attack / (Kids: walk there)
  *  - HOLD world → mine the block under your finger
- *  - No mine/place mode toggle
+ *  - Kids mode: drag to pan free camera; no virtual stick
  */
 
 /** Hold this long to dig (short press still places / attacks). */
 export const HOLD_MINE_MS = 160;
+/** Kids mode: longer hold before dig so little fingers can tap-to-walk. */
+export const HOLD_MINE_KIDS_MS = 340;
+/** Screen-space drag (stage px) before a press becomes free-camera pan in Kids mode. */
+export const PAN_SLOP_PX = 16;
+
+function holdMineThreshold(input) {
+  return input.controlMode === 'kids' ? HOLD_MINE_KIDS_MS : HOLD_MINE_MS;
+}
 
 export function makeInput() {
   return {
@@ -44,9 +52,28 @@ export function makeInput() {
     sprint: false,
     /** Creative mode: open block picker */
     creativeToggle: false,
+    /** Creative: toggle fly mode */
+    flyToggle: false,
+    /** Touch: hold fly up / down pads */
+    _touchFlyUp: false,
+    _touchFlyDown: false,
     zoomDelta: 0,
     hotbarTap: -1,
     keys: Object.create(null),
+    /** 'classic' | 'kids' — set each frame from session */
+    controlMode: 'classic',
+    /** Kids: walk-to point in world tiles { x, y } */
+    moveTarget: null,
+    /** Kids free-cam: user dragged this frame / session */
+    camUserPanned: false,
+    _panning: false,
+    _panStartX: 0,
+    _panStartY: 0,
+    _panLastX: 0,
+    _panLastY: 0,
+    _navStuckT: 0,
+    _navLastX: null,
+    _navLastY: null,
   };
 }
 
@@ -64,6 +91,7 @@ export function bindInput(input, canvas, getCam) {
       if (k === 'i' || k === 'b') input.bagToggle = true;
       if (k === 'x' || k === 'j' || k === 'control') input.attackPressed = true;
       if (k === 'g' || k === 'v') input.creativeToggle = true; // creative inventory
+      if (k === 'z') input.flyToggle = true; // Z toggles creative fly
       if (k >= '1' && k <= '8') input.hotbarTap = parseInt(k, 10) - 1;
       if (k === ' ') input.jumpPressed = true;
       // Q no longer toggles mode — optional attack
@@ -114,6 +142,8 @@ export function bindInput(input, canvas, getCam) {
     input.stickY = 0;
     input.jump = false;
     input._touchJump = false;
+    input._touchFlyUp = false;
+    input._touchFlyDown = false;
     input.pointerDown = false;
     input.holdMining = false;
     input.mineTx = null;
@@ -125,8 +155,15 @@ export function bindInput(input, canvas, getCam) {
 }
 
 export function handlePointer(input, p, phase, getCam) {
-  const inStick = p.x < 140 && p.y > H - 240;
-  const inJump = p.x > W - 130 && p.y > H - 230 && p.y < H - 90;
+  const kids = input.controlMode === 'kids';
+  // Kids mode: no virtual stick — whole lower-left is free for taps / pan
+  const inStick = !kids && p.x < 145 && p.y > H - 245;
+  // Slightly larger hit zone matching the bright JUMP pad
+  const inJump = p.x > W - 130 && p.y > H - 235 && p.y < H - 85;
+  // Creative fly: DOWN pad to the LEFT of JUMP (keeps clear of hotbar)
+  const inFlyDown = !!input._flyPads
+    && p.x > W - 220 && p.x < W - 130
+    && p.y > H - 220 && p.y < H - 100;
   const inHotbar = p.y > H - 70;
   // Stick + jump only — HTML chrome buttons are separate DOM and don't need a canvas dead-zone.
   // (A wide dead-zone here blocked mining/placing on the lower world.)
@@ -145,6 +182,12 @@ export function handlePointer(input, p, phase, getCam) {
       input._touchJump = true;
       input.jump = true;
       input.jumpPressed = true;
+      input._touchFlyUp = true;
+      return;
+    }
+    if (inFlyDown) {
+      input._touchFlyDown = true;
+      input.down = true;
       return;
     }
     if (inStick) {
@@ -153,12 +196,17 @@ export function handlePointer(input, p, phase, getCam) {
       return;
     }
 
-    // World press — may become hold-mine or tap-place
+    // World press — may become hold-mine, free-cam pan (kids), or tap-place/go
     input.pointerDown = true;
     input.holdMining = false;
+    input._panning = false;
     input.pressStart = performance.now();
     input.pointerX = p.x;
     input.pointerY = p.y;
+    input._panStartX = p.x;
+    input._panStartY = p.y;
+    input._panLastX = p.x;
+    input._panLastY = p.y;
     input._worldId = p.id;
     mapPointerToTile(input, p, getCam());
     // Don't mine yet until hold threshold
@@ -171,6 +219,35 @@ export function handlePointer(input, p, phase, getCam) {
     if (input._worldId === p.id && input.pointerDown) {
       input.pointerX = p.x;
       input.pointerY = p.y;
+
+      // Kids free camera: drag to pan the world (Blockheads-style)
+      if (kids && !input.holdMining) {
+        const drag = Math.hypot(p.x - input._panStartX, p.y - input._panStartY);
+        if (input._panning || drag > PAN_SLOP_PX) {
+          if (!input._panning) {
+            input._panning = true;
+            input._panLastX = p.x;
+            input._panLastY = p.y;
+          }
+          const cam = getCam();
+          const ts = TILE * ((cam && cam.zoom) || 1);
+          const ddx = (p.x - input._panLastX) / ts;
+          const ddy = (p.y - input._panLastY) / ts;
+          // Finger moves content with it
+          cam.x -= ddx;
+          cam.y -= ddy;
+          input._panLastX = p.x;
+          input._panLastY = p.y;
+          input.camUserPanned = true;
+          // Cancel any mine intent while panning
+          input.mineTx = null;
+          input.mineTy = null;
+          input.placeTx = null;
+          input.placeTy = null;
+          return;
+        }
+      }
+
       mapPointerToTile(input, p, getCam());
       // If already hold-mining, keep mine target updated
       if (input.holdMining) {
@@ -190,14 +267,17 @@ export function handlePointer(input, p, phase, getCam) {
       const held = performance.now() - (input.pressStart || 0);
       const tx = input.placeTx;
       const ty = input.placeTy;
+      const wasPan = input._panning;
 
-      if (!input.holdMining && held < HOLD_MINE_MS && tx != null && ty != null) {
-        // Short tap → place
+      const holdLim = holdMineThreshold(input);
+      if (!wasPan && !input.holdMining && held < holdLim && tx != null && ty != null) {
+        // Short tap → place / interact / (kids) walk-to
         input.tapPlace = { tx, ty };
       }
 
       input.pointerDown = false;
       input.holdMining = false;
+      input._panning = false;
       input.mineTx = null;
       input.mineTy = null;
       input.placeTx = null;
@@ -208,8 +288,13 @@ export function handlePointer(input, p, phase, getCam) {
     // End touch jump (and clear sticky jump if this release is the jump pad)
     if (inJump || input._touchJump) {
       input._touchJump = false;
+      input._touchFlyUp = false;
       // Only clear jump if Space isn't still held — pollInput will re-apply keys
       if (!input.keys[' ']) input.jump = false;
+    }
+    if (inFlyDown || input._touchFlyDown) {
+      input._touchFlyDown = false;
+      if (!input.keys['s'] && !input.keys['arrowdown']) input.down = false;
     }
   }
 }
@@ -242,9 +327,9 @@ export function mapPointerToTile(input, p, cam) {
  * Call each frame: promote long press to mining.
  */
 export function updateHoldMine(input) {
-  if (!input.pointerDown || input.holdMining) return;
+  if (!input.pointerDown || input.holdMining || input._panning) return;
   if (!input.pressStart) return;
-  if (performance.now() - input.pressStart >= HOLD_MINE_MS) {
+  if (performance.now() - input.pressStart >= holdMineThreshold(input)) {
     input.holdMining = true;
     input.mineTx = input.placeTx;
     input.mineTy = input.placeTy;
@@ -256,10 +341,10 @@ export function pollInput(input, mode, cam) {
   input.left = !!(k['a'] || k['arrowleft']);
   input.right = !!(k['d'] || k['arrowright']);
   input.up = !!(k['w'] || k['arrowup']);
-  input.down = !!(k['s'] || k['arrowdown']);
+  input.down = !!(k['s'] || k['arrowdown'] || input._touchFlyDown);
   // Space held OR on-screen JUMP held — never latch from previous frame
   // (old bug: jump = space || jump → infinite bunny-hop after one press)
-  input.jump = !!(k[' '] || input._touchJump);
+  input.jump = !!(k[' '] || input._touchJump || input._touchFlyUp);
   // Sprint: left/right Shift
   input.sprint = !!(k['shift'] || k['shifts'] || k['shiftleft'] || k['shiftright']);
   updateHoldMine(input);

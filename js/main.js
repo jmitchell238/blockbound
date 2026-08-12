@@ -14,7 +14,7 @@ import { loadTextures } from './textures/textures.js';
 import {
   save, loadSave, writeSave, listWorlds, selectWorld, loadWorldData,
   createWorldEntry, renameWorld, deleteWorld, getWorldMeta, worldSummaryLine,
-  formatSeedDisplay, persistSession,
+  formatSeedDisplay, persistSession, setControlMode, getControlMode,
 } from './save/save.js';
 import { audioSetMuted, ensureAudio } from './audio/audio.js';
 import {
@@ -98,12 +98,39 @@ function setScreen(name) {
   // creative chrome only when playing creative
   if (!isPlay) syncCreativeChrome(null);
   else syncCreativeChrome(getSession());
+  // Deferred PWA update reload (never mid-game)
+  if (!isPlay && window.__bbPendingReload) {
+    window.__bbPendingReload = false;
+    safeReloadForUpdate();
+  }
 }
 
 function pickSplash() {
   const el = document.getElementById('splashLine');
   if (!el) return;
   el.textContent = SPLASH[Math.floor(Math.random() * SPLASH.length)];
+}
+
+function updateControlModeUi() {
+  const btn = document.getElementById('btnControlMode');
+  const hint = document.getElementById('controlModeHint');
+  const mode = getControlMode();
+  if (btn) {
+    btn.textContent = mode === 'kids'
+      ? 'Controls: Kids (tap to walk)'
+      : 'Controls: Stick (classic)';
+  }
+  if (hint) {
+    hint.textContent = mode === 'kids'
+      ? 'Kids mode: tap to walk · tap blocks to queue digging · select a block then tap to queue building. Character does the jobs. Tap again cancels. Drag to look around.'
+      : 'Classic: virtual stick + JUMP. Switch to Kids for Blockheads-style tap-to-walk, dig & build queue.';
+  }
+  // Live session picks this up next frame via save.controlMode
+  const s = getSession();
+  if (s && s.ui) {
+    s.ui.controlMode = mode;
+    if (s.input) s.input.controlMode = mode;
+  }
 }
 
 function updateMuteButtons() {
@@ -484,6 +511,7 @@ function showCreate() {
 
 function showOptions() {
   updateMuteButtons();
+  updateControlModeUi();
   setScreen('options');
 }
 
@@ -557,6 +585,15 @@ function syncCreativeChrome(session) {
   document.body.classList.toggle('has-creative', creative);
   const btn = document.getElementById('btnCreative');
   if (btn) btn.classList.toggle('hidden', !creative || screenName !== 'play');
+  const flyBtn = document.getElementById('btnFly');
+  if (flyBtn) {
+    const show = creative && screenName === 'play';
+    flyBtn.classList.toggle('hidden', !show);
+    const flying = !!(session && session.player && session.player.flying);
+    flyBtn.classList.toggle('is-on', flying);
+    flyBtn.textContent = flying ? '✈ Flying' : '✈ Fly';
+    flyBtn.title = flying ? 'Fly ON — tap to walk' : 'Fly OFF — tap to fly (creative)';
+  }
 }
 
 function resetInput() {
@@ -811,6 +848,14 @@ function wireUI() {
     writeSave();
     updateMuteButtons();
   });
+  const ctrlBtn = document.getElementById('btnControlMode');
+  if (ctrlBtn) {
+    ctrlBtn.addEventListener('click', () => {
+      const next = getControlMode() === 'kids' ? 'classic' : 'kids';
+      setControlMode(next);
+      updateControlModeUi();
+    });
+  }
   document.getElementById('btnHub').addEventListener('click', () => {
     window.location.href = 'https://jmitchell238.github.io/arcade-hub/';
   });
@@ -861,25 +906,20 @@ function wireUI() {
       if (s.ui.creativeOpen) s.ui.creativeScroll = s.ui.creativeScroll || 0;
     });
   }
+  const flyBtn = document.getElementById('btnFly');
+  if (flyBtn) {
+    flyBtn.addEventListener('click', () => {
+      const s = getSession();
+      if (!s || !s.player || !s.player.canFly) return;
+      s.input.flyToggle = true; // applied next frame in updatePlayer
+    });
+  }
   const modeBtn = document.getElementById('btnMode');
   if (modeBtn) {
     modeBtn.classList.add('hidden');
     modeBtn.style.display = 'none';
   }
-  const useBtn = document.getElementById('btnUse');
-  if (useBtn) {
-    useBtn.addEventListener('click', () => {
-      const s = getSession();
-      if (s) s.input.usePressed = true;
-    });
-  }
-  const atkBtn = document.getElementById('btnAttack');
-  if (atkBtn) {
-    atkBtn.addEventListener('click', () => {
-      const s = getSession();
-      if (s) s.input.attackPressed = true;
-    });
-  }
+  // Use / Hit chrome buttons removed — tap doors/chests/enemies instead (F / X still on keyboard)
 
   const ver = GAME_VERSION_LABEL;
   ['versionTag', 'versionMenu', 'versionOptions'].forEach(id => {
@@ -894,30 +934,73 @@ function wireUI() {
   });
 }
 
-// Bootstrap — force SW onto latest cache
-if ('serviceWorker' in navigator) {
-  let refreshing = false;
-  navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (refreshing) return;
-    refreshing = true;
-    location.reload();
-  });
+// ---------- PWA auto-update (same pattern as drop-and-fuse / neon-autofire) ----------
+function safeReloadForUpdate() {
+  if (window.__bbReloaded) return;
+  // Don't yank kids mid-game — reload when they return to menu
+  if (screenName === 'play') {
+    window.__bbPendingReload = true;
+    return;
+  }
+  window.__bbReloaded = true;
+  location.reload();
+}
 
-  navigator.serviceWorker.register('./sw.js?v=' + GAME_VERSION_LABEL).then(reg => {
-    try { reg.update(); } catch (_) {}
-    if (reg.waiting) {
-      reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+function activateWaitingWorker(reg) {
+  if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+}
+
+function watchInstallingWorker(reg) {
+  const worker = reg.installing;
+  if (!worker) return;
+  worker.addEventListener('statechange', () => {
+    if (worker.state === 'installed' && navigator.serviceWorker.controller) {
+      worker.postMessage({ type: 'SKIP_WAITING' });
     }
-    reg.addEventListener('updatefound', () => {
-      const nw = reg.installing;
-      if (!nw) return;
-      nw.addEventListener('statechange', () => {
-        if (nw.state === 'installed' && navigator.serviceWorker.controller) {
-          nw.postMessage({ type: 'SKIP_WAITING' });
-        }
-      });
+  });
+}
+
+function registerSW() {
+  if (!('serviceWorker' in navigator)) return;
+  if (!(location.protocol === 'https:' || location.hostname === 'localhost' ||
+        location.hostname === '127.0.0.1')) return;
+
+  navigator.serviceWorker.register('./sw.js?v=' + GAME_VERSION).then(reg => {
+    activateWaitingWorker(reg);
+    if (reg.installing) watchInstallingWorker(reg);
+    reg.addEventListener('updatefound', () => watchInstallingWorker(reg));
+
+    const checkForUpdate = () => { reg.update().catch(() => {}); };
+    checkForUpdate();
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) {
+        checkForUpdate();
+        checkRemoteVersion();
+      }
     });
-  }).catch(() => {});
+    window.addEventListener('focus', () => {
+      checkForUpdate();
+      checkRemoteVersion();
+    });
+    setInterval(checkForUpdate, 60 * 1000);
+    setInterval(checkRemoteVersion, 90 * 1000);
+
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      safeReloadForUpdate();
+    });
+  }).catch(err => console.warn('[sw] register failed', err));
+}
+
+/** If deployed GAME_VERSION differs from this bundle, force reload (menu only). */
+function checkRemoteVersion() {
+  if (screenName === 'play') return;
+  fetch('js/core/constants.js?_=' + Date.now(), { cache: 'no-store' })
+    .then(r => (r.ok ? r.text() : ''))
+    .then(text => {
+      const m = text.match(/GAME_VERSION\s*=\s*['"]([^'"]+)['"]/);
+      if (m && m[1] && m[1] !== GAME_VERSION) safeReloadForUpdate();
+    })
+    .catch(() => {});
 }
 
 loadSave();
@@ -927,6 +1010,8 @@ wireUI();
 pickSplash();
 updateMuteButtons();
 setScreen('title');
+registerSW();
+checkRemoteVersion();
 
 loadTextures().catch(err => console.warn('texture load', err));
 requestAnimationFrame(frame);

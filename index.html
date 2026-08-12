@@ -36,14 +36,15 @@
 
         <div id="howPanel" class="how hidden">
           <ol>
-            <li><b>Move</b> with WASD / arrows or the left stick. <b>Space</b> / jump button to jump. Hold <b>Shift</b> to sprint.</li>
-            <li><b>Tap</b> to place the selected block. <b>Hold</b> on a block to dig it up.</li>
-            <li>Open <b>Craft</b> (C / E). Place a <b>Workbench</b> for better recipes. <b>Furnace</b> smelts ores.</li>
+            <li><b>Kids mode</b> (Options): like The Blockheads — <b>tap where to walk</b>, <b>tap blocks to queue digs</b>, select a block then <b>tap to queue builds</b>. Character walks over and does the jobs. Tap again to cancel. Drag to look around.</li>
+            <li><b>Classic</b>: stick + JUMP. <b>Tap</b> to place, <b>hold</b> to dig. Tap doors/chests/beds to use. Tap enemies to fight.</li>
+            <li>Open <b>Craft</b> (⚒ / C). Pick a recipe, then press <b>CRAFT</b>. Place a <b>Workbench</b> for tools. <b>Furnace</b> smelts ores.</li>
+            <li>In caves, place <b>ladders</b> on any open air (the back wall counts). Stack ladders to climb.</li>
             <li>Worlds <b>loop left/right</b>. Dig to <b>magma</b>; the <b>sky</b> is the ceiling.</li>
             <li><b>Singleplayer</b> opens your world list — name worlds, pick a <b>seed</b>, difficulty, and size.</li>
             <li>Same <b>seed + size</b> regenerates the same terrain. Share seeds with friends.</li>
             <li>Rotate your device for <b>portrait or landscape</b> play.</li>
-            <li><b>Difficulty</b>: Creative / Easy / Normal / Hard. Creative: ✦ Blocks (G) for every item.</li>
+            <li><b>Difficulty</b>: Creative / Easy / Normal / Hard. Creative: ✦ Blocks (G) for every item, plus <b>✈ Fly</b> (JUMP=up, DOWN=down, double-tap JUMP or ✈ to toggle).</li>
           </ol>
           <p class="inspired">Inspired by <i>The Blockheads</i> &amp; Minecraft menus — not affiliated.</p>
         </div>
@@ -139,6 +140,8 @@
         <h2 class="menu-title">Options</h2>
         <div class="menu-stack">
           <button id="muteBtn" class="secondary" type="button">🔊 Sound on</button>
+          <button id="btnControlMode" class="secondary" type="button">Controls: Stick</button>
+          <p class="size-hint" id="controlModeHint">Classic virtual stick + JUMP. Switch to Kids for tap-to-walk (great for little ones).</p>
           <p class="size-hint">Rotate your phone or resize the window for landscape / portrait.</p>
           <button id="btnOptionsBack" class="ghost" type="button">← Back</button>
         </div>
@@ -150,11 +153,10 @@
     <button id="btnCraft" class="icon-btn play-chrome craft-btn hidden" type="button" title="Craft">⚒</button>
     <button id="btnBag" class="icon-btn play-chrome bag-btn hidden" type="button" title="Inventory">🎒</button>
     <button id="btnCreative" class="icon-btn play-chrome creative-btn hidden" type="button" title="Creative blocks">✦</button>
-    <button id="btnUse" class="icon-btn play-chrome use-btn hidden" type="button" title="Use">✋ Use</button>
-    <button id="btnAttack" class="icon-btn play-chrome attack-btn hidden" type="button" title="Attack">⚔ Hit</button>
+    <button id="btnFly" class="icon-btn play-chrome fly-btn hidden" type="button" title="Toggle fly">✈ Fly</button>
   </div>
 
   <!-- ?v= busts sticky SW/browser caches when version bumps -->
-  <script type="module" src="js/main.js?v=1.9.029"></script>
+  <script type="module" src="js/main.js?v=1.9.034"></script>
 </body>
 </html>

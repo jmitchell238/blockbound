@@ -666,27 +666,22 @@ button.ghost.danger {
   color: #7dffa0;
   border-color: rgba(125, 255, 160, 0.4);
 }
-.use-btn {
-  left: 146px;
-  bottom: max(72px, calc(env(safe-area-inset-bottom, 0px) + 68px));
-  font-size: 0.78rem;
-  padding: 8px 9px;
-}
-body.has-creative .use-btn {
+.fly-btn {
   left: 194px;
-}
-body.has-creative .attack-btn {
-  left: 258px;
-}
-.attack-btn {
-  left: 210px;
   bottom: max(72px, calc(env(safe-area-inset-bottom, 0px) + 68px));
-  font-size: 0.78rem;
-  padding: 8px 9px;
-  background: rgba(120, 30, 30, 0.9);
+  font-size: 0.82rem;
+  padding: 8px 10px;
+  background: rgba(30, 70, 120, 0.92);
+  color: #9fd4ff;
+  border-color: rgba(120, 190, 255, 0.5);
+}
+.fly-btn.is-on {
+  background: rgba(40, 110, 180, 0.95);
+  color: #e8f6ff;
+  box-shadow: 0 0 0 2px rgba(120, 200, 255, 0.45);
 }
 .mode-btn {
-  left: 278px;
+  left: 194px;
   bottom: max(72px, calc(env(safe-area-inset-bottom, 0px) + 68px));
   font-size: 0.78rem;
   padding: 8px 9px;
@@ -796,8 +791,7 @@ body.landscape #btnMenu,
 body.landscape .craft-btn,
 body.landscape .bag-btn,
 body.landscape .creative-btn,
-body.landscape .use-btn,
-body.landscape .attack-btn {
+body.landscape .fly-btn {
   bottom: max(64px, calc(env(safe-area-inset-bottom, 0px) + 58px));
 }
 

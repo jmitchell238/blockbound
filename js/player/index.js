@@ -7,6 +7,7 @@ import { BLOCK, BLOCK_META, isPlatform, isBlockItem } from '../content/blocks.js
 import {
   getTile, setTile, isSolid, isClimbable, wrapX, wrapDeltaX,
 } from '../world/index.js';
+import { isShelteredAir } from '../world/shelter.js';
 
 export function makePlayer(spawnTileX, spawnTileY) {
   return {
@@ -45,6 +46,12 @@ export function makePlayer(spawnTileX, spawnTileY) {
     sprinting: false,
     /** Creative / invincible flag (set from session difficulty) */
     godMode: false,
+    /** Creative may fly (set from session) */
+    canFly: false,
+    /** Currently in fly mode (creative only) */
+    flying: false,
+    /** Double-tap jump window for fly toggle */
+    _flyTapT: 0,
     /** Hold down to crouch (reduces height slightly, uses crouch sprite) */
     crouching: false,
   };
@@ -71,6 +78,21 @@ export function updatePlayer(p, world, input, dt, toolPower) {
   if (p.attackCd > 0) p.attackCd = Math.max(0, p.attackCd - dt);
   if (p.attackT > 0) p.attackT = Math.max(0, p.attackT - dt);
 
+  // Creative fly toggle (set by session / double-tap JUMP / FLY button)
+  if (!p.canFly) p.flying = false;
+  if (input.flyToggle) {
+    input.flyToggle = false;
+    if (p.canFly) {
+      p.flying = !p.flying;
+      if (p.flying) {
+        p.vy = 0;
+        p.fallDist = 0;
+        p.fallVy = 0;
+        p.onGround = false;
+      }
+    }
+  }
+
   // Horizontal intent
   let ix = 0;
   if (input.left) ix -= 1;
@@ -78,20 +100,23 @@ export function updatePlayer(p, world, input, dt, toolPower) {
   if (Math.abs(input.stickX) > 0.2) ix = Math.sign(input.stickX);
 
   const onLadder = isClimbable(world, Math.floor(p.x), Math.floor(p.y - 0.5));
-  const wantClimb = onLadder && (input.up || input.down || Math.abs(input.stickY) > 0.3);
+  const wantClimb = !p.flying && onLadder && (input.up || input.down || Math.abs(input.stickY) > 0.3);
 
-  // Crouch: hold down while grounded (not climbing)
-  p.crouching = !!(p.onGround && !wantClimb && (input.down || (input.stickY != null && input.stickY > 0.55)));
+  // Crouch: hold down while grounded (not climbing / flying)
+  p.crouching = !!(!p.flying && p.onGround && !wantClimb
+    && (input.down || (input.stickY != null && input.stickY > 0.55)));
   if (p.crouching) ix *= 0.45; // slow crawl
 
   // Sprint: Shift / stick full deflection when canSprint (not while crouching)
   const stickMag = Math.hypot(input.stickX || 0, input.stickY || 0);
   const wantSprint = !p.crouching && !!(input.sprint || stickMag > 0.88) && ix !== 0 && p.canSprint !== false
     && (p.energy == null || p.energy >= 12);
-  p.sprinting = wantSprint;
-  const speedMul = wantSprint ? 1.48 : 1;
+  p.sprinting = wantSprint && !p.flying;
+  // Fly is a bit faster than walk; sprint-in-fly even faster
+  const flyMul = p.flying ? (wantSprint || input.sprint ? 2.1 : 1.55) : 1;
+  const speedMul = (p.sprinting ? 1.48 : 1) * flyMul;
   const targetVx = ix * (MOVE_SPEED * speedMul) / TILE; // tiles/sec
-  const accel = p.onGround ? 40 : 22;
+  const accel = p.flying ? 28 : (p.onGround ? 40 : 22);
   if (Math.abs(targetVx - p.vx) < accel * dt) p.vx = targetVx;
   else p.vx += Math.sign(targetVx - p.vx) * accel * dt;
 
@@ -101,7 +126,20 @@ export function updatePlayer(p, world, input, dt, toolPower) {
   if (input.jump) p.jumpBuf = JUMP_BUFFER;
   else p.jumpBuf = Math.max(0, p.jumpBuf - dt);
 
-  if (wantClimb) {
+  if (p.flying) {
+    // Free flight — no gravity. JUMP / W / stick-up = ascend, S / crouch / stick-down = descend
+    let iy = 0;
+    if (input.jump || input.up || input._touchFlyUp || (input.stickY != null && input.stickY < -0.28)) iy -= 1;
+    if (input.down || input._touchFlyDown || (input.stickY != null && input.stickY > 0.28)) iy += 1;
+    const flySpeed = (MOVE_SPEED * (input.sprint ? 1.9 : 1.35)) / TILE;
+    const targetVy = iy * flySpeed;
+    p.vy += (targetVy - p.vy) * Math.min(1, dt * 10);
+    p.onGround = false;
+    p.fallDist = 0;
+    p.fallVy = 0;
+    p.coyote = 0;
+    p.jumpBuf = 0;
+  } else if (wantClimb) {
     p.vy = 0;
     let iy = 0;
     if (input.up || input.stickY < -0.3) iy = -1;
@@ -135,16 +173,21 @@ export function updatePlayer(p, world, input, dt, toolPower) {
   resolveAxis(p, world, 'x');
 
   // Move Y — track peak fall speed and distance for damage
-  if (p.vy > 0) {
+  if (!p.flying && p.vy > 0) {
     if (p.vy > p.fallVy) p.fallVy = p.vy;
     p.fallDist = (p.fallDist || 0) + p.vy * dt;
   }
   p.y += p.vy * dt;
   const wasGround = p.onGround;
-  p.onGround = false;
+  if (!p.flying) p.onGround = false;
   resolveAxis(p, world, 'y');
-  // Fall damage only after a real drop (~4+ tiles). 1–3 block hops are free.
-  if (p.onGround && !wasGround) {
+  // Landing while flying: stay flying (hover) unless they toggled off
+  if (p.flying) {
+    p.onGround = false;
+    p.fallVy = 0;
+    p.fallDist = 0;
+  } else if (p.onGround && !wasGround) {
+    // Fall damage only after a real drop (~4+ tiles). 1–3 block hops are free.
     const dist = p.fallDist || 0;
     const safeDist = 3.75; // tiles free-fall before hurt
     if (!p.godMode && dist > safeDist && p.invuln <= 0) {
@@ -507,12 +550,22 @@ export function tryPlace(p, world, tx, ty, blockId) {
     lanternMode = resolveLanternMode(world, placeTx, placeTy, solidTx, solidTy);
     if (!lanternMode) return false;
   } else if (!skipSupport) {
-    const hasSupport =
+    let hasSupport =
       isSolid(world, placeTx - 1, placeTy) ||
       isSolid(world, placeTx + 1, placeTy) ||
       isSolid(world, placeTx, placeTy - 1) ||
       isSolid(world, placeTx, placeTy + 1) ||
-      isPlatform(getTile(world, placeTx, placeTy + 1));
+      isPlatform(getTile(world, placeTx, placeTy + 1)) ||
+      // Stack ladders vertically (climb shafts)
+      (blockId === BLOCK.LADDER && (
+        getTile(world, placeTx, placeTy - 1) === BLOCK.LADDER ||
+        getTile(world, placeTx, placeTy + 1) === BLOCK.LADDER
+      ));
+    // Cave "back wall" is visual only (air) — ladders may mount anywhere underground/sheltered.
+    if (!hasSupport && blockId === BLOCK.LADDER
+        && isShelteredAir(world, wrapX(placeTx), placeTy)) {
+      hasSupport = true;
+    }
     if (!hasSupport) return false;
   }
 

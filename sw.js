@@ -1,5 +1,5 @@
 // Blockbound — keep CACHE in sync with GAME_VERSION in js/core/constants.js
-const CACHE = 'blockbound-1.9.029';
+const CACHE = 'blockbound-1.9.034';
 
 const ASSETS = [
   './',
@@ -39,6 +39,7 @@ const ASSETS = [
   './js/session/GameController.js',
   './js/systems/survival.js',
   './js/systems/camera.js',
+  './js/systems/nav.js',
   './js/systems/weather.js',
   './js/systems/autosave.js',
   './js/ui/toast.js',
@@ -165,24 +166,23 @@ function cacheFirst(request) {
   });
 }
 
+function isShell(url) {
+  const path = new URL(url).pathname;
+  return path.endsWith('.html') || path.endsWith('/') ||
+    path.includes('/css/') || path.includes('/js/') ||
+    path.endsWith('manifest.webmanifest') || path.endsWith('/sw.js');
+}
+
 self.addEventListener('fetch', e => {
   const { request } = e;
   if (request.method !== 'GET') return;
-  const url = new URL(request.url);
-  if (url.origin !== self.location.origin) return;
+  if (!sameOrigin(request.url)) return;
   // Never intercept SW itself — browser handles update checks
+  const url = new URL(request.url);
   if (url.pathname.endsWith('/sw.js')) return;
 
-  // Shell + all JS must stay fresh so ESM refactors / version bumps aren't stuck
-  // behind an old cache-first entry (was stranding clients on v1.5.x).
-  const path = url.pathname;
-  if (
-    path.endsWith('.html') ||
-    path.endsWith('/') ||
-    path.endsWith('.js') ||
-    path.endsWith('.mjs') ||
-    path.endsWith('manifest.webmanifest')
-  ) {
+  // Shell / CSS / JS: network-first so version bumps aren't stuck offline-first
+  if (request.mode === 'navigate' || isShell(request.url)) {
     e.respondWith(networkFirst(request));
     return;
   }

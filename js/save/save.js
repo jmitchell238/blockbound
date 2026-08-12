@@ -18,6 +18,8 @@ function defaultLibrary() {
   return {
     muted: false,
     reducedMotion: false,
+    /** 'classic' stick | 'kids' tap-to-walk + free camera */
+    controlMode: 'classic',
     selectedWorldId: null,
     defaults: {
       difficultyId: 'normal',
@@ -63,6 +65,7 @@ export let activeWorldId = null;
 export let save = {
   muted: false,
   reducedMotion: false,
+  controlMode: 'classic',
   difficultyId: 'normal',
   worldSizeId: 'standard',
   worldSize: 4096,
@@ -91,6 +94,7 @@ function buildSaveFacade(payload) {
   return {
     muted: library.muted,
     reducedMotion: library.reducedMotion,
+    controlMode: library.controlMode === 'kids' ? 'kids' : 'classic',
     difficultyId: (meta && meta.difficultyId) || library.defaults.difficultyId || 'normal',
     worldSizeId: (meta && meta.worldSizeId) || library.defaults.worldSizeId || 'standard',
     worldSize: (meta && meta.worldSize) || 4096,
@@ -245,10 +249,24 @@ export function writeSave() {
   // Persist library prefs (muted, selection, defaults) + current meta list
   library.muted = !!save.muted;
   library.reducedMotion = !!save.reducedMotion;
+  library.controlMode = save.controlMode === 'kids' ? 'kids' : 'classic';
   if (save.difficultyId) library.defaults.difficultyId = save.difficultyId;
   if (save.worldSizeId) library.defaults.worldSizeId = save.worldSizeId;
   if (activeWorldId) library.selectedWorldId = activeWorldId;
   writeLibrary();
+}
+
+/** Toggle or set Kids vs Classic controls. Returns new mode. */
+export function setControlMode(mode) {
+  const next = mode === 'kids' ? 'kids' : 'classic';
+  library.controlMode = next;
+  save.controlMode = next;
+  writeLibrary();
+  return next;
+}
+
+export function getControlMode() {
+  return (save && save.controlMode) === 'kids' ? 'kids' : 'classic';
 }
 
 export function listWorlds() {

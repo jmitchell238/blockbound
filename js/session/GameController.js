@@ -8,7 +8,7 @@ import { TOOLS, isTool, isFood, isWeapon } from '../content/tools.js';
 import { isBlockItem, tileKey, itemName } from '../content/items.js';
 import {
   generateWorldAsync, deserializeWorld, getTile, flushLight, tickGravityNear,
-  wrapDeltaX, wrapX,
+  wrapDeltaX, wrapX, isSolid,
 } from '../world/index.js';
 import {
   makePlayer, updatePlayer, tryPlace, findSpawn, isAttachableBlock,
@@ -17,6 +17,7 @@ import {
   makeInventory, addItem, removeItem, selectedSlot, selectHotbar,
   syncEquippedTool, toolPowerFor, canCraft, craft, deserializeInv,
   moveOrSwap, stowToBag, transferSlot, HOTBAR_SIZE, getMeleeWeapon, getHeldTool,
+  countItem,
 } from '../inventory/inventory.js';
 import {
   makeWorldMeta, getChest, removeChest, nearInteract, isDoorOpen, toggleDoor,
@@ -40,6 +41,10 @@ import { updateSurvival } from '../systems/survival.js';
 import { updateCamera } from '../systems/camera.js';
 import { updateWeather } from '../systems/weather.js';
 import { updateWorldServices } from '../systems/autosave.js';
+import {
+  applyKidsNav, setMoveTarget, clearMoveTarget, clearKidsQueue,
+  queueMine, queuePlace, queueUse, kidsQueueMarkers,
+} from '../systems/nav.js';
 
 export let session = null;
 
@@ -88,6 +93,10 @@ export function _finishSession(world, player, inv, timeOfDay, seed, ents, shared
     creative: !!diff.creative,
     seedLabel: 'seed ' + ((save && save.seedString) || seed || ''),
     worldName: (save && save.worldName) || '',
+    /** 'classic' | 'kids' — Kids = tap-to-walk + free camera (great for little ones) */
+    controlMode: (save && save.controlMode) || 'classic',
+    moveMarker: null,
+    kidsQueue: [],
   };
   const stats = {
     blocksMined: save.blocksMined | 0,
@@ -173,6 +182,15 @@ export async function enterPlay(continueSave, extra) {
     onProgress: extra.onProgress,
     input: extra.input,
   });
+  // Apply saved control scheme immediately (pointer events read input.controlMode)
+  if (session) {
+    const mode = (save && save.controlMode) === 'kids' ? 'kids' : 'classic';
+    session.ui.controlMode = mode;
+    session.input.controlMode = mode;
+    if (mode === 'kids') {
+      toast(session.ui, 'Kids · tap walk · tap dig · pick block & tap build');
+    }
+  }
   return session;
 }
 
@@ -212,6 +230,17 @@ export function gameUpdate(dt) {
 
   const diff = getDifficulty(s.difficultyId);
   player.godMode = !!(diff.creative || diff.invincible);
+  // Creative flight
+  player.canFly = !!diff.creative;
+  if (!player.canFly) player.flying = false;
+  else if (player.flying == null) player.flying = true;
+  // Auto-enable fly the first time you play creative this session
+  if (player.canFly && !s._flyInited) {
+    s._flyInited = true;
+    player.flying = true;
+    toast(ui, 'Creative fly ON · JUMP up · DOWN pad down · double-tap JUMP or ✈ to land');
+  }
+  input._flyPads = !!(player.canFly && player.flying && ui.showTouch);
 
   if (input.craftToggle) {
     if (ui.chestOpen) ui.chestOpen = null;
@@ -272,8 +301,23 @@ export function gameUpdate(dt) {
     doPlayerAttack(s);
   }
 
+  // Sync control mode (Options → Kids / Classic)
+  ui.controlMode = (save && save.controlMode) || ui.controlMode || 'classic';
+  input.controlMode = ui.controlMode;
+  if (ui.controlMode !== 'kids') {
+    if (input.moveTarget || (input.kidsQueue && input.kidsQueue.length)) clearKidsQueue(input);
+  }
+
   // Promote long-press → mine; refresh hover after hold state is known
   pollInput(input, ui.mode, cam);
+  // Kids: run staged walk / dig / build queue
+  let kidsNavResult = null;
+  if (ui.controlMode === 'kids' && !ui.craftOpen && !ui.bagOpen && !ui.chestOpen && !ui.creativeOpen) {
+    kidsNavResult = applyKidsNav(player, world, input, dt);
+    if (kidsNavResult && kidsNavResult.toast) toast(ui, kidsNavResult.toast);
+  }
+  ui.moveMarker = input.moveTarget;
+  ui.kidsQueue = kidsQueueMarkers(input);
   ui.holdMining = !!input.holdMining;
   if (input.holdMining && input.mineTx != null) {
     ui.hoverTx = input.mineTx;
@@ -287,8 +331,29 @@ export function gameUpdate(dt) {
   }
 
   if (input.jumpPressed) {
-    sfxJump();
-    input.jumpPressed = false;
+    // Creative: double-tap JUMP toggles fly
+    if (player.canFly) {
+      if (player._flyTapT > 0) {
+        input.flyToggle = true;
+        player._flyTapT = 0;
+        input.jumpPressed = false;
+      } else {
+        player._flyTapT = 0.35;
+        if (!player.flying) {
+          sfxJump();
+        }
+        input.jumpPressed = false;
+      }
+    } else {
+      sfxJump();
+      input.jumpPressed = false;
+    }
+  }
+  if (player._flyTapT > 0) player._flyTapT = Math.max(0, player._flyTapT - dt);
+
+  if (input.flyToggle) {
+    // Applied inside updatePlayer; toast here after we know new state post-update
+    s._pendingFlyToast = true;
   }
 
   if (ui.craftOpen || ui.chestOpen || ui.bagOpen || ui.creativeOpen) {
@@ -312,7 +377,8 @@ export function gameUpdate(dt) {
 
   // Hold-to-mine only: until hold engages, force mine target clear
   // (placeTx still tracks the finger for tap-place / hover)
-  if (input.pointerDown && !input.holdMining) {
+  // Kids auto-dig uses mineTx without a finger hold — don't wipe it.
+  if (input.pointerDown && !input.holdMining && !input._kidsMining) {
     input.mineTx = null;
     input.mineTy = null;
   } else if (input.holdMining && input.placeTx != null) {
@@ -322,7 +388,66 @@ export function gameUpdate(dt) {
   }
 
   const prevX = player.x;
+  const wasFlying = !!player.flying;
   const result = updatePlayer(player, world, input, dt, minePower);
+  if (s._pendingFlyToast || (wasFlying !== !!player.flying)) {
+    s._pendingFlyToast = false;
+    if (player.canFly && wasFlying !== !!player.flying) {
+      toast(ui, player.flying
+        ? '✈ Flying · JUMP = up · DOWN = down · double-tap JUMP to walk'
+        : 'Walking · double-tap JUMP to fly');
+      try {
+        const flyBtn = document.getElementById('btnFly');
+        if (flyBtn) {
+          flyBtn.classList.toggle('is-on', !!player.flying);
+          flyBtn.textContent = player.flying ? '✈ Flying' : '✈ Fly';
+        }
+      } catch (_) {}
+    }
+  }
+
+  // Kids queue: auto-place / auto-use when character arrives
+  if (kidsNavResult && kidsNavResult.placed) {
+    const { tx, ty, blockId } = kidsNavResult.placed;
+    // Prefer the staged block if still in inventory; else current selection if same id
+    let placeId = blockId;
+    const hasStaged = countItem(inv, placeId) > 0 || player.godMode;
+    if (!hasStaged) {
+      const slotNow = selectedSlot(inv);
+      if (slotNow && isBlockItem(slotNow.id)) placeId = slotNow.id;
+      else placeId = null;
+    }
+    if (placeId != null && isBlockItem(placeId)) {
+      const placed = tryPlace(player, world, tx, ty, placeId);
+      if (placed) {
+        if (!player.godMode) removeItem(inv, placeId, 1);
+        sfxPlace();
+        const m = BLOCK_META[placeId];
+        spawnBurst(s.particles, placed.tx + 0.5, placed.ty + 0.5, (m && m.color) || '#fff', 5);
+        if (placeId === BLOCK.TORCH) {
+          setTorchFacing(world.meta, placed.tx, placed.ty, placed.attach || 'floor');
+          unlockMilestone(world.meta, stats, ui, 'first_torch');
+        }
+        if (placeId === BLOCK.LANTERN) {
+          setLanternMode(world.meta, placed.tx, placed.ty, placed.attach || 'hang');
+          unlockMilestone(world.meta, stats, ui, 'first_lantern');
+        }
+        if (placeId === BLOCK.CHEST) getChest(world.meta, placed.tx, placed.ty);
+        if (placeId === BLOCK.BED) unlockMilestone(world.meta, stats, ui, 'first_bed');
+        if (placeId === BLOCK.FURNACE) unlockMilestone(world.meta, stats, ui, 'first_furnace');
+        if (placeId === BLOCK.CAMPFIRE) unlockMilestone(world.meta, stats, ui, 'first_campfire');
+        if (placeId === BLOCK.PLATFORM) unlockMilestone(world.meta, stats, ui, 'first_platform');
+        tickGravityNear(world, placed.tx, placed.ty, 6);
+      } else {
+        toast(ui, 'Can’t build there');
+      }
+    } else {
+      toast(ui, 'Need more blocks');
+    }
+  }
+  if (kidsNavResult && kidsNavResult.used) {
+    handleUse(s);
+  }
 
   if (player.mining && Math.random() < dt * 10) {
     const meta = BLOCK_META[getTile(world, player.mining.tx, player.mining.ty)];
@@ -403,9 +528,100 @@ export function gameUpdate(dt) {
     const tid = getTile(world, ptx, pty);
     // Prefer combat when the tap is on/near a mob (click enemy to hit — no Attack button required)
     const mobAtTap = findMobAtTile(ents, player, ptx, pty);
+    const tileMeta = BLOCK_META[tid];
+    const tapDist = Math.hypot(wrapDeltaX(player.x, ptx + 0.5), (player.y - 0.8) - (pty + 0.5));
+    // Doors / chests / beds / etc. — tap to use (no Use button on touch)
+    const canInteractTap = !!(tileMeta && tileMeta.interact && tapDist <= 2.8);
 
-    if (mobAtTap) {
+    const kids = ui.controlMode === 'kids';
+
+    if (kids) {
+      // ── Kids command staging (Blockheads-style queue) ──
+      // Tap far/near anything to queue work; character walks and does it.
+      if (mobAtTap && tapDist < 2.8) {
+        doPlayerAttack(s);
+      } else if (tileMeta && tileMeta.interact) {
+        const r = queueUse(input, ptx, pty);
+        toast(ui, r === 'cancel' ? 'Canceled use' : r === 'full' ? 'Too many jobs' : 'Will use that');
+      } else if (slot && slot.id === 'boat') {
+        handleUse(s);
+      } else if (player.inBoat) {
+        handleUse(s);
+      } else if (slot && (slot.id === 'bucket' || slot.id === 'bucket_water')) {
+        const r = tryBucket(inv, world, player, ptx, pty);
+        if (r) {
+          if (r.ok) { sfxPlace(); toast(ui, r.msg); }
+          else toast(ui, r.reason);
+        } else {
+          setMoveTarget(input, ptx, pty);
+        }
+      } else if (slot && isBlockItem(slot.id) && (tid === BLOCK.AIR || tid === BLOCK.WATER
+          || isAttachableBlock(slot.id))) {
+        // Stage a build (or cancel if same tile already staged)
+        // If already in reach, place immediately for snappy building
+        if (tapDist <= 4.2) {
+          const placed = tryPlace(player, world, ptx, pty, slot.id);
+          if (placed) {
+            if (!player.godMode) removeItem(inv, slot.id, 1);
+            sfxPlace();
+            const m = BLOCK_META[slot.id];
+            spawnBurst(s.particles, placed.tx + 0.5, placed.ty + 0.5, (m && m.color) || '#fff', 5);
+            if (slot.id === BLOCK.TORCH) {
+              setTorchFacing(world.meta, placed.tx, placed.ty, placed.attach || 'floor');
+            }
+            if (slot.id === BLOCK.LANTERN) {
+              setLanternMode(world.meta, placed.tx, placed.ty, placed.attach || 'hang');
+            }
+            if (slot.id === BLOCK.CHEST) getChest(world.meta, placed.tx, placed.ty);
+            tickGravityNear(world, placed.tx, placed.ty, 6);
+          } else {
+            const r = queuePlace(input, ptx, pty, slot.id);
+            toast(ui, r === 'cancel' ? 'Canceled build' : r === 'full' ? 'Too many jobs' : 'Will build there');
+          }
+        } else {
+          const r = queuePlace(input, ptx, pty, slot.id);
+          toast(ui, r === 'cancel' ? 'Canceled build' : r === 'full' ? 'Too many jobs' : 'Will build there');
+        }
+      } else if (tid !== BLOCK.AIR && tid !== BLOCK.WATER && BLOCK_META[tid] && BLOCK_META[tid].mine > 0
+          && BLOCK_META[tid].mine < 50) {
+        // Stage dig on solid blocks (tap again to cancel)
+        const r = queueMine(input, world, ptx, pty);
+        if (r === 'set') {
+          if (!ui._kidsMineToast) {
+            ui._kidsMineToast = true;
+            toast(ui, 'Will dig that — tap more to queue');
+          }
+        } else if (r === 'cancel') {
+          toast(ui, 'Canceled dig');
+        } else if (r === 'full') {
+          toast(ui, 'Too many jobs');
+        }
+      } else if (slot && isFood(slot.id) && tapDist < 1.5) {
+        const ate = tryEat(inv, player);
+        if (ate && ate.ok) {
+          sfxPickup();
+          toast(ui, 'Ate ' + ate.food.name);
+        }
+      } else if (isHostileNearPlayer(ents, player, 2.2) && tapDist < 2.5) {
+        doPlayerAttack(s);
+      } else {
+        // Walk there
+        const r = setMoveTarget(input, ptx, pty);
+        if (r === 'set' && !ui._kidsGoToast) {
+          ui._kidsGoToast = true;
+          toast(ui, 'Walking there — tap blocks to dig · pick blocks to build');
+        } else if (r === 'cancel') {
+          toast(ui, 'Canceled walk');
+        }
+      }
+    } else if (mobAtTap) {
       doPlayerAttack(s);
+    } else if (canInteractTap) {
+      handleUse(s);
+    } else if (slot && slot.id === 'boat') {
+      handleUse(s);
+    } else if (player.inBoat && (tid === BLOCK.AIR || tid === BLOCK.WATER || isSolid(world, ptx, pty))) {
+      handleUse(s);
     } else if (slot && (slot.id === 'bucket' || slot.id === 'bucket_water')) {
       const r = tryBucket(inv, world, player, ptx, pty);
       if (r) {
@@ -415,7 +631,6 @@ export function gameUpdate(dt) {
     } else if (slot && isBlockItem(slot.id)) {
       const placed = tryPlace(player, world, ptx, pty, slot.id);
       if (placed) {
-        // Creative: infinite blocks — do not consume
         if (!player.godMode) removeItem(inv, slot.id, 1);
         sfxPlace();
         const m = BLOCK_META[slot.id];
@@ -438,7 +653,7 @@ export function gameUpdate(dt) {
         tickGravityNear(world, bx, by, 6);
       }
     } else if (slot && isFood(slot.id) && tid !== BLOCK.AIR && tid !== BLOCK.WATER) {
-      // Food selected on a solid tile: still allow eat on empty/air taps only via F; here ignore
+      // ignore
     } else if (slot && isFood(slot.id)) {
       const ate = tryEat(inv, player);
       if (ate && ate.ok) {
@@ -451,7 +666,6 @@ export function gameUpdate(dt) {
       || (slot && isTool(slot.id))
       || !slot
     ) {
-      // Empty hand / tool / air tap near a close hostile still swings
       if (isHostileNearPlayer(ents, player, 2.8) || (slot && isWeapon(slot.id))) {
         doPlayerAttack(s);
       }
@@ -495,25 +709,36 @@ export function gameUpdate(dt) {
   }
   if (player.inBoat) s._hadBoat = true;
 
-  // Interact prompt
+  // Interact prompt (tap-first for touch; F still works on desktop)
   const hit = nearInteract(world, world.meta, player.x, player.y);
   const slot = selectedSlot(inv);
-  ui.prompt = hit
-    ? (hit.kind === 'door' ? 'F · ' + (isDoorOpen(world.meta, hit.x, hit.y) ? 'Close door' : 'Open door')
-      : hit.kind === 'chest' ? 'F · Open chest'
-      : hit.kind === 'bed' ? 'F · Sleep (night) · set spawn'
-      : hit.kind === 'furnace' ? 'F · Furnace'
-      : hit.kind === 'campfire' ? 'F · Warm up'
-      : hit.kind === 'craft' ? 'F · Craft'
-      : 'F · Use')
-    : (slot && slot.id === 'boat' ? 'F · Launch boat (in water)'
-      : player.inBoat ? 'F · Leave boat'
-      : slot && isFood(slot.id) ? 'F · Eat'
-      : slot && (slot.id === 'bucket' || slot.id === 'bucket_water') ? 'Tap to use bucket'
-      : slot && isAttachableBlock(slot.id) ? 'Tap wall/floor to place · hold to dig'
-      : slot && isBlockItem(slot.id) ? 'Tap empty tile to place · hold to dig'
-      : 'Hold to dig · ⚔ to fight'
-      );
+  const touch = !!ui.showTouch;
+  const kids = ui.controlMode === 'kids';
+  const useKey = touch ? 'Tap' : 'F / Tap';
+  const qn = (input.kidsQueue && input.kidsQueue.length) || 0;
+  ui.prompt = hit && !kids
+    ? (hit.kind === 'door' ? useKey + ' · ' + (isDoorOpen(world.meta, hit.x, hit.y) ? 'Close door' : 'Open door')
+      : hit.kind === 'chest' ? useKey + ' · Open chest'
+      : hit.kind === 'bed' ? useKey + ' · Sleep (night) · set spawn'
+      : hit.kind === 'furnace' ? useKey + ' · Furnace'
+      : hit.kind === 'campfire' ? useKey + ' · Warm up'
+      : hit.kind === 'craft' ? useKey + ' · Craft'
+      : useKey + ' · Use')
+    : kids
+      ? (qn
+        ? (qn + ' job' + (qn > 1 ? 's' : '') + ' queued · tap again to cancel · drag to look')
+        : slot && isBlockItem(slot.id)
+          ? 'Tap empty to build · tap dirt/stone to dig · tap air to walk'
+          : 'Tap to walk · tap blocks to dig · select blocks then tap to build')
+      : (slot && slot.id === 'boat' ? useKey + ' · Launch boat (in water)'
+        : player.inBoat ? useKey + ' · Leave boat'
+        : slot && isFood(slot.id) ? (touch ? 'Tap air · Eat' : 'F · Eat')
+        : slot && (slot.id === 'bucket' || slot.id === 'bucket_water') ? 'Tap to use bucket'
+        : slot && slot.id === BLOCK.LADDER ? 'Tap air in caves · or wall/floor'
+        : slot && isAttachableBlock(slot.id) ? 'Tap wall/floor to place · hold to dig'
+        : slot && isBlockItem(slot.id) ? 'Tap empty tile to place · hold to dig'
+        : 'Hold to dig · tap enemies to fight'
+        );
 
   updateCamera(s, dt);
   updateWorldServices(s, dt);
@@ -1061,6 +1286,7 @@ export function gameUiPointer(x, y, phase) {
 export function gameClickCraft(x, y) {
   if (!session) return false;
   const ui = session.ui;
+  const inv = session.inv;
   // Prefer unified handler for inv menus
   if (ui.creativeOpen || ui.bagOpen || ui.chestOpen) {
     return gameUiPointer(x, y, 'up');
