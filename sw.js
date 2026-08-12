@@ -1,197 +1,42 @@
-// Blockbound — keep CACHE in sync with GAME_VERSION in js/core/constants.js
-const CACHE = 'blockbound-1.9.041';
+/**
+ * LEGACY bridge worker (filename sw.js).
+ * Stuck iPads still poll sw.js?v=1.9.038 — when they receive THIS file they
+ * activate immediately and navigate every open client to update.html.
+ * New installs register sw-bb.js only.
+ */
+const BRIDGE = 'blockbound-legacy-bridge-042';
 
-const ASSETS = [
-  './',
-  './index.html',
-  './css/style.css',
-  './js/main.js',
-  './js/core/constants.js',
-  './js/core/worldSize.js',
-  './js/core/rng.js',
-  './js/core/seed.js',
-  './js/core/difficulty.js',
-  './js/content/blocks.js',
-  './js/content/tools.js',
-  './js/content/recipes.js',
-  './js/content/milestones.js',
-  './js/content/items.js',
-  './js/world/index.js',
-  './js/world/shelter.js',
-  './js/player/index.js',
-  './js/inventory/inventory.js',
-  './js/interact/index.js',
-  './js/interact/meta.js',
-  './js/interact/use.js',
-  './js/interact/stations.js',
-  './js/interact/milestones.js',
-  './js/entities/index.js',
-  './js/entities/state.js',
-  './js/entities/mobs.js',
-  './js/entities/draw.js',
-  './js/textures/textures.js',
-  './js/particles/particles.js',
-  './js/render/index.js',
-  './js/input/input.js',
-  './js/audio/audio.js',
-  './js/save/save.js',
-  './js/session/index.js',
-  './js/session/GameController.js',
-  './js/systems/survival.js',
-  './js/systems/camera.js',
-  './js/systems/nav.js',
-  './js/systems/weather.js',
-  './js/systems/autosave.js',
-  './js/ui/toast.js',
-  './js/compat/api.js',
-  './js/compat/entities_bridge.js',
-  './manifest.webmanifest',
-  './icons/icon-180.png',
-  './icons/icon-192.png',
-  './icons/icon-512.png',
-  './apple-touch-icon.png',
-  './art/cover.jpg',
-  './assets/bg/clouds.png',
-  './assets/player/hero.png',
-  './assets/player/hero_boat.png',
-  './assets/player/hero_crouch.png',
-  './assets/player/hero_idle.png',
-  './assets/player/hero_jump.png',
-  './assets/player/hero_mine.png',
-  './assets/player/hero_shovel.png',
-  './assets/player/hero_sword.png',
-  './assets/player/hero_walk_0.png',
-  './assets/player/hero_walk_1.png',
-  './assets/player/hero_walk_2.png',
-  './assets/player/hero_walk_3.png',
-  './assets/items/apple.png',
-  './assets/items/boat.png',
-  './assets/items/bread.png',
-  './assets/items/bucket.png',
-  './assets/items/bucket_water.png',
-  './assets/items/copper_ingot.png',
-  './assets/items/gold_axe.png',
-  './assets/items/gold_ingot.png',
-  './assets/items/gold_pick.png',
-  './assets/items/iron_axe.png',
-  './assets/items/iron_ingot.png',
-  './assets/items/iron_pick.png',
-  './assets/items/iron_shovel.png',
-  './assets/items/iron_sword.png',
-  './assets/items/stew.png',
-  './assets/items/stick.png',
-  './assets/items/stone_axe.png',
-  './assets/items/stone_pick.png',
-  './assets/items/stone_shovel.png',
-  './assets/items/stone_sword.png',
-  './assets/items/wood_axe.png',
-  './assets/items/wood_pick.png',
-  './assets/items/wood_shovel.png',
-  './assets/items/wood_sword.png',
-  './assets/tiles/atlas.png',
-  './assets/tiles/bedrock.png',
-  './assets/tiles/brick.png',
-  './assets/tiles/clay.png',
-  './assets/tiles/coal.png',
-  './assets/tiles/copper.png',
-  './assets/tiles/dirt.png',
-  './assets/tiles/glass.png',
-  './assets/tiles/gold.png',
-  './assets/tiles/grass.png',
-  './assets/tiles/iron.png',
-  './assets/tiles/ladder.png',
-  './assets/tiles/lava.png',
-  './assets/tiles/leaves.png',
-  './assets/tiles/planks.png',
-  './assets/tiles/sand.png',
-  './assets/tiles/snow.png',
-  './assets/tiles/stone.png',
-  './assets/tiles/torch.png',
-  './assets/tiles/water.png',
-  './assets/tiles/wood.png',
-  './assets/tiles/workbench.png',
-];
+self.addEventListener('install', (e) => {
+  e.waitUntil(self.skipWaiting());
+});
 
-function precacheAll(cache) {
-  return Promise.allSettled(
-    ASSETS.map(url =>
-      cache.add(url).catch(err => console.warn('[sw] precache failed', url, err))
+self.addEventListener('activate', (e) => {
+  e.waitUntil(
+    (async () => {
+      try {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((k) => caches.delete(k)));
+      } catch (_) {}
+      await self.clients.claim();
+      const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      for (const c of clients) {
+        const dest = self.registration.scope + 'update.html?from=legacy-sw&t=' + Date.now();
+        try {
+          if (c.navigate) await c.navigate(dest);
+          else c.postMessage({ type: 'BB_GOTO_UPDATE' });
+        } catch (_) {
+          try { c.postMessage({ type: 'BB_GOTO_UPDATE' }); } catch (__) {}
+        }
+      }
+    })()
+  );
+});
+
+// Always prefer network so we never keep feeding the broken shell
+self.addEventListener('fetch', (e) => {
+  e.respondWith(
+    fetch(e.request, { cache: 'no-store' }).catch(() =>
+      caches.match(e.request).then((h) => h || Response.error())
     )
   );
-}
-
-self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(precacheAll).then(() => self.skipWaiting()));
-});
-
-self.addEventListener('activate', e => {
-  e.waitUntil(
-    caches.keys()
-      .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
-      .then(() => self.clients.claim())
-      .then(() => self.clients.matchAll({ type: 'window' }))
-      .then(clients => {
-        // Kick every open tab/PWA onto the new shell (fixes stuck 1.9.035 iPads)
-        clients.forEach(c => {
-          try { c.postMessage({ type: 'BB_RELOAD', cache: CACHE }); } catch (_) {}
-        });
-      })
-  );
-});
-
-self.addEventListener('message', e => {
-  if (e.data === 'SKIP_WAITING' || (e.data && e.data.type === 'SKIP_WAITING')) {
-    self.skipWaiting();
-  }
-});
-
-function sameOrigin(url) {
-  try { return new URL(url).origin === self.location.origin; }
-  catch { return false; }
-}
-
-function networkFirst(request) {
-  return fetch(request, { cache: 'no-store' }).then(res => {
-    if (res.ok && sameOrigin(request.url)) {
-      const copy = res.clone();
-      caches.open(CACHE).then(c => c.put(request, copy));
-    }
-    return res;
-  }).catch(() => caches.match(request).then(hit => hit || Response.error()));
-}
-
-function cacheFirst(request) {
-  return caches.match(request).then(hit => {
-    if (hit) return hit;
-    return fetch(request).then(res => {
-      if (res.ok && sameOrigin(request.url)) {
-        const copy = res.clone();
-        caches.open(CACHE).then(c => c.put(request, copy));
-      }
-      return res;
-    });
-  });
-}
-
-function isShell(url) {
-  const path = new URL(url).pathname;
-  return path.endsWith('.html') || path.endsWith('/') ||
-    path.includes('/css/') || path.includes('/js/') ||
-    path.endsWith('manifest.webmanifest') || path.endsWith('/sw.js');
-}
-
-self.addEventListener('fetch', e => {
-  const { request } = e;
-  if (request.method !== 'GET') return;
-  if (!sameOrigin(request.url)) return;
-  // Never intercept SW itself — browser handles update checks
-  const url = new URL(request.url);
-  if (url.pathname.endsWith('/sw.js')) return;
-
-  // Shell / CSS / JS: network-first so version bumps aren't stuck offline-first
-  if (request.mode === 'navigate' || isShell(request.url)) {
-    e.respondWith(networkFirst(request));
-    return;
-  }
-  e.respondWith(cacheFirst(request));
 });

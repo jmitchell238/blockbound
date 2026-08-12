@@ -13,37 +13,18 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
-  <link rel="stylesheet" href="css/style.css?v=1.9.041" />
+  <link rel="stylesheet" href="css/style.css?v=1.9.042" />
   <script>
-    // One-shot cache wipe when this HTML shell is newer than the last run build
     (function () {
-      var BUILD = '1.9.041';
+      var BUILD = '1.9.042';
       window.__BB_BUILD = BUILD;
+      // If still on a known-bad shell marker, bounce to the unstick page
       try {
-        var seen = localStorage.getItem('bb-build');
-        if (seen === BUILD) return;
-        var key = 'bb-wiped-' + BUILD;
-        if (sessionStorage.getItem(key)) {
-          localStorage.setItem('bb-build', BUILD);
+        var seen = localStorage.getItem('bb-build') || '';
+        if (seen && seen.indexOf('1.9.03') === 0 && seen !== BUILD) {
+          location.replace('update.html?from=' + encodeURIComponent(seen));
           return;
         }
-        sessionStorage.setItem(key, '1');
-        var done = function () {
-          try { localStorage.setItem('bb-build', BUILD); } catch (e) {}
-          location.replace(location.pathname + '?bb=' + BUILD + '&t=' + Date.now());
-        };
-        var p = Promise.resolve();
-        if ('serviceWorker' in navigator) {
-          p = navigator.serviceWorker.getRegistrations().then(function (regs) {
-            return Promise.all((regs || []).map(function (r) { return r.unregister(); }));
-          });
-        }
-        if (window.caches && caches.keys) {
-          p = p.then(function () { return caches.keys(); }).then(function (keys) {
-            return Promise.all((keys || []).map(function (k) { return caches.delete(k); }));
-          });
-        }
-        p.then(done).catch(done);
       } catch (e) {}
     })();
   </script>
@@ -176,7 +157,7 @@
           <button id="btnControlMode" class="secondary" type="button">Controls: Stick</button>
           <p class="size-hint" id="controlModeHint">Classic virtual stick + JUMP. Switch to Kids for tap-to-walk (great for little ones).</p>
           <button id="btnForceUpdate" class="secondary" type="button">↻ Fix / update game</button>
-          <p class="size-hint">If the iPad is stuck on an old version or menus stop working, tap Fix / update game.</p>
+          <p class="size-hint">If stuck on v1.9.038 or menus fail: open <b>update.html</b> once, or tap Fix / update game.</p>
           <p class="size-hint">Rotate your phone or resize the window for landscape / portrait.</p>
           <button id="btnOptionsBack" class="ghost" type="button">← Back</button>
         </div>
@@ -196,6 +177,6 @@
     <button id="btnTouchAct" class="touch-act-btn play-chrome hidden" type="button" title="Action">Use</button>
   </div>
 
-  <script type="module" src="js/main.js?v=1.9.041"></script>
+  <script type="module" src="js/main.js?v=1.9.042"></script>
 </body>
 </html>

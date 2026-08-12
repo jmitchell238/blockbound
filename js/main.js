@@ -1019,7 +1019,7 @@ function wireUI() {
   const forceUp = document.getElementById('btnForceUpdate');
   if (forceUp) {
     forceUp.addEventListener('click', () => {
-      hardResetAndReload();
+      location.replace('update.html?from=options');
     });
   }
   const modeBtn = document.getElementById('btnMode');
@@ -1089,34 +1089,39 @@ function registerSW() {
         location.hostname === '127.0.0.1')) return;
 
   navigator.serviceWorker.addEventListener('message', (e) => {
-    if (e.data && e.data.type === 'BB_RELOAD') {
-      hardResetAndReload();
+    if (e.data && (e.data.type === 'BB_RELOAD' || e.data.type === 'BB_GOTO_UPDATE')) {
+      location.replace('update.html?from=sw-msg');
     }
   });
 
-  navigator.serviceWorker.register('./sw.js?v=' + GAME_VERSION, { updateViaCache: 'none' }).then(reg => {
+  // Abandon every old registration (especially sw.js?v=1.9.038), then use sw-bb.js only
+  navigator.serviceWorker.getRegistrations().then(regs =>
+    Promise.all(regs.map(r => r.unregister()))
+  ).then(() => {
+    if (window.caches && caches.keys) {
+      return caches.keys().then(keys =>
+        Promise.all(keys.filter(k => k.indexOf('blockbound-') === 0 && k !== 'blockbound-' + GAME_VERSION)
+          .map(k => caches.delete(k)))
+      );
+    }
+  }).then(() =>
+    navigator.serviceWorker.register('./sw-bb.js', { updateViaCache: 'none' })
+  ).then(reg => {
     activateWaitingWorker(reg);
     if (reg.installing) watchInstallingWorker(reg);
     reg.addEventListener('updatefound', () => watchInstallingWorker(reg));
-
     const checkForUpdate = () => { reg.update().catch(() => {}); };
     checkForUpdate();
     document.addEventListener('visibilitychange', () => {
-      if (!document.hidden) {
-        checkForUpdate();
-        checkRemoteVersion();
-      }
+      if (!document.hidden) { checkForUpdate(); checkRemoteVersion(); }
     });
-    window.addEventListener('focus', () => {
-      checkForUpdate();
-      checkRemoteVersion();
-    });
+    window.addEventListener('focus', () => { checkForUpdate(); checkRemoteVersion(); });
     setInterval(checkForUpdate, 45 * 1000);
     setInterval(checkRemoteVersion, 60 * 1000);
-
     navigator.serviceWorker.addEventListener('controllerchange', () => {
       safeReloadForUpdate();
     });
+    try { localStorage.setItem('bb-build', GAME_VERSION); } catch (_) {}
   }).catch(err => console.warn('[sw] register failed', err));
 }
 
@@ -1125,13 +1130,14 @@ function registerSW() {
  * Runs even during play — stuck broken builds must not keep kids offline forever.
  */
 function checkRemoteVersion() {
+  // Prefer navigating to the escape hatch if we're clearly stale
   fetch('js/core/constants.js?_=' + Date.now(), { cache: 'no-store' })
     .then(r => (r.ok ? r.text() : ''))
     .then(text => {
       const m = text.match(/GAME_VERSION\s*=\s*['"]([^'"]+)['"]/);
       if (m && m[1] && m[1] !== GAME_VERSION) {
-        console.warn('[blockbound] remote', m[1], 'local', GAME_VERSION, '— hard reset');
-        hardResetAndReload();
+        console.warn('[blockbound] remote', m[1], 'local', GAME_VERSION, '— update.html');
+        location.replace('update.html?from=' + encodeURIComponent(GAME_VERSION));
       }
     })
     .catch(() => {});

@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="robots" content="noindex" />
+  <title>Blockbound — Fixing update…</title>
+  <style>
+    html, body {
+      margin: 0; height: 100%;
+      background: #0e1f18; color: #e8fff0;
+      font-family: system-ui, -apple-system, sans-serif;
+      display: grid; place-items: center; text-align: center;
+      padding: 24px;
+    }
+    h1 { font-size: 1.35rem; margin: 0 0 12px; color: #7dffa0; }
+    p { opacity: 0.9; line-height: 1.45; max-width: 28rem; }
+    .box {
+      background: rgba(14, 36, 28, 0.95);
+      border: 1px solid rgba(125, 255, 160, 0.35);
+      border-radius: 16px;
+      padding: 22px 20px;
+      box-shadow: 0 16px 40px rgba(0,0,0,0.45);
+    }
+    button {
+      margin-top: 16px;
+      padding: 14px 22px;
+      font-size: 1.05rem;
+      font-weight: 800;
+      border-radius: 12px;
+      border: 0;
+      background: #7dffa0;
+      color: #0a1f12;
+    }
+    #log { margin-top: 14px; font-size: 0.85rem; opacity: 0.75; min-height: 1.2em; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h1>Updating Blockbound</h1>
+    <p>Clearing the stuck iPad cache (old v1.9.038) and loading the latest game…</p>
+    <div id="log">Working…</div>
+    <button type="button" id="go">Tap if stuck — open game</button>
+  </div>
+  <script>
+    (function () {
+      var TARGET = './?fresh=1.9.042&t=' + Date.now();
+      var log = document.getElementById('log');
+      function say(m) { if (log) log.textContent = m; }
+
+      document.getElementById('go').onclick = function () {
+        location.replace(TARGET);
+      };
+
+      async function nuke() {
+        say('Removing old service workers…');
+        if ('serviceWorker' in navigator) {
+          var regs = await navigator.serviceWorker.getRegistrations();
+          await Promise.all(regs.map(function (r) { return r.unregister(); }));
+          say('Removed ' + regs.length + ' worker(s)…');
+        }
+        if (window.caches && caches.keys) {
+          var keys = await caches.keys();
+          await Promise.all(keys.map(function (k) { return caches.delete(k); }));
+          say('Cleared ' + keys.length + ' cache(s)…');
+        }
+        try {
+          localStorage.removeItem('bb-build');
+          localStorage.setItem('bb-build', '1.9.042');
+          // clear one-shot session locks from failed updates
+          Object.keys(sessionStorage).forEach(function (k) {
+            if (k.indexOf('bb-') === 0) sessionStorage.removeItem(k);
+          });
+        } catch (e) {}
+        say('Opening game…');
+        setTimeout(function () { location.replace(TARGET); }, 250);
+      }
+
+      nuke().catch(function (e) {
+        say('Cleanup error — tap the button. ' + (e && e.message ? e.message : ''));
+      });
+    })();
+  </script>
+</body>
+</html>
