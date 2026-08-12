@@ -4,8 +4,8 @@ import { wrapDeltaX } from '../world/index.js';
 
 /**
  * Soft lag-follow camera (Blockheads-style).
- * Kids mode: free pan — camera stays where you drag it, only reels in
- * when the player drifts near the edge of the screen.
+ * Kids mode: free pan — drag the screen to look around; camera only
+ * reels in when the player walks off the edge (or after free-look ends).
  */
 export function updateCamera(s, dt) {
   const { player, cam, ui } = s;
@@ -42,9 +42,10 @@ export function updateCamera(s, dt) {
 
 /**
  * Free camera for Kids mode.
- * - Drag pans (applied in input)
- * - Soft edge-follow keeps the child on-screen without hard lock
- * - Optional gentle follow while auto-walking if user hasn't panned away
+ * - Drag pans the map (applied live in input.js)
+ * - While dragging / free-look timer: no auto-follow, no edge pull
+ * - After free-look ends: soft edge-follow keeps the child on-screen
+ * - Auto-walk gently tracks only if they haven't panned
  */
 function updateKidsCamera(s, dt) {
   const { player, cam, ui, input } = s;
@@ -53,16 +54,35 @@ function updateKidsCamera(s, dt) {
   const halfW = (W / 2) / ts;
   const halfH = (H / 2) / ts;
 
-  // Keep cam.x in a sane wrap band near the player
+  // Tick free-look timer (set by drag pan)
+  if (input) {
+    if (input._panning) {
+      // Keep free-look alive the whole time a finger is dragging
+      input.panFreelookT = Math.max(input.panFreelookT || 0, 0.5);
+    } else if (input.panFreelookT > 0) {
+      input.panFreelookT = Math.max(0, input.panFreelookT - dt);
+    }
+  }
+
+  const freelook = !!(input && (input._panning || (input.panFreelookT || 0) > 0));
+
+  // Keep cam.x in a sane wrap band near the player (coordinate hygiene only)
   let dx = wrapDeltaX(cam.x, player.x);
-  // If cam and player are more than half a world apart in stored coords, nudge cam
   if (Math.abs((player.x - cam.x) - dx) > 1) {
     cam.x = player.x - dx;
+    dx = wrapDeltaX(cam.x, player.x);
+  }
+
+  // Free-look: leave the camera where they dragged it
+  if (freelook) {
+    cam.y = Math.max(8, Math.min(WORLD_H - 8, cam.y));
+    if (ui) ui.cam = cam;
+    return;
   }
 
   // Soft safe rectangle — only pull when near leaving the view
-  const edgeX = halfW * 0.62;
-  const edgeY = halfH * 0.62;
+  const edgeX = halfW * 0.72; // more room before auto-reel
+  const edgeY = halfH * 0.72;
   let pullX = 0;
   let pullY = 0;
   if (dx > edgeX) pullX = dx - edgeX;
@@ -72,29 +92,26 @@ function updateKidsCamera(s, dt) {
   if (dy > edgeY) pullY = dy - edgeY;
   else if (dy < -edgeY) pullY = dy + edgeY;
 
-  // While auto-walking and user hasn't dragged recently, slowly track
-  const autoWalk = !!(input && input.moveTarget) && !input.camUserPanned;
-  const edgePull = Math.min(1, dt * 3.2);
+  // Soft edge pull (slow so it doesn't feel locked)
+  const edgePull = Math.min(1, dt * 2.2);
   cam.x += pullX * edgePull;
   cam.y += pullY * edgePull;
 
+  // While auto-walking and user hasn't dragged, slowly track the character
+  const autoWalk = !!(input && input.moveTarget) && !input.camUserPanned;
   if (autoWalk) {
     const targetX = player.x + (player.vx || 0) * 0.1;
     const targetY = player.y - 1.4;
-    let d = wrapDeltaX(cam.x, targetX);
-    // Convert to absolute target with wrap
+    const d = wrapDeltaX(cam.x, targetX);
     const ax = cam.x + d;
-    const follow = Math.min(1, dt * 1.6);
+    const follow = Math.min(1, dt * 1.4);
     cam.x += (ax - cam.x) * follow;
     cam.y += (targetY - cam.y) * follow;
   }
 
-  // If user panned, decay the "stay put" flag once player is comfortably on screen
-  if (input && input.camUserPanned && Math.abs(pullX) < 0.05 && Math.abs(pullY) < 0.05
-      && !(input.moveTarget)) {
-    // keep camUserPanned so free look persists until they issue a new walk
-  }
+  // If player issues a new walk target, allow soft follow again
+  // (camUserPanned cleared when setMoveTarget runs)
 
   cam.y = Math.max(8, Math.min(WORLD_H - 8, cam.y));
-  ui.cam = cam; // handy for debug
+  if (ui) ui.cam = cam;
 }

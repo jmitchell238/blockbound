@@ -13,7 +13,9 @@ export const HOLD_MINE_MS = 160;
 /** Kids mode: longer hold before dig so little fingers can tap-to-walk. */
 export const HOLD_MINE_KIDS_MS = 340;
 /** Screen-space drag (stage px) before a press becomes free-camera pan in Kids mode. */
-export const PAN_SLOP_PX = 16;
+export const PAN_SLOP_PX = 10;
+/** How long free-look lasts after you stop dragging (seconds). */
+export const PAN_FREELOOK_SEC = 3.5;
 
 function holdMineThreshold(input) {
   return input.controlMode === 'kids' ? HOLD_MINE_KIDS_MS : HOLD_MINE_MS;
@@ -68,8 +70,10 @@ export function makeInput() {
     controlMode: 'classic',
     /** Kids: walk-to point in world tiles { x, y } */
     moveTarget: null,
-    /** Kids free-cam: user dragged this frame / session */
+    /** Kids free-cam: user has panned (camera won't hard-follow until they walk again) */
     camUserPanned: false,
+    /** Seconds of free-look left after a drag (edge-pull disabled) */
+    panFreelookT: 0,
     _panning: false,
     _panStartX: 0,
     _panStartY: 0,
@@ -307,29 +311,39 @@ export function handlePointer(input, p, phase, getCam) {
       input.pointerY = p.y;
 
       // Kids free camera: drag to pan the world (Blockheads-style)
-      if (kids && !input.holdMining) {
+      // Drag always wins over hold-to-mine so looking around is easy for little fingers.
+      if (kids && !input.pinching) {
         const drag = Math.hypot(p.x - input._panStartX, p.y - input._panStartY);
         if (input._panning || drag > PAN_SLOP_PX) {
           if (!input._panning) {
             input._panning = true;
             input._panLastX = p.x;
             input._panLastY = p.y;
+            // Cancel dig if it already started
+            input.holdMining = false;
+            input._kidsMining = false;
           }
           const cam = getCam();
-          const ts = TILE * ((cam && cam.zoom) || 1);
-          const ddx = (p.x - input._panLastX) / ts;
-          const ddy = (p.y - input._panLastY) / ts;
-          // Finger moves content with it
-          cam.x -= ddx;
-          cam.y -= ddy;
+          if (cam) {
+            const ts = Math.max(8, TILE * ((cam.zoom) || 1));
+            const ddx = (p.x - input._panLastX) / ts;
+            const ddy = (p.y - input._panLastY) / ts;
+            // Finger moves the world with it (drag map like Google Maps)
+            if (Number.isFinite(ddx) && Number.isFinite(ddy)) {
+              cam.x -= ddx;
+              cam.y -= ddy;
+            }
+          }
           input._panLastX = p.x;
           input._panLastY = p.y;
           input.camUserPanned = true;
-          // Cancel any mine intent while panning
+          input.panFreelookT = PAN_FREELOOK_SEC;
+          // Cancel any mine / place intent while panning
           input.mineTx = null;
           input.mineTy = null;
           input.placeTx = null;
           input.placeTy = null;
+          input.tapPlace = null;
           return;
         }
       }
@@ -359,6 +373,12 @@ export function handlePointer(input, p, phase, getCam) {
       if (!wasPan && !input.holdMining && held < holdLim && tx != null && ty != null) {
         // Short tap → place / interact / (kids) walk-to
         input.tapPlace = { tx, ty };
+      }
+
+      if (wasPan) {
+        // Keep free-look for a few seconds after releasing the drag
+        input.panFreelookT = PAN_FREELOOK_SEC;
+        input.camUserPanned = true;
       }
 
       input.pointerDown = false;

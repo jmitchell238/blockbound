@@ -1953,7 +1953,7 @@ export function drawHUD(ctx, player, inv, world, cam, ui, sky) {
       ctx.fillText(qn ? (qn + ' job' + (qn > 1 ? 's' : '') + ' queued') : 'Tap walk · dig · build', 20, H - 90);
       ctx.fillStyle = '#9ec5b0';
       ctx.font = '600 10px system-ui';
-      ctx.fillText('Tap again = cancel', 20, H - 76);
+      ctx.fillText('Drag look · pinch zoom', 20, H - 76);
     }
 
     // JUMP / UP pad — high contrast so kids can spot it on iPad

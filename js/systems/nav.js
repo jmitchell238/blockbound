@@ -105,7 +105,9 @@ export function setMoveTarget(input, tx, ty) {
   input._navStuckT = 0;
   input._navLastX = null;
   input._navLastY = null;
+  // New walk order — allow soft camera follow again
   input.camUserPanned = false;
+  input.panFreelookT = 0;
   syncMoveTargetFromQueue(input);
   return 'set';
 }
@@ -134,6 +136,7 @@ export function queueMine(input, world, tx, ty) {
   q.push(makeAction('mine', tx, ty));
   input._navStuckT = 0;
   input.camUserPanned = false;
+  input.panFreelookT = 0;
   syncMoveTargetFromQueue(input);
   return 'set';
 }
@@ -154,6 +157,7 @@ export function queuePlace(input, tx, ty, blockId) {
   q.push(makeAction('place', tx, ty, { blockId }));
   input._navStuckT = 0;
   input.camUserPanned = false;
+  input.panFreelookT = 0;
   syncMoveTargetFromQueue(input);
   return 'set';
 }
@@ -173,6 +177,7 @@ export function queueUse(input, tx, ty) {
   q.push(makeAction('use', tx, ty));
   input._navStuckT = 0;
   input.camUserPanned = false;
+  input.panFreelookT = 0;
   syncMoveTargetFromQueue(input);
   return 'set';
 }
