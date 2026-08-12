@@ -540,6 +540,57 @@ ok(gcSrc.includes("lastPtr !== 'mouse'"), 'showTouch follows the device last use
     'landscape world grid is not capped to one and a half rows');
 }
 
+// —— Starter tool is equipped at spawn (v1.9.048) ——
+{
+  const I = await import(pathToFileURL(path.join(root, 'js/inventory/inventory.js')).href);
+  const D = await import(pathToFileURL(path.join(root, 'js/core/difficulty.js')).href);
+  const TL = await import(pathToFileURL(path.join(root, 'js/content/tools.js')).href);
+  let checked = 0;
+  for (const id of ['creative', 'easy', 'normal']) {
+    const inv = I.makeInventory();
+    D.applyStarterKit(inv, id);
+    const held = I.selectedSlot(inv);
+    if (held && TL.TOOLS[held.id]) {
+      checked++;
+      ok(inv.tool !== held.id, `${id}: addItem alone does not equip (the original bug)`);
+      I.syncEquippedTool(inv);
+      ok(inv.tool === held.id, `${id} starter kit equips the selected tool after sync`);
+    }
+  }
+  ok(checked >= 2, 'starter-kit tool check actually exercised real kits');
+
+  const gcSrc2 = fs.readFileSync(path.join(root, 'js/session/GameController.js'), 'utf8');
+  const finish = gcSrc2.slice(gcSrc2.indexOf('export function _finishSession'),
+                              gcSrc2.indexOf('const ui = {'));
+  ok(/syncEquippedTool\(inv\)/.test(finish),
+    'session start equips the held tool (no hotbar tap required)');
+}
+
+// —— UI simplification pass (v1.9.048) ——
+{
+  const renSrc3 = fs.readFileSync(path.join(root, 'js/render/index.js'), 'utf8');
+  ok(!/have \+ '\/' \+ n \+ ' ' \+ itemName/.test(renSrc3),
+    'craft chips no longer print have/need backwards');
+  ok(!/itemName\(id\) \+ ' ' \+ have \+ '\/' \+ n/.test(renSrc3),
+    'craft detail line no longer prints have/need backwards');
+  // The kids chip must be drawn outside the pointer-type-gated touch block.
+  const chipAt = renSrc3.indexOf("ctx.fillText('KIDS MODE'");
+  const touchAt = renSrc3.indexOf('if (ui.showTouch) {');
+  ok(chipAt > 0 && touchAt > 0 && chipAt < touchAt,
+    'kids chip is drawn independently of ui.showTouch');
+  ok(renSrc3.split("ctx.fillText('KIDS MODE'").length - 1 === 1,
+    'kids chip is drawn exactly once');
+
+  const gcSrc3 = fs.readFileSync(path.join(root, 'js/session/GameController.js'), 'utf8');
+  ok(!gcSrc3.includes('Tap to walk · tap blocks to dig · hold to dig nearby'),
+    'idle kids prompt no longer covers the play area');
+
+  const mainSrc3 = fs.readFileSync(path.join(root, 'js/main.js'), 'utf8');
+  ok(mainSrc3.includes('syncChromeForPanels'), 'chrome row is synced to open panels');
+  const cssSrc3 = fs.readFileSync(path.join(root, 'css/style.css'), 'utf8');
+  ok(/panel-open \.icon-btn/.test(cssSrc3), 'chrome buttons hide behind an open panel');
+}
+
 if (failed) {
   console.error(`\n${failed} failed`);
   process.exit(1);

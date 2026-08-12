@@ -57,6 +57,11 @@ export function _finishSession(world, player, inv, timeOfDay, seed, ents, shared
   const diff = getDifficulty(difficultyId);
   player.godMode = !!(diff.creative || diff.invincible);
   player.canSprint = true;
+  // Equip whatever the selected hotbar slot holds. inventory.addItem does not
+  // sync, and gameUpdate only syncs on a hotbar tap — so a fresh spawn held a
+  // pickaxe while inv.tool was still 'hand': HUD read "Tool: Hands" and mining
+  // ran at bare-hand power until the player happened to tap a slot.
+  syncEquippedTool(inv);
   // Single InputState (DIP): app may inject the bound input; no dual-buffer sync.
   const input = sharedInput || makeInput();
   const ui = {
@@ -852,13 +857,14 @@ export function gameUpdate(dt) {
   }
 
   if (kids) {
+    // Only say something when there IS something to say. The idle "tap to walk"
+    // line sat permanently across the middle of the play area and repeated the
+    // KIDS MODE chip word for word.
     ui.prompt = qn
       ? (qn + ' job' + (qn > 1 ? 's' : '') + ' · big button = use/eat · drag to look')
       : (ui.touchAct
         ? ('Tap ' + ui.touchAct.label + ' button · or tap the world')
-        : slot && isBlockItem(slot.id)
-          ? 'Tap empty to build · tap blocks to dig · tap air to walk'
-          : 'Tap to walk · tap blocks to dig · hold to dig nearby');
+        : null);
   } else if (hit) {
     ui.prompt = touch
       ? ('Tap ' + (ui.touchAct ? ui.touchAct.label : 'Use') + ' or tap the block')

@@ -644,6 +644,10 @@ button.ghost.danger {
   pointer-events: none;
   line-height: normal;
 }
+.play-chrome-layer.panel-open .icon-btn {
+  /* A canvas panel owns the screen — don't float buttons over it. */
+  display: none !important;
+}
 .play-chrome-layer.is-play {
   /* keep none on the layer; buttons set auto */
 }

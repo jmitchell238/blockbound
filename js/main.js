@@ -661,6 +661,20 @@ function ensureListeners() {
   }, true);
 }
 
+/**
+ * Canvas-drawn panels (craft / bag / creative / chest) live inside #cv at
+ * z-index 1, while the chrome row sits at 210 — so an open panel had five
+ * buttons floating on top of it, overlapping its footer and still catching
+ * taps meant for the panel. Hide the row while a panel owns the screen; every
+ * panel draws its own ✕.
+ */
+function syncChromeForPanels(session) {
+  const ui = session && session.ui;
+  const open = !!(ui && (ui.craftOpen || ui.bagOpen || ui.creativeOpen || ui.chestOpen));
+  const layer = document.getElementById('playChrome');
+  if (layer) layer.classList.toggle('panel-open', open);
+}
+
 function syncCreativeChrome(session) {
   const creative = !!(session && (session.ui.creative || getDifficulty(session.difficultyId).creative));
   document.body.classList.toggle('has-creative', creative);
@@ -857,6 +871,7 @@ function frameBody(now) {
       }
     }
     syncTouchActButton(s);
+    syncChromeForPanels(s);
     if (ctx) {
       // Always paint a base fill first — clearRect alone leaves body green through a failed frame
       try {

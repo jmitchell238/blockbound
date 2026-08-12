@@ -2051,7 +2051,7 @@ export function drawHUD(ctx, player, inv, world, cam, ui, sky) {
   ctx.fillStyle = '#e8fff0';
   ctx.font = '600 11px system-ui';
   ctx.textAlign = 'left';
-  const tname = (TOOLS[inv.tool] && TOOLS[inv.tool].name) || 'Hands';
+  const tname = (TOOLS[inv.tool] && TOOLS[inv.tool].name) || 'Hands';  // equipped, not merely held
   ctx.fillText('Tool: ' + tname, 20, toolTop + 15);
   const bu = bagUsed(inv);
   ctx.fillStyle = bu >= BAG_SIZE ? '#ff8a80' : '#9ec5b0';
@@ -2073,6 +2073,29 @@ export function drawHUD(ctx, player, inv, world, cam, ui, sky) {
 
   // craft panel drawn in renderWorld after HUD (isolated try/catch)
 
+  // Kids chip is not a touch control — it is the one place the tap-to-walk
+  // rules are written down, so it must survive a mouse. (v1.9.045 tied
+  // ui.showTouch to the last pointer used, which took the chip with it.)
+  if (ui.controlMode === 'kids') {
+    const qn = (ui.kidsQueue && ui.kidsQueue.length) || 0;
+    ctx.fillStyle = 'rgba(10, 28, 18, 0.78)';
+    roundRect(ctx, 10, H - 128, 148, 54, 12);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(125,255,160,0.5)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.fillStyle = '#7dffa0';
+    ctx.font = '800 12px system-ui';
+    ctx.textAlign = 'left';
+    ctx.fillText('KIDS MODE', 20, H - 108);
+    ctx.fillStyle = '#e8fff0';
+    ctx.font = '600 11px system-ui';
+    ctx.fillText(qn ? (qn + ' job' + (qn > 1 ? 's' : '') + ' queued') : 'Tap walk · dig · build', 20, H - 90);
+    ctx.fillStyle = '#9ec5b0';
+    ctx.font = '600 10px system-ui';
+    ctx.fillText('Drag look · pinch zoom', 20, H - 76);
+  }
+
   if (ui.showTouch) {
     const kids = ui.controlMode === 'kids';
 
@@ -2085,25 +2108,6 @@ export function drawHUD(ctx, player, inv, world, cam, ui, sky) {
       ctx.strokeStyle = 'rgba(255,255,255,0.35)';
       ctx.lineWidth = 2;
       ctx.stroke();
-    } else {
-      // Kids hint chip (lower-left)
-      const qn = (ui.kidsQueue && ui.kidsQueue.length) || 0;
-      ctx.fillStyle = 'rgba(10, 28, 18, 0.78)';
-      roundRect(ctx, 10, H - 128, 148, 54, 12);
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(125,255,160,0.5)';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-      ctx.fillStyle = '#7dffa0';
-      ctx.font = '800 12px system-ui';
-      ctx.textAlign = 'left';
-      ctx.fillText('KIDS MODE', 20, H - 108);
-      ctx.fillStyle = '#e8fff0';
-      ctx.font = '600 11px system-ui';
-      ctx.fillText(qn ? (qn + ' job' + (qn > 1 ? 's' : '') + ' queued') : 'Tap walk · dig · build', 20, H - 90);
-      ctx.fillStyle = '#9ec5b0';
-      ctx.font = '600 10px system-ui';
-      ctx.fillText('Drag look · pinch zoom', 20, H - 76);
     }
 
     // JUMP / UP pad — high contrast so kids can spot it on iPad
@@ -2378,7 +2382,7 @@ export function drawChestPanel(ctx, inv, ui) {
   ctx.fillStyle = '#8899aa';
   ctx.font = '11px system-ui';
   ctx.textAlign = 'center';
-  ctx.fillText(ui.invPick ? 'Tap a slot to move there · tap again to cancel' : 'Tap item to pick up · ⚒ to close', W / 2, py + ph - 14);
+  ctx.fillText(ui.invPick ? 'Tap a slot to move there · tap again to cancel' : 'Tap item to pick up · ✕ to close', W / 2, py + ph - 14);
 }
 
 /**
@@ -2582,6 +2586,9 @@ export function drawCreativePanel(ctx, inv, ui) {
   const used = bagUsed(inv);
   ctx.fillStyle = '#9ec5b0';
   ctx.font = '600 11px system-ui';
+  // drawInvSlot leaves textAlign='right' from the stack counts; without this
+  // the label right-aligns at invX and bleeds back across the block catalog.
+  ctx.textAlign = 'left';
   ctx.fillText('Backpack ' + used + '/' + BAG_SIZE, invX, hy + cell + 16);
 
   const by = hy + cell + 22;
@@ -2918,7 +2925,10 @@ export function drawCraftPanel(ctx, inv, world, player, ui) {
         const have = countItem(inv, id);
         const okM = have >= n;
         ctx.fillStyle = okM ? 'rgba(125,255,160,0.2)' : 'rgba(255,100,100,0.18)';
-        const label = have + '/' + n + ' ' + itemName(id);
+        // Requirement first, shortfall only when it matters: '1 Wood' reads
+        // straight, '64/1 Wood' reads as "need 64, have 1" — backwards.
+        const label = okM ? (n + ' ' + itemName(id))
+                          : (n + ' ' + itemName(id) + ' (have ' + have + ')');
         const tw = Math.min(100, ctx.measureText(label).width + 10);
         if (mx + tw > px + pw - 60) break;
         roundRect(ctx, mx, y + (short ? 20 : 24), tw, 16, 5);
@@ -2967,7 +2977,7 @@ export function drawCraftPanel(ctx, inv, world, player, ui) {
     let line = 'Needs: ';
     for (const [id, n] of r.in) {
       const have = countItem(inv, id);
-      line += itemName(id) + ' ' + have + '/' + n + '   ';
+      line += n + ' ' + itemName(id) + (have >= n ? '' : ' (have ' + have + ')') + '   ';
     }
     ctx.fillText(line.trim(), px + 76, detailY + (short ? 40 : 54));
 
@@ -3025,5 +3035,5 @@ export function drawCraftPanel(ctx, inv, world, player, ui) {
   ctx.fillStyle = '#7a9a8a';
   ctx.font = short ? '10px system-ui' : '11px system-ui';
   ctx.textAlign = 'center';
-  ctx.fillText('Tap a recipe, then CRAFT · ⚒ to close', W / 2, py + ph - 8);
+  ctx.fillText('Tap a recipe, then CRAFT · ✕ to close', W / 2, py + ph - 8);
 }
