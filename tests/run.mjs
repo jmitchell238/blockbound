@@ -29,16 +29,19 @@ const req = [
 for (const f of req) ok(fs.existsSync(path.join(root, f)), `exists ${f}`);
 
 const constants = fs.readFileSync(path.join(root, 'js/core/constants.js'), 'utf8');
-const sw = fs.readFileSync(path.join(root, 'sw.js'), 'utf8');
+const sw = fs.readFileSync(path.join(root, 'sw-bb.js'), 'utf8'); // primary worker (new installs)
+const swLegacy = fs.readFileSync(path.join(root, 'sw.js'), 'utf8'); // bridge for stuck iPads
 const ver = constants.match(/GAME_VERSION\s*=\s*['"]([^'"]+)['"]/);
 ok(!!ver, 'GAME_VERSION');
 if (ver) ok(sw.includes(`blockbound-${ver[1]}`), 'SW CACHE sync');
+ok(swLegacy.includes('update.html') || swLegacy.includes('legacy'), 'legacy SW bridge present');
 ok(constants.includes('WORLD_H') && constants.includes('REACH'), 'core constants');
 ok(fs.existsSync(path.join(root, 'js/core/difficulty.js')), 'difficulty module exists');
 ok(sw.includes('difficulty.js'), 'SW caches difficulty.js');
 ok(fs.existsSync(path.join(root, 'js/core/seed.js')), 'seed module exists');
 ok(sw.includes('seed.js'), 'SW caches seed.js');
 ok(sw.includes('shelter.js'), 'SW caches shelter.js');
+ok(fs.existsSync(path.join(root, 'update.html')), 'update.html escape hatch');
 ok(constants.includes('applyViewport') && constants.includes('export let W'), 'viewport mutable W/H');
 
 const worldSize = fs.readFileSync(path.join(root, 'js/core/worldSize.js'), 'utf8');
