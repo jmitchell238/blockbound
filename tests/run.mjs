@@ -509,12 +509,26 @@ ok(gcSrc.includes("lastPtr !== 'mouse'"), 'showTouch follows the device last use
   ok(Math.abs(j.cam.y - jy0) < 0.01, 'jumping mid-walk never lifts the camera');
 }
 
+// —— Overcast never whites out the world (v1.9.046) ——
+{
+  const renSrc = fs.readFileSync(path.join(root, 'js/render/index.js'), 'utf8');
+  const m = renSrc.match(/ctx\.globalAlpha = Math\.min\(([\d.]+),/);
+  ok(!!m && parseFloat(m[1]) <= 0.7,
+    'cloud cover alpha is capped well below opaque');
+}
+
 // —— World picker scrolling (v1.9.045) ——
 {
   const css = fs.readFileSync(path.join(root, 'css/style.css'), 'utf8');
   const grid = css.slice(css.indexOf('.world-grid {'), css.indexOf('.world-empty'));
   ok(/touch-action:\s*pan-y/.test(grid), 'world grid allows touch scrolling');
   ok(/overflow-y:\s*auto/.test(grid), 'world grid scrolls');
+  ok(/grid-auto-rows:\s*max-content/.test(grid),
+    'world grid rows keep content height instead of collapsing');
+  const card = css.slice(css.indexOf('.world-card {'), css.indexOf('.world-card:hover'));
+  ok(!/min-height:\s*0/.test(card),
+    'world card keeps its automatic minimum size (min-height:0 collapsed the rows)');
+  ok(css.includes('@media (max-height: 480px)'), 'short landscape shrinks the world cards');
   const land = css.slice(css.indexOf('body.landscape .world-grid'));
   ok(!/max-height:\s*min\(280px/.test(land.slice(0, 400)),
     'landscape world grid is not capped to one and a half rows');

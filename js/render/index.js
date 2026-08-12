@@ -689,7 +689,11 @@ export function drawClouds(ctx, camX, sky, timeOfDay, weather) {
   const t = timeOfDay;
   ctx.save();
   // Heavier, grayer cover when raining
-  ctx.globalAlpha = (0.22 + sky.day * 0.4) * (1 + rain * 0.55);
+  // Cap the cover. Unclamped this reached ~0.96 at midday in heavy rain, and
+  // eight sprites at that alpha tile into a near-opaque sheet — which in a snow
+  // biome makes the sky the same white as SNOW, so ground and air look
+  // identical and a mined hole is invisible.
+  ctx.globalAlpha = Math.min(0.62, (0.22 + sky.day * 0.4) * (1 + rain * 0.55));
   const n = rain > 0.2 ? 8 : 5;
   for (let i = 0; i < n; i++) {
     const parallax = 0.08 + i * 0.03;

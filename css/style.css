@@ -396,6 +396,10 @@ button.ghost.danger {
   touch-action: pan-y;
   overscroll-behavior: contain;
   align-content: start;
+  /* Rows must keep their content height. Left as `auto` they collapse under
+     space pressure (cards clipped to the thumbnail) instead of overflowing,
+     which leaves overflow-y with nothing to scroll. */
+  grid-auto-rows: max-content;
 }
 
 .world-empty {
@@ -419,7 +423,6 @@ button.ghost.danger {
   cursor: pointer;
   font-family: inherit;
   overflow: hidden;
-  min-height: 0;
   user-select: none;
   -webkit-user-select: none;
   transition: border-color 0.12s ease, box-shadow 0.12s ease, transform 0.08s ease;
@@ -893,4 +896,18 @@ body.landscape .touch-act-btn {
     margin-top: 5px;
     padding: 9px 12px;
   }
+}
+
+/* Short landscape (phones): a full card is taller than the grid viewport, so
+   no world is ever fully visible. Shrink the card rather than the grid. */
+@media (max-height: 480px) {
+  .world-card-thumb { aspect-ratio: 16 / 6; }
+  /* Stacked Play/Back buttons ate 100px of a 310px panel. Side by side they
+     take ~44px and give that height back to the grid. */
+  .mc-worlds-footer { flex-direction: row; gap: 8px; }
+  .mc-worlds-footer button { flex: 1 1 0; }
+  .world-card-body { padding: 4px 8px 6px; }
+  .world-card-name { font-size: 0.82rem; }
+  .world-card-mode { font-size: 0.6rem; padding: 1px 5px; }
+  .world-card-edit { padding: 4px 6px; font-size: 0.72rem; }
 }
