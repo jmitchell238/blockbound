@@ -26,6 +26,10 @@ import {
   CRAFT_TABS, recipesInTab, missingMaterials, stationHint,
   stationAvailable, getChest, getTorchFacing, getLanternMode, isDoorOpen,
 } from '../interact/index.js';
+import { chestPanelLayout } from './chestLayout.js';
+
+// Re-export layout for tests
+export { chestPanelLayout };
 
 /**
  * High-quality 2.5D Blockheads-style renderer:
@@ -2296,10 +2300,10 @@ export function drawInvSlot(ctx, x, y, cell, slot, selected) {
 }
 
 export function drawChestPanel(ctx, inv, ui) {
-  const pw = 340;
-  const ph = 560;
-  const px = (W - pw) / 2;
-  const py = Math.max(6, (H - ph) / 2 - 6);
+  const layout = chestPanelLayout(W, H, inv.bag.length, HOTBAR_SIZE);
+  const { panel, close, cell, gap, chestSlots, hotbarSlots, bagSlots, labels } = layout;
+  const { px, py, pw, ph } = { px: panel.x, py: panel.y, pw: panel.w, ph: panel.h };
+
   ui.chestHit = [];
   ui.bagHit = [];
 
@@ -2316,80 +2320,70 @@ export function drawChestPanel(ctx, inv, ui) {
   ctx.fillStyle = '#d4a04a';
   ctx.font = '700 20px system-ui';
   ctx.textAlign = 'left';
-  ctx.fillText('📦 Chest', px + 16, py + 30);
+  ctx.fillText('📦 Chest', labels.title.x, labels.title.y);
 
-  // Close
-  const closeX = px + pw - 44;
+  // Close button
   ctx.fillStyle = 'rgba(255,255,255,0.1)';
-  roundRect(ctx, closeX, py + 10, 32, 32, 10);
+  roundRect(ctx, close.x, close.y, close.w, close.h, 10);
   ctx.fill();
   ctx.fillStyle = '#fff';
   ctx.font = '700 16px system-ui';
   ctx.textAlign = 'center';
-  ctx.fillText('✕', closeX + 16, py + 32);
-  ui.chestHit.push({ kind: 'close', x: closeX, y: py + 10, w: 32, h: 32 });
+  ctx.fillText('✕', close.x + close.w / 2, close.y + close.h / 2 + 5);
+  ui.chestHit.push({ kind: 'close', x: close.x, y: close.y, w: close.w, h: close.h });
   ui.panelRect = { x: px, y: py, w: pw, h: ph };
 
+  // Hint text
   ctx.fillStyle = '#9ec5b0';
   ctx.font = '12px system-ui';
   ctx.textAlign = 'left';
-  ctx.fillText('Tap an item, then tap where to put it', px + 16, py + 52);
+  ctx.fillText('Tap an item, then tap where to put it', labels.headerHint.x, labels.headerHint.y);
 
-  const cell = 38;
-  const gap = 6;
   const slots = ui.chestOpen.slots;
 
   // Chest grid 4x4
   ctx.fillStyle = '#d4a04a';
   ctx.font = '700 13px system-ui';
-  ctx.fillText('Chest storage', px + 16, py + 74);
-  const cStartY = py + 84;
-  for (let i = 0; i < slots.length; i++) {
-    const col = i % 4;
-    const row = Math.floor(i / 4);
-    const x = px + 16 + col * (cell + gap);
-    const y = cStartY + row * (cell + gap);
+  ctx.textAlign = 'left';
+  ctx.fillText('Chest storage', labels.chest.x, labels.chest.y);
+  for (const slot of chestSlots) {
+    const { i, x, y, w, h } = slot;
     const sel = ui.invPick && ui.invPick.from === 'chest' && ui.invPick.i === i;
-    drawInvSlot(ctx, x, y, cell, slots[i], sel);
-    ui.chestHit.push({ kind: 'slot', from: 'chest', i, x, y, w: cell, h: cell });
+    drawInvSlot(ctx, x, y, w, slots[i], sel);
+    ui.chestHit.push({ kind: 'slot', from: 'chest', i, x, y, w, h });
   }
 
   // Hotbar
-  const hLabelY = cStartY + 4 * (cell + gap) + 18;
   ctx.fillStyle = '#7dffa0';
   ctx.font = '700 13px system-ui';
+  // drawInvSlot leaves textAlign on the count badge — reset it for every label.
   ctx.textAlign = 'left';
-  ctx.fillText('Hotbar (1–8)', px + 16, hLabelY);
-  const hy = hLabelY + 10;
-  for (let i = 0; i < HOTBAR_SIZE; i++) {
-    const x = px + 12 + i * (cell + 4);
+  ctx.fillText('Hotbar (1–8)', labels.hotbar.x, labels.hotbar.y);
+  for (const slot of hotbarSlots) {
+    const { i, x, y, w, h } = slot;
     const sel = ui.invPick && ui.invPick.from === 'hotbar' && ui.invPick.i === i;
-    drawInvSlot(ctx, x, hy, cell, inv.hotbar[i], sel);
-    ui.chestHit.push({ kind: 'slot', from: 'hotbar', i, x, y: hy, w: cell, h: cell });
+    drawInvSlot(ctx, x, y, w, inv.hotbar[i], sel);
+    ui.chestHit.push({ kind: 'slot', from: 'hotbar', i, x, y, w, h });
   }
 
   // Bag
-  const bLabelY = hy + cell + 22;
   const used = bagUsed(inv);
   ctx.fillStyle = '#7dffa0';
   ctx.font = '700 13px system-ui';
-  ctx.fillText('Backpack ' + used + '/' + BAG_SIZE, px + 16, bLabelY);
-  const by = bLabelY + 10;
-  const cols = 6;
-  for (let i = 0; i < inv.bag.length; i++) {
-    const col = i % cols;
-    const row = Math.floor(i / cols);
-    const x = px + 16 + col * (cell + gap);
-    const y = by + row * (cell + gap);
+  ctx.textAlign = 'left';
+  ctx.fillText('Backpack ' + used + '/' + BAG_SIZE, labels.bag.x, labels.bag.y);
+  for (const slot of bagSlots) {
+    const { i, x, y, w, h } = slot;
     const sel = ui.invPick && ui.invPick.from === 'bag' && ui.invPick.i === i;
-    drawInvSlot(ctx, x, y, cell, inv.bag[i], sel);
-    ui.chestHit.push({ kind: 'slot', from: 'bag', i, x, y, w: cell, h: cell });
+    drawInvSlot(ctx, x, y, w, inv.bag[i], sel);
+    ui.chestHit.push({ kind: 'slot', from: 'bag', i, x, y, w, h });
   }
 
+  // Footer text
   ctx.fillStyle = '#8899aa';
   ctx.font = '11px system-ui';
   ctx.textAlign = 'center';
-  ctx.fillText(ui.invPick ? 'Tap a slot to move there · tap again to cancel' : 'Tap item to pick up · ✕ to close', W / 2, py + ph - 14);
+  ctx.fillText(ui.invPick ? 'Tap a slot to move there · tap again to cancel' : 'Tap item to pick up · ✕ to close', labels.footer.x, labels.footer.y);
 }
 
 /**

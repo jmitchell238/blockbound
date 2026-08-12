@@ -41,6 +41,7 @@ ok(sw.includes('difficulty.js'), 'SW caches difficulty.js');
 ok(fs.existsSync(path.join(root, 'js/core/seed.js')), 'seed module exists');
 ok(sw.includes('seed.js'), 'SW caches seed.js');
 ok(sw.includes('shelter.js'), 'SW caches shelter.js');
+ok(sw.includes('chestLayout.js'), 'SW caches chestLayout.js');
 ok(fs.existsSync(path.join(root, 'update.html')), 'update.html escape hatch');
 ok(constants.includes('applyViewport') && constants.includes('export let W'), 'viewport mutable W/H');
 
@@ -674,6 +675,68 @@ ok(gcSrc.includes("lastPtr !== 'mouse'"), 'showTouch follows the device last use
   const gcSrc6 = fs.readFileSync(path.join(root, 'js/session/GameController.js'), 'utf8');
   ok(/save\.loadError/.test(gcSrc6) && /could not be read/.test(gcSrc6),
     'the player is told when their world could not be read');
+}
+
+// —— Chest panel responsive layout (bb-508) ——
+// The panel used to be a hardcoded 340x560 box, which is taller than the whole
+// 640x400 landscape canvas: the backpack rows were drawn below the bottom edge
+// and could not be seen or tapped.
+console.log('\nChest panel layout');
+{
+  const chestLayoutUrl = pathToFileURL(path.join(root, 'js/render/chestLayout.js')).href;
+  const { chestPanelLayout } = await import(chestLayoutUrl);
+
+  for (const [name, VW, VH] of [['landscape', 640, 400], ['portrait', 390, 600]]) {
+    const L = chestPanelLayout(VW, VH, 24, 8);
+    const rects = [...L.chestSlots, ...L.hotbarSlots, ...L.bagSlots, L.close];
+
+    ok(L.chestSlots.length === 16 && L.hotbarSlots.length === 8 && L.bagSlots.length === 24,
+      `${name} draws every slot (16 chest / 8 hotbar / 24 bag)`);
+
+    const offCanvas = rects.filter(r =>
+      r.x < 0 || r.y < 0 || r.x + r.w > VW || r.y + r.h > VH);
+    ok(offCanvas.length === 0,
+      `${name} every slot is on-canvas` +
+      (offCanvas.length ? ` — ${offCanvas.length} off, lowest bottom ` +
+        Math.max(...rects.map(r => r.y + r.h)) + ` vs H=${VH}` : ''));
+
+    const p = L.panel;
+    ok(p.x >= 0 && p.y >= 0 && p.x + p.w <= VW && p.y + p.h <= VH,
+      `${name} panel box fits the canvas (${p.w}x${p.h} at ${p.x},${p.y})`);
+
+    const outside = rects.filter(r =>
+      r.x < p.x || r.y < p.y || r.x + r.w > p.x + p.w || r.y + r.h > p.y + p.h);
+    ok(outside.length === 0, `${name} every slot sits inside the panel box`);
+
+    // Kid-sized tap targets: 30 units is ~55 CSS px on an iPad.
+    ok(L.cell >= 30, `${name} cell >= 30 (got ${L.cell})`);
+
+    // Contract with drawChestPanel: it destructures these and will throw a
+    // "Menu glitch" panel if any are missing.
+    const needed = ['title', 'headerHint', 'chest', 'hotbar', 'bag', 'footer'];
+    const missing = needed.filter(k =>
+      !L.labels[k] || !Number.isFinite(L.labels[k].x) || !Number.isFinite(L.labels[k].y));
+    ok(missing.length === 0,
+      `${name} supplies every label drawChestPanel reads` +
+      (missing.length ? ` — missing ${missing.join(', ')}` : ''));
+
+    console.log(`  · ${name} panel [${p.x},${p.y}] ${p.w}x${p.h}, ` +
+      `lowest rect bottom ${Math.max(...rects.map(r => r.y + r.h))}, cell ${L.cell}`);
+  }
+
+  // The renderer must not reintroduce a hardcoded panel size, and every label
+  // must set its own textAlign — drawInvSlot leaves it on the count badge.
+  const renChest = renSrc.slice(renSrc.indexOf('export function drawChestPanel'));
+  const chestBody = renChest.slice(0, renChest.indexOf('\nexport function'));
+  ok(/chestPanelLayout\(W, H/.test(chestBody), 'drawChestPanel sizes itself from W/H');
+  ok(!/const ph = \d+;/.test(chestBody), 'drawChestPanel has no hardcoded panel height');
+  const drawnLabels = new Set((chestBody.match(/labels\.(\w+)\.x/g) || [])
+    .map(m => m.slice('labels.'.length, -2)));
+  ok(drawnLabels.size === 6,
+    `all six chest labels draw from the layout (got ${[...drawnLabels].join(',')})`);
+  // Each label must reset alignment; drawInvSlot leaves textAlign on the badge.
+  ok((chestBody.match(/ctx\.textAlign = /g) || []).length >= 6,
+    'every chest label sets its own textAlign');
 }
 
 if (failed) {
