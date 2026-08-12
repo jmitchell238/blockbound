@@ -1209,6 +1209,28 @@ export function stowHotbarToBag(s) {
 }
 
 /**
+ * Close whichever canvas panel is open. Since the chrome row hides behind a
+ * panel, the ✕ was the only way out on touch — tapping the dimmed area
+ * outside is the gesture people already expect, and costs no new UI.
+ */
+function closeOpenPanel(ui) {
+  if (ui.creativeOpen) ui.creativeOpen = false;
+  else if (ui.bagOpen) ui.bagOpen = false;
+  else if (ui.chestOpen) ui.chestOpen = null;
+  else if (ui.craftOpen) ui.craftOpen = false;
+  ui.invPick = null;
+  ui.hoverTip = null;
+  ui.invDrag = null;
+}
+
+/** True when the point is outside the panel currently drawn. */
+function outsidePanel(ui, x, y) {
+  const r = ui.panelRect;
+  if (!r) return false;
+  return x < r.x || x > r.x + r.w || y < r.y || y > r.y + r.h;
+}
+
+/**
  * Unified pointer handler for open inventory / creative / chest / craft menus.
  * phase: 'down' | 'move' | 'up'
  */
@@ -1222,6 +1244,13 @@ export function gameUiPointer(x, y, phase) {
     ui.hoverTip = null;
     ui.invDrag = null;
     return false;
+  }
+
+  // Tap outside the panel to dismiss. Never while an item is mid-drag or
+  // picked up, or a fumbled drop would close the panel under the player.
+  if (phase === 'down' && !ui.invDrag && !ui.invPick && outsidePanel(ui, x, y)) {
+    closeOpenPanel(ui);
+    return true;
   }
 
   const hits = activeMenuHits(ui);
@@ -1458,6 +1487,11 @@ export function gameClickCraft(x, y) {
   }
 
   if (!ui.craftOpen) return false;
+
+  if (outsidePanel(ui, x, y)) {
+    closeOpenPanel(ui);
+    return true;
+  }
 
   const hits = ui.craftHit || [];
   // Process later hits first? No — check each, first match wins. Prefer specific actions.

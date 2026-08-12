@@ -2322,6 +2322,7 @@ export function drawChestPanel(ctx, inv, ui) {
   ctx.textAlign = 'center';
   ctx.fillText('✕', closeX + 16, py + 32);
   ui.chestHit.push({ kind: 'close', x: closeX, y: py + 10, w: 32, h: 32 });
+  ui.panelRect = { x: px, y: py, w: pw, h: ph };
 
   ctx.fillStyle = '#9ec5b0';
   ctx.font = '12px system-ui';
@@ -2450,6 +2451,7 @@ export function drawCreativePanel(ctx, inv, ui) {
   ctx.textAlign = 'center';
   ctx.fillText('✕', closeX + 15, py + 28);
   ui.creativeHit.push({ kind: 'close', x: closeX, y: py + 8, w: 30, h: 30 });
+  ui.panelRect = { x: px, y: py, w: pw, h: ph };
 
   ctx.fillStyle = '#9ec5b0';
   ctx.font = '10px system-ui';
@@ -2529,9 +2531,11 @@ export function drawCreativePanel(ctx, inv, ui) {
   ctx.fillStyle = '#8899aa';
   ctx.font = '10px system-ui';
   ctx.textAlign = 'left';
-  const totalPages = Math.max(1, Math.ceil(catalog.length / catCols));
+  // Count items, not grid rows: this said "Blocks 1–5 / 6" with 40 on screen.
+  const firstItem = scroll * catCols + 1;
+  const lastItem = Math.min(catalog.length, (scroll + rowsVisible) * catCols);
   ctx.fillText(
-    'Blocks ' + (scroll + 1) + '–' + Math.min(scroll + rowsVisible, totalPages) + ' / ' + totalPages,
+    'Blocks ' + firstItem + '–' + lastItem + ' of ' + catalog.length,
     catX + 128,
     scrY + 17
   );
@@ -2698,6 +2702,7 @@ export function drawBagPanel(ctx, inv, ui) {
   ctx.textAlign = 'center';
   ctx.fillText('✕', closeX + 16, py + 32);
   ui.bagHit.push({ kind: 'close', x: closeX, y: py + 10, w: 32, h: 32 });
+  ui.panelRect = { x: px, y: py, w: pw, h: ph };
 
   ctx.fillStyle = '#9ec5b0';
   ctx.font = '12px system-ui';
@@ -2796,6 +2801,7 @@ export function drawCraftPanel(ctx, inv, world, player, ui) {
   ctx.textAlign = 'center';
   ctx.fillText('✕', cx + 16, cy + 22);
   ui.craftHit.push({ kind: 'close', x: cx, y: cy, w: 32, h: 32 });
+  ui.panelRect = { x: px, y: py, w: pw, h: ph };
 
   // Station status
   const atBench = stationAvailable(world, player.x, player.y, 'workbench');

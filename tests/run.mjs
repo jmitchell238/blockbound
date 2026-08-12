@@ -591,6 +591,29 @@ ok(gcSrc.includes("lastPtr !== 'mouse'"), 'showTouch follows the device last use
   ok(/panel-open \.icon-btn/.test(cssSrc3), 'chrome buttons hide behind an open panel');
 }
 
+// —— Tap outside a panel to close it (v1.9.049) ——
+{
+  const renSrc4 = fs.readFileSync(path.join(root, 'js/render/index.js'), 'utf8');
+  ok((renSrc4.match(/ui\.panelRect = \{/g) || []).length === 4,
+    'all four canvas panels publish their rect');
+  ok(/'Blocks ' \+ firstItem \+ '–' \+ lastItem \+ ' of ' \+ catalog\.length/.test(renSrc4),
+    'creative label counts items, not grid rows');
+
+  const gcSrc4 = fs.readFileSync(path.join(root, 'js/session/GameController.js'), 'utf8');
+  ok(/function outsidePanel/.test(gcSrc4) && /function closeOpenPanel/.test(gcSrc4),
+    'outside-tap close helpers exist');
+  // Must be guarded: a drop that lands outside mid-drag should not close.
+  const guard = gcSrc4.slice(gcSrc4.indexOf('// Tap outside the panel to dismiss'),
+                             gcSrc4.indexOf('const hits = activeMenuHits(ui);'));
+  ok(/!ui\.invDrag/.test(guard) && /!ui\.invPick/.test(guard),
+    'outside-tap close is suppressed while dragging or holding an item');
+  ok(/phase === 'down'/.test(guard), 'outside-tap close fires on press, not release');
+  // The craft panel takes a separate click path and needs the same guard.
+  const craftFn = gcSrc4.slice(gcSrc4.indexOf('export function gameClickCraft'),
+                               gcSrc4.indexOf('const hits = ui.craftHit'));
+  ok(/outsidePanel\(ui, x, y\)/.test(craftFn), 'craft panel also closes on an outside tap');
+}
+
 if (failed) {
   console.error(`\n${failed} failed`);
   process.exit(1);
