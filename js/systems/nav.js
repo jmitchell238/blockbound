@@ -313,14 +313,15 @@ export function applyKidsNav(player, world, input, dt) {
     // Vertical steering only when the player has actually chosen to fly (✈).
     // Auto-engaging flight here turned every tap-to-walk into a half-flight
     // that drifted off and stalled, and it never switched back off.
+    // Only per-frame intent here. _touchFlyUp/_touchFlyDown are held-pad flags
+    // cleared on pointer release, so setting them from nav latches them on
+    // forever and the character rises until it hits the sky.
     if (player.flying) {
       if (dy < -0.25) {
         input.up = true;
         input.jump = true;
-        input._touchFlyUp = true;
       } else if (dy > 0.25) {
         input.down = true;
-        input._touchFlyDown = true;
       }
     } else {
       steerClimbAndJump(player, world, input, dx, dy, approach);
