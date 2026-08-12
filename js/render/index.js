@@ -95,11 +95,16 @@ export function shadeHex(hex, mul) {
 
 export function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particles, ents) {
   const weather = (ui && ui.weather) || 0;
-  const sky = skyColors(timeOfDay, weather);
+  let sky;
+  try {
+    sky = skyColors(timeOfDay, weather);
+  } catch (_) {
+    sky = { top: '#0a1028', mid: '#101830', bot: '#1a2838', day: 0.5, warm: 0 };
+  }
 
   // Always draw outdoor sky first — cave air paints dark ON TOP per-tile.
   // (Full-screen black mode was stuck on and blanked the outdoors.)
-  {
+  try {
     const g = ctx.createLinearGradient(0, 0, 0, H);
     g.addColorStop(0, sky.top);
     g.addColorStop(0.45, sky.mid);
@@ -109,9 +114,19 @@ export function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particl
     if (weather < 0.45) drawCelestial(ctx, sky, timeOfDay);
     drawClouds(ctx, cam.x, sky, timeOfDay, weather);
     drawParallax(ctx, cam.x, sky.day);
+  } catch (_) {
+    ctx.fillStyle = '#1a2830';
+    ctx.fillRect(0, 0, W, H);
   }
 
-  const zoom = (cam && cam.zoom) || (ui && ui.zoom) || 1;
+  // Guard bad camera/zoom (NaN → blank world on iPad)
+  if (!cam || !Number.isFinite(cam.x) || !Number.isFinite(cam.y)) {
+    cam = cam || {};
+    cam.x = (player && Number.isFinite(player.x)) ? player.x : 0;
+    cam.y = (player && Number.isFinite(player.y)) ? player.y - 1 : 40;
+  }
+  let zoom = (cam && cam.zoom) || (ui && ui.zoom) || 1;
+  if (!Number.isFinite(zoom) || zoom < 0.3) zoom = 1;
   const ts = TILE * zoom;
   const tilesX = Math.ceil(W / ts) + 3;
   const tilesY = Math.ceil(H / ts) + 3;
@@ -240,14 +255,31 @@ export function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particl
     }
   }
 
-  drawHUD(ctx, player, inv, world, cam, ui, sky);
-  if (ui.chestOpen) drawChestPanel(ctx, inv, ui);
-  if (ui.bagOpen) drawBagPanel(ctx, inv, ui);
-  if (ui.creativeOpen) drawCreativePanel(ctx, inv, ui);
-  // Drag ghost + tooltip on top of any open menu
-  if (ui.bagOpen || ui.creativeOpen || ui.chestOpen) {
-    drawInvDragGhost(ctx, ui);
-    drawHoverTip(ctx, ui);
+  // HUD + menus always last — isolated so a world-draw glitch cannot hide Craft/Bag
+  try {
+    drawHUD(ctx, player, inv, world, cam, ui, sky);
+  } catch (err) {
+    console.warn('[blockbound] HUD', err);
+  }
+  try {
+    if (ui.chestOpen) drawChestPanel(ctx, inv, ui);
+    if (ui.bagOpen) drawBagPanel(ctx, inv, ui);
+    if (ui.creativeOpen) drawCreativePanel(ctx, inv, ui);
+    if (ui.craftOpen) drawCraftPanel(ctx, inv, world, player, ui);
+    if (ui.bagOpen || ui.creativeOpen || ui.chestOpen) {
+      drawInvDragGhost(ctx, ui);
+      drawHoverTip(ctx, ui);
+    }
+  } catch (err) {
+    console.warn('[blockbound] menu panel', err);
+    try {
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      ctx.fillRect(W * 0.1, H * 0.2, W * 0.8, H * 0.5);
+      ctx.fillStyle = '#7dffa0';
+      ctx.font = '700 18px system-ui';
+      ctx.textAlign = 'center';
+      ctx.fillText('Menu glitch — tap ☰ Menu', W / 2, H / 2);
+    } catch (_) {}
   }
 }
 
@@ -1921,7 +1953,7 @@ export function drawHUD(ctx, player, inv, world, cam, ui, sky) {
     ctx.fillText(ui.seedLabel, 20, toolTop + 53);
   }
 
-  if (ui.craftOpen) drawCraftPanel(ctx, inv, world, player, ui);
+  // craft panel drawn in renderWorld after HUD (isolated try/catch)
 
   if (ui.showTouch) {
     const kids = ui.controlMode === 'kids';

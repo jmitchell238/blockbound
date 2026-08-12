@@ -896,18 +896,51 @@ function wireUI() {
   document.getElementById('btnHub').addEventListener('click', () => {
     window.location.href = 'https://jmitchell238.github.io/arcade-hub/';
   });
-  document.getElementById('btnMenu').addEventListener('click', () => {
+  /** iPad-safe chrome bind: pointerup so canvas cannot steal the tap. */
+  function bindPlayChrome(id, handler) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    let lastFire = 0;
+    const fire = (e) => {
+      const now = performance.now();
+      if (now - lastFire < 350) return; // ignore click after pointerup
+      lastFire = now;
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        handler(e);
+      } catch (err) {
+        console.error('[blockbound] chrome', id, err);
+        alert('Button error: ' + (err && err.message ? err.message : err));
+      }
+    };
+    el.addEventListener('pointerup', fire, { passive: false });
+    el.addEventListener('click', fire);
+  }
+
+  function uiToast(s, msg) {
+    if (!s || !s.ui) return;
+    s.ui.toast = msg;
+    s.ui.toastT = 1.6;
+  }
+
+  bindPlayChrome('btnMenu', () => {
     const s = getSession();
     if (s) {
-      persistSession(
-        s.world, s.player, s.inv, s.timeOfDay, s.stats, s.ents, s.difficultyId
-      );
+      try {
+        persistSession(
+          s.world, s.player, s.inv, s.timeOfDay, s.stats, s.ents, s.difficultyId
+        );
+      } catch (_) {}
     }
     showWorlds();
   });
-  document.getElementById('btnCraft').addEventListener('click', () => {
+  bindPlayChrome('btnCraft', () => {
     const s = getSession();
-    if (!s) return;
+    if (!s) {
+      alert('No world loaded — open a world first');
+      return;
+    }
     s.ui.bagOpen = false;
     s.ui.creativeOpen = false;
     s.ui.chestOpen = null;
@@ -916,55 +949,61 @@ function wireUI() {
     if (s.ui.craftOpen) {
       s.ui.craftTab = 'all';
       s.ui.craftScroll = 0;
+      uiToast(s, 'Craft open — tap a recipe, then CRAFT');
+    } else {
+      uiToast(s, 'Craft closed');
     }
   });
-  const bagBtn = document.getElementById('btnBag');
-  if (bagBtn) {
-    bagBtn.addEventListener('click', () => {
-      const s = getSession();
-      if (!s) return;
-      s.ui.craftOpen = false;
-      s.ui.creativeOpen = false;
-      s.ui.chestOpen = null;
-      s.ui.invPick = null;
-      s.ui.bagOpen = !s.ui.bagOpen;
-    });
-  }
-  const creativeBtn = document.getElementById('btnCreative');
-  if (creativeBtn) {
-    creativeBtn.addEventListener('click', () => {
-      const s = getSession();
-      if (!s || !s.ui.creative) return;
-      s.ui.craftOpen = false;
-      s.ui.bagOpen = false;
-      s.ui.chestOpen = null;
-      s.ui.invPick = null;
-      s.ui.creativeOpen = !s.ui.creativeOpen;
-      if (s.ui.creativeOpen) s.ui.creativeScroll = s.ui.creativeScroll || 0;
-    });
-  }
-  const flyBtn = document.getElementById('btnFly');
-  if (flyBtn) {
-    flyBtn.addEventListener('click', () => {
-      const s = getSession();
-      if (!s || !s.player || !s.player.canFly) return;
-      s.input.flyToggle = true; // applied next frame in updatePlayer
-    });
-  }
-  const touchAct = document.getElementById('btnTouchAct');
-  if (touchAct) {
-    touchAct.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const s = getSession();
-      if (!s || !s.ui || !s.ui.touchAct) return;
-      const kind = s.ui.touchAct.kind;
-      if (kind === 'use' || kind === 'eat') {
-        // handleUse covers doors, chests, beds, boat, eat
-        s.input.usePressed = true;
-      } else if (kind === 'attack') {
-        s.input.attackPressed = true;
-      }
+  bindPlayChrome('btnBag', () => {
+    const s = getSession();
+    if (!s) {
+      alert('No world loaded — open a world first');
+      return;
+    }
+    s.ui.craftOpen = false;
+    s.ui.creativeOpen = false;
+    s.ui.chestOpen = null;
+    s.ui.invPick = null;
+    s.ui.bagOpen = !s.ui.bagOpen;
+    uiToast(s, s.ui.bagOpen ? 'Backpack open' : 'Backpack closed');
+  });
+  bindPlayChrome('btnCreative', () => {
+    const s = getSession();
+    if (!s) return;
+    if (!s.ui.creative) {
+      uiToast(s, 'Creative only — start a Creative world');
+      return;
+    }
+    s.ui.craftOpen = false;
+    s.ui.bagOpen = false;
+    s.ui.chestOpen = null;
+    s.ui.invPick = null;
+    s.ui.creativeOpen = !s.ui.creativeOpen;
+    if (s.ui.creativeOpen) s.ui.creativeScroll = s.ui.creativeScroll || 0;
+    uiToast(s, s.ui.creativeOpen ? 'Creative blocks open' : 'Creative closed');
+  });
+  bindPlayChrome('btnFly', () => {
+    const s = getSession();
+    if (!s || !s.player) return;
+    if (!s.player.canFly) {
+      uiToast(s, 'Fly is Creative only');
+      return;
+    }
+    s.input.flyToggle = true;
+    uiToast(s, s.player.flying ? 'Toggling fly…' : 'Toggling fly…');
+  });
+  bindPlayChrome('btnTouchAct', () => {
+    const s = getSession();
+    if (!s || !s.ui || !s.ui.touchAct) return;
+    const kind = s.ui.touchAct.kind;
+    if (kind === 'use' || kind === 'eat') s.input.usePressed = true;
+    else if (kind === 'attack') s.input.attackPressed = true;
+  });
+
+  const forceUp = document.getElementById('btnForceUpdate');
+  if (forceUp) {
+    forceUp.addEventListener('click', () => {
+      hardResetAndReload();
     });
   }
   const modeBtn = document.getElementById('btnMode');
@@ -987,16 +1026,31 @@ function wireUI() {
   });
 }
 
-// ---------- PWA auto-update (same pattern as drop-and-fuse / neon-autofire) ----------
+// ---------- PWA auto-update (aggressive — iPads were stuck on 1.9.035) ----------
 function safeReloadForUpdate() {
   if (window.__bbReloaded) return;
-  // Don't yank kids mid-game — reload when they return to menu
-  if (screenName === 'play') {
-    window.__bbPendingReload = true;
-    return;
-  }
   window.__bbReloaded = true;
   location.reload();
+}
+
+/** Unregister SW + wipe caches, then reload. Fixes stuck iPad shells. */
+async function hardResetAndReload() {
+  if (window.__bbHardReset) return;
+  window.__bbHardReset = true;
+  try {
+    if ('serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r => r.unregister()));
+    }
+    if (window.caches && caches.keys) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k)));
+    }
+    try { localStorage.setItem('bb-build', GAME_VERSION); } catch (_) {}
+  } catch (e) {
+    console.warn('[sw] hard reset', e);
+  }
+  location.replace(location.pathname + '?fresh=' + GAME_VERSION + '&t=' + Date.now());
 }
 
 function activateWaitingWorker(reg) {
@@ -1018,7 +1072,13 @@ function registerSW() {
   if (!(location.protocol === 'https:' || location.hostname === 'localhost' ||
         location.hostname === '127.0.0.1')) return;
 
-  navigator.serviceWorker.register('./sw.js?v=' + GAME_VERSION).then(reg => {
+  navigator.serviceWorker.addEventListener('message', (e) => {
+    if (e.data && e.data.type === 'BB_RELOAD') {
+      hardResetAndReload();
+    }
+  });
+
+  navigator.serviceWorker.register('./sw.js?v=' + GAME_VERSION, { updateViaCache: 'none' }).then(reg => {
     activateWaitingWorker(reg);
     if (reg.installing) watchInstallingWorker(reg);
     reg.addEventListener('updatefound', () => watchInstallingWorker(reg));
@@ -1035,8 +1095,8 @@ function registerSW() {
       checkForUpdate();
       checkRemoteVersion();
     });
-    setInterval(checkForUpdate, 60 * 1000);
-    setInterval(checkRemoteVersion, 90 * 1000);
+    setInterval(checkForUpdate, 45 * 1000);
+    setInterval(checkRemoteVersion, 60 * 1000);
 
     navigator.serviceWorker.addEventListener('controllerchange', () => {
       safeReloadForUpdate();
@@ -1044,14 +1104,19 @@ function registerSW() {
   }).catch(err => console.warn('[sw] register failed', err));
 }
 
-/** If deployed GAME_VERSION differs from this bundle, force reload (menu only). */
+/**
+ * If the server has a newer GAME_VERSION than this running shell, hard-reset.
+ * Runs even during play — stuck broken builds must not keep kids offline forever.
+ */
 function checkRemoteVersion() {
-  if (screenName === 'play') return;
   fetch('js/core/constants.js?_=' + Date.now(), { cache: 'no-store' })
     .then(r => (r.ok ? r.text() : ''))
     .then(text => {
       const m = text.match(/GAME_VERSION\s*=\s*['"]([^'"]+)['"]/);
-      if (m && m[1] && m[1] !== GAME_VERSION) safeReloadForUpdate();
+      if (m && m[1] && m[1] !== GAME_VERSION) {
+        console.warn('[blockbound] remote', m[1], 'local', GAME_VERSION, '— hard reset');
+        hardResetAndReload();
+      }
     })
     .catch(() => {});
 }

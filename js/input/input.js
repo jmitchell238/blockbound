@@ -189,7 +189,8 @@ export function bindInput(input, canvas, getCam) {
   }
 
   canvas.addEventListener('pointerdown', e => {
-    canvas.setPointerCapture(e.pointerId);
+    // Only capture for stick-like holds; full capture on iPad can steal chrome button taps
+    try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
     const p = stagePos(e);
     pointers.set(e.pointerId, p);
     if (pointers.size >= 2) {

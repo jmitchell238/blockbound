@@ -1,5 +1,5 @@
 // Blockbound — keep CACHE in sync with GAME_VERSION in js/core/constants.js
-const CACHE = 'blockbound-1.9.038';
+const CACHE = 'blockbound-1.9.039';
 
 const ASSETS = [
   './',
@@ -129,6 +129,13 @@ self.addEventListener('activate', e => {
     caches.keys()
       .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
+      .then(() => self.clients.matchAll({ type: 'window' }))
+      .then(clients => {
+        // Kick every open tab/PWA onto the new shell (fixes stuck 1.9.035 iPads)
+        clients.forEach(c => {
+          try { c.postMessage({ type: 'BB_RELOAD', cache: CACHE }); } catch (_) {}
+        });
+      })
   );
 });
 
