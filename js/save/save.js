@@ -495,7 +495,10 @@ export function persistSession(world, player, inv, timeOfDay, stats, ents, diffi
   };
 
   const ok = writeWorldPayload(activeWorldId, payload);
-  meta.hasData = ok;
+  // Never downgrade on failure: the previous good payload is still on disk, and
+  // clearing hasData would make the library forget the world has any data.
+  if (ok) meta.hasData = true;
+  meta.saveFailed = !ok;
   meta.lastPlayed = Date.now();
   meta.seed = world.seed;
   if (!meta.seedString) meta.seedString = String(world.seed >>> 0);
@@ -536,6 +539,8 @@ export function persistSession(world, player, inv, timeOfDay, stats, ents, diffi
     save.circumnavigations = stats.circumnavigations | 0;
     save.milestones = stats.milestones | 0;
   }
+  // Callers need to know: a failed write is otherwise invisible.
+  return ok;
 }
 
 /** Short line for world cards — never includes seed (seed lives in Edit). */

@@ -638,6 +638,23 @@ ok(gcSrc.includes("lastPtr !== 'mouse'"), 'showTouch follows the device last use
   ok(/s\.paused = false/.test(pd), 'a tap actually resumes, as the overlay promises');
 }
 
+// —— Save failures must be visible (v1.9.051) ——
+{
+  const saveSrc = fs.readFileSync(path.join(root, 'js/save/save.js'), 'utf8');
+  const persist = saveSrc.slice(saveSrc.indexOf('export function persistSession'),
+                                saveSrc.indexOf('/** Short line for world cards'));
+  ok(/return ok;/.test(persist), 'persistSession reports success to its callers');
+  ok(!/meta\.hasData = ok;/.test(persist),
+    'a failed save no longer clears hasData on a world that has a good payload');
+  ok(/if \(ok\) meta\.hasData = true;/.test(persist),
+    'hasData is only ever set on a successful write');
+
+  const autoSrc = fs.readFileSync(path.join(root, 'js/systems/autosave.js'), 'utf8');
+  ok(/ok === false/.test(autoSrc), 'autosave checks the save result');
+  ok(/toast\(/.test(autoSrc) && /storage is full/.test(autoSrc),
+    'a failed autosave tells the player');
+}
+
 if (failed) {
   console.error(`\n${failed} failed`);
   process.exit(1);
