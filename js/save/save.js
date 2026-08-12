@@ -146,13 +146,33 @@ function writeWorldPayload(id, payload) {
   }
 }
 
+/**
+ * Read a world payload, distinguishing "not saved yet" from "saved but
+ * unreadable". They used to collapse into null, so a truncated payload — what
+ * a quota failure or storage eviction leaves behind — loaded as an empty world
+ * and autosave overwrote the damaged bytes 12 seconds later. The child's build
+ * was then gone for good, with nothing said at any point.
+ *
+ * @returns {{ payload: object|null, corrupt: boolean }}
+ */
 function readWorldPayload(id) {
+  const key = worldDataKey(id);
+  let raw = null;
   try {
-    const raw = localStorage.getItem(worldDataKey(id));
-    if (!raw) return null;
-    return JSON.parse(raw);
+    raw = localStorage.getItem(key);
   } catch (_) {
-    return null;
+    return { payload: null, corrupt: false };
+  }
+  if (!raw) return { payload: null, corrupt: false };
+  try {
+    return { payload: JSON.parse(raw), corrupt: false };
+  } catch (_) {
+    // Copy the bytes aside BEFORE the session can autosave over them. This is
+    // the only chance to keep whatever survived.
+    try {
+      if (!localStorage.getItem(key + '.corrupt')) localStorage.setItem(key + '.corrupt', raw);
+    } catch (__) {}
+    return { payload: null, corrupt: true };
   }
 }
 
@@ -318,7 +338,8 @@ export function loadWorldData(id) {
   if (!meta) return false;
   activeWorldId = id;
   library.selectedWorldId = id;
-  const payload = readWorldPayload(id) || emptyPayload();
+  const read = readWorldPayload(id);
+  const payload = read.payload || emptyPayload();
   save = buildSaveFacade();
   save._payload = {
     world: payload.world || null,
@@ -340,6 +361,10 @@ export function loadWorldData(id) {
   save.worldSize = meta.worldSize;
   save.worldName = meta.name;
   save.worldId = id;
+  // Surfaced by the session so the player hears about it instead of quietly
+  // being handed a brand new world where their build used to be.
+  save.loadError = read.corrupt;
+  if (read.corrupt) meta.loadFailed = true;
   save.blocksMined = meta.blocksMined | 0;
   save.distanceWalked = meta.distanceWalked || 0;
   save.circumnavigations = meta.circumnavigations | 0;

@@ -655,6 +655,27 @@ ok(gcSrc.includes("lastPtr !== 'mouse'"), 'showTouch follows the device last use
     'a failed autosave tells the player');
 }
 
+// —— Corrupt payloads must not be silently replaced (v1.9.052) ——
+{
+  const saveSrc2 = fs.readFileSync(path.join(root, 'js/save/save.js'), 'utf8');
+  const reader = saveSrc2.slice(saveSrc2.indexOf('function readWorldPayload'),
+                                saveSrc2.indexOf('function removeWorldPayload'));
+  ok(/corrupt: true/.test(reader), 'reader distinguishes unreadable from absent');
+  ok(/\.corrupt', raw/.test(reader), 'damaged bytes are copied aside before anything overwrites them');
+  ok(/if \(!localStorage\.getItem\(key \+ '\.corrupt'\)\)/.test(reader),
+    'an existing backup is never clobbered by a second failed load');
+
+  const loader = saveSrc2.slice(saveSrc2.indexOf('export function loadWorldData'),
+                                saveSrc2.indexOf('export function createWorldEntry'));
+  ok(/save\.loadError = read\.corrupt/.test(loader), 'load reports a corrupt payload');
+  ok(!/readWorldPayload\(id\) \|\| emptyPayload\(\)/.test(loader),
+    'a corrupt payload no longer collapses into an empty world');
+
+  const gcSrc6 = fs.readFileSync(path.join(root, 'js/session/GameController.js'), 'utf8');
+  ok(/save\.loadError/.test(gcSrc6) && /could not be read/.test(gcSrc6),
+    'the player is told when their world could not be read');
+}
+
 if (failed) {
   console.error(`\n${failed} failed`);
   process.exit(1);

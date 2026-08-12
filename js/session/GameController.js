@@ -290,7 +290,11 @@ export async function enterPlay(continueSave, extra) {
         flushLight(session.world);
       }
     } catch (_) {}
-    if (mode === 'kids') {
+    if (save && save.loadError) {
+      // Outranks the welcome line: the player is standing in a fresh world
+      // where their build used to be, and needs to know before they build more.
+      toast(session.ui, '⚠ Saved world could not be read — a copy was kept');
+    } else if (mode === 'kids') {
       toast(session.ui, 'Kids · tap walk · dig · build · ☰ is always bottom-left');
     } else if (session.ui.creative) {
       toast(session.ui, 'Creative · ✈ flying · dig / place by tapping');
