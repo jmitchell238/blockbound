@@ -1,5 +1,5 @@
 import {
-  DAY_LEN, SURFACE_Y, WORLD_H, W, H,
+  DAY_LEN, SURFACE_Y, WORLD_H, W, H, SKY_LIMIT,
 } from '../core/constants.js';
 import { WORLD_W, applyWorldSize, worldSizePreset } from '../core/worldSize.js';
 import { getDifficulty, applyStarterKit, creativeGiveCount } from '../core/difficulty.js';
@@ -172,8 +172,82 @@ export async function createSession(opts) {
   return _finishSession(world, player, inv, timeOfDay, seed, ents, opts.input, difficultyId);
 }
 
+/**
+ * Fix corrupt / stuck spawn so caves never open to a blank void.
+ * - NaN coords
+ * - Embedded in solid rock
+ * - Below magma / above sky
+ */
+export function sanitizePlayerInWorld(world, player) {
+  if (!player || !world) return;
+  if (!Number.isFinite(player.x)) player.x = WORLD_W / 2;
+  if (!Number.isFinite(player.y)) player.y = SURFACE_Y;
+  player.x = wrapX(player.x);
+  player.y = Math.max(SKY_LIMIT + (player.h || 1.5), Math.min(WORLD_H - 2.5, player.y));
+  player.vx = Number.isFinite(player.vx) ? player.vx : 0;
+  player.vy = Number.isFinite(player.vy) ? player.vy : 0;
+
+  // Push out of solid (search upward for air feet + head room)
+  const px = Math.floor(player.x);
+  let y = Math.floor(player.y);
+  let guard = 0;
+  while (guard++ < 48) {
+    const feetSolid = isSolid(world, px, y);
+    const bodySolid = isSolid(world, px, y - 1);
+    const headSolid = isSolid(world, px, Math.floor(player.y - (player.h || 1.5) + 0.05));
+    if (!feetSolid && !bodySolid && !headSolid) break;
+    y -= 1;
+    player.y = y + 0.02;
+    if (y < SKY_LIMIT + 2) {
+      const sp = findSpawn(world, player);
+      player.x = sp.x + 0.5;
+      player.y = sp.y;
+      break;
+    }
+  }
+  // Ensure standing on something if floating in void columns
+  if (!isSolid(world, px, Math.floor(player.y) + 1)
+      && !isSolid(world, px, Math.floor(player.y))) {
+    // ok in open cave air
+  }
+}
+
+export function snapCameraToPlayer(s) {
+  if (!s || !s.player || !s.cam) return;
+  const p = s.player;
+  s.cam.x = Number.isFinite(p.x) ? p.x : 0;
+  s.cam.y = Number.isFinite(p.y) ? p.y - 1.2 : SURFACE_Y;
+  s.cam.y = Math.max(8, Math.min(WORLD_H - 8, s.cam.y));
+  s.cam.zoom = (s.ui && s.ui.zoom) || 1;
+  if (s.input) {
+    s.input.camUserPanned = false;
+    s.input._panning = false;
+    s.input.moveTarget = null;
+    if (s.input.kidsQueue) s.input.kidsQueue.length = 0;
+  }
+}
+
 export async function enterPlay(continueSave, extra) {
   extra = extra || {};
+  // Clear sticky touch state from a previous session (shared appInput)
+  if (extra.input) {
+    const inp = extra.input;
+    inp.pointerDown = false;
+    inp.holdMining = false;
+    inp._panning = false;
+    inp.camUserPanned = false;
+    inp.moveTarget = null;
+    inp.kidsQueue = [];
+    inp.mineTx = null;
+    inp.mineTy = null;
+    inp.tapPlace = null;
+    inp.stickX = 0;
+    inp.stickY = 0;
+    inp._touchJump = false;
+    inp._touchFlyUp = false;
+    inp._touchFlyDown = false;
+    inp._kidsMining = false;
+  }
   session = await createSession({
     continueSave: !!continueSave,
     worldSizeId: extra.worldSizeId,
@@ -184,9 +258,20 @@ export async function enterPlay(continueSave, extra) {
   });
   // Apply saved control scheme immediately (pointer events read input.controlMode)
   if (session) {
-    const mode = (save && save.controlMode) === 'kids' ? 'kids' : 'classic';
+    const mode = (save && save.controlMode) === 'classic' ? 'classic' : 'kids';
     session.ui.controlMode = mode;
     session.input.controlMode = mode;
+    sanitizePlayerInWorld(session.world, session.player);
+    snapCameraToPlayer(session);
+    // Local light around spawn so deep caves aren't pure black on load
+    try {
+      if (session.world) {
+        session.world.dirtyLight = true;
+        if (!session.world.lightDirtyCols) session.world.lightDirtyCols = new Set();
+        session.world.lightDirtyCols.add(wrapX(Math.floor(session.player.x)));
+        flushLight(session.world);
+      }
+    } catch (_) {}
     if (mode === 'kids') {
       toast(session.ui, 'Kids · tap walk · dig · build · big button uses things');
     }

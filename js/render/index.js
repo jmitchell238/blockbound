@@ -122,10 +122,19 @@ export function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particl
   const now = performance.now();
 
   // Paint dark cave air only on sheltered open cells (covers sky there)
-  drawSmoothCaveBackdrop(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY, emitters, now);
+  try {
+    drawSmoothCaveBackdrop(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY, emitters, now, player);
+  } catch (err) {
+    // Never let cave backdrop kill the whole frame (was blanking iPads)
+    console.warn('[blockbound] cave backdrop', err);
+  }
 
   // Terrain continuous surface
-  drawSeamlessTerrain(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY, sky, emitters, now);
+  try {
+    drawSeamlessTerrain(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY, sky, emitters, now, player);
+  } catch (err) {
+    console.warn('[blockbound] terrain', err);
+  }
 
   // Non-terrain solids + deferred non-solids
   const deferred = [];
@@ -373,7 +382,7 @@ let _tLightFieldCtx = null;
  * - Smooth light multiply over the whole terrain layer
  * - NO blur — stays sharp and readable
  */
-function drawSeamlessTerrain(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY, sky, emitters, now) {
+function drawSeamlessTerrain(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY, sky, emitters, now, player) {
   if (!_terrainCvs) {
     _terrainCvs = document.createElement('canvas');
     _terrainCtx = _terrainCvs.getContext('2d');
@@ -455,21 +464,22 @@ function drawSeamlessTerrain(ctx, world, cam, ts, startTX, startTY, tilesX, tile
       }
       const wx = wrapX(Math.floor(fx));
       let lvl = sampleLight(world, fx, fy);
+      lvl = Math.max(lvl, playerLightBoost(fx, fy, player));
       const fl = emitterFlickerAt(fx, fy, emitters, now);
       const dyn = dynamicEmitterBoost(fx, fy, emitters, now);
       if (dyn > 0.05) lvl = Math.min(15, lvl + dyn * fl);
       else if (lvl > 1.5) lvl = Math.min(15, lvl * (0.94 + 0.08 * fl));
 
       const sheltered = isShelteredAir(world, wx, Math.floor(fy));
-      let bri = lightToBrightness(lvl, { ambient: sheltered ? 0.02 : 0.05 });
+      let bri = lightToBrightness(lvl, { ambient: sheltered ? 0.06 : 0.05 });
       const nearSurface = !sheltered && fy <= ((world.surface && world.surface[wx]) || SURFACE_Y) + 1;
       if (nearSurface && lvl >= 8 && sky) {
         bri = Math.max(bri, (0.25 + 0.75 * sky.day) * lightToBrightness(lvl, { ambient: 0.18 }));
       }
-      // Sheltered rock stays dim; open surface can be brighter
-      const lo = sheltered ? 0.1 : 0.14;
-      const hi = sheltered ? 0.58 : 0.9;
-      const v = Math.floor(Math.max(18, Math.min(220, (lo + bri * (hi - lo)) * 255)));
+      // Sheltered rock stays dim but never pure black (iPad looked "blank")
+      const lo = sheltered ? 0.16 : 0.14;
+      const hi = sheltered ? 0.62 : 0.9;
+      const v = Math.floor(Math.max(sheltered ? 28 : 18, Math.min(220, (lo + bri * (hi - lo)) * 255)));
       data[p] = v;
       data[p + 1] = Math.floor(v * (sheltered ? 0.9 : 0.96));
       data[p + 2] = Math.floor(v * (sheltered ? 0.8 : 0.9));
@@ -855,17 +865,37 @@ function getWallTexPixels(wallId) {
     _wallTexCache.set(wallId, null);
     return null;
   }
-  // Sample into a small canvas once
-  const S = Math.min(64, tex.width || 64);
-  const c = document.createElement('canvas');
-  c.width = S;
-  c.height = S;
-  const cctx = c.getContext('2d', { willReadFrequently: true });
-  cctx.imageSmoothingEnabled = false;
-  cctx.drawImage(tex, 0, 0, S, S);
-  const pix = { w: S, h: S, data: cctx.getImageData(0, 0, S, S).data };
-  _wallTexCache.set(wallId, pix);
-  return pix;
+  // Sample into a small canvas once — getImageData can throw on some iOS/tainted cases
+  try {
+    const S = Math.min(64, tex.width || 64);
+    const c = document.createElement('canvas');
+    c.width = S;
+    c.height = S;
+    const cctx = c.getContext('2d', { willReadFrequently: true });
+    if (!cctx) {
+      _wallTexCache.set(wallId, null);
+      return null;
+    }
+    cctx.imageSmoothingEnabled = false;
+    cctx.drawImage(tex, 0, 0, S, S);
+    const pix = { w: S, h: S, data: cctx.getImageData(0, 0, S, S).data };
+    _wallTexCache.set(wallId, pix);
+    return pix;
+  } catch (_) {
+    _wallTexCache.set(wallId, null);
+    return null;
+  }
+}
+
+/** Soft handheld glow so deep caves never go pure black around the player. */
+function playerLightBoost(fx, fy, player) {
+  if (!player || !Number.isFinite(player.x) || !Number.isFinite(player.y)) return 0;
+  const dx = Math.abs(wrapDeltaX(player.x, fx));
+  const dy = Math.abs((player.y - player.h * 0.45) - fy);
+  const d = Math.hypot(dx, dy);
+  if (d >= 7.5) return 0;
+  // ~level 10 at feet, falloff to 0
+  return 10 * (1 - d / 7.5) * (1 - d / 7.5);
 }
 
 /**
@@ -873,8 +903,8 @@ function getWallTexPixels(wallId) {
  * Walls use the material that was there (dirt near surface, stone deeper,
  * or neighbor majority) — textured when soft tiles are available, never sky-white.
  */
-function drawSmoothCaveBackdrop(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY, emitters, now) {
-  const RES = 4;
+function drawSmoothCaveBackdrop(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY, emitters, now, player) {
+  const RES = 3; // slightly cheaper on iPad; still smooth
   const pad = 2;
   const tw = tilesX + 2 + pad * 2;
   const th = tilesY + 2 + pad * 2;
@@ -887,6 +917,7 @@ function drawSmoothCaveBackdrop(ctx, world, cam, ts, startTX, startTY, tilesX, t
     _caveLightCanvas = document.createElement('canvas');
     _caveLightCtx = _caveLightCanvas.getContext('2d', { willReadFrequently: true });
   }
+  if (!_caveLightCtx) return;
   if (_caveLightCanvas.width !== bw || _caveLightCanvas.height !== bh) {
     _caveLightCanvas.width = bw;
     _caveLightCanvas.height = bh;
@@ -924,9 +955,12 @@ function drawSmoothCaveBackdrop(ctx, world, cam, ts, startTX, startTY, tilesX, t
       if (!isShelteredAir(world, wx, tileY)) continue; // open sky → leave transparent
 
       let lvl = sampleLight(world, fx, fy);
+      lvl = Math.max(lvl, playerLightBoost(fx, fy, player));
       const dyn = dynamicEmitterBoost(fx, fy, emitters, now);
       const fl = emitterFlickerAt(fx, fy, emitters, now);
       if (dyn > 0.02) lvl = Math.min(15, lvl + dyn * (0.85 + 0.15 * fl));
+      // Never pure-black caves — kids think the game crashed
+      lvl = Math.max(lvl, 1.8);
 
       const wallId = wallIdAt(wx, tileY);
       const noise = wallNoise2D(fx * 3.1, fy * 3.1) * 2 - 1;
@@ -940,15 +974,17 @@ function drawSmoothCaveBackdrop(ctx, world, cam, ts, startTX, startTY, tilesX, t
         const ti = (v * pix.w + u) * 4;
         const t = Math.max(0, Math.min(15, lvl)) / 15;
         const smooth = t * t * (3 - 2 * t);
-        // Walls stay dimmer than foreground blocks even at full light
-        const bri = (0.16 + 0.38 * Math.pow(smooth, 1.1)) * (0.95 + 0.05 * fl);
+        // Walls readable even unlit (was ~0.16 floor — too dark on iPad)
+        const bri = (0.28 + 0.36 * Math.pow(smooth, 1.05)) * (0.95 + 0.05 * fl);
         const grain = 1 + noise * 0.08;
-        r = Math.min(115, pix.data[ti] * bri * grain);
-        g = Math.min(110, pix.data[ti + 1] * bri * grain);
-        b = Math.min(105, pix.data[ti + 2] * bri * grain);
+        r = Math.min(130, Math.max(28, pix.data[ti] * bri * grain));
+        g = Math.min(125, Math.max(26, pix.data[ti + 1] * bri * grain));
+        b = Math.min(120, Math.max(24, pix.data[ti + 2] * bri * grain));
       } else {
-        const col = caveWallColor(wallId, lvl, 0.95 + 0.05 * fl, noise);
-        r = col.r; g = col.g; b = col.b;
+        const col = caveWallColor(wallId, Math.max(lvl, 3), 0.95 + 0.05 * fl, noise);
+        r = Math.max(28, col.r);
+        g = Math.max(26, col.g);
+        b = Math.max(24, col.b);
       }
 
       data[p] = r | 0;
@@ -961,6 +997,7 @@ function drawSmoothCaveBackdrop(ctx, world, cam, ts, startTX, startTY, tilesX, t
   lctx.putImageData(img, 0, 0);
   const sx0 = (otx - cam.x) * ts + W / 2;
   const sy0 = (oty - cam.y) * ts + H / 2;
+  if (!Number.isFinite(sx0) || !Number.isFinite(sy0) || !Number.isFinite(ts)) return;
   ctx.save();
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';

@@ -787,6 +787,19 @@ function frame(now) {
         else drawMenuBackdrop(ctx, now);
       } catch (err) {
         console.error('[blockbound] render error', err);
+        // Visible fallback so cave bugs never look like a dead app
+        try {
+          ctx.fillStyle = '#1a2830';
+          ctx.fillRect(0, 0, W, H);
+          ctx.fillStyle = '#7dffa0';
+          ctx.font = '700 16px system-ui';
+          ctx.textAlign = 'center';
+          ctx.fillText('Drawing glitch — open ☰ menu & resume', W / 2, H / 2);
+          if (s && s.ui) {
+            s.ui.toast = 'Render glitch — try ☰ leave & re-enter';
+            s.ui.toastT = 3;
+          }
+        } catch (_) {}
       }
     }
   } else if (ctx) {

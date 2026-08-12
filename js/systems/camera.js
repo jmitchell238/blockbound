@@ -9,9 +9,19 @@ import { wrapDeltaX } from '../world/index.js';
  */
 export function updateCamera(s, dt) {
   const { player, cam, ui } = s;
-  cam.zoom = ui.zoom || 1;
+  if (!player || !cam) return;
+  cam.zoom = (ui && ui.zoom) || cam.zoom || 1;
 
-  if (ui.controlMode === 'kids') {
+  // Recover from bad state (NaN cam → blank world)
+  if (!Number.isFinite(cam.x) || !Number.isFinite(cam.y)
+      || !Number.isFinite(player.x) || !Number.isFinite(player.y)) {
+    if (Number.isFinite(player.x)) cam.x = player.x;
+    if (Number.isFinite(player.y)) cam.y = player.y - 1.2;
+    if (!Number.isFinite(cam.x)) cam.x = 0;
+    if (!Number.isFinite(cam.y)) cam.y = 40;
+  }
+
+  if (ui && ui.controlMode === 'kids') {
     updateKidsCamera(s, dt);
     return;
   }
