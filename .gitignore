@@ -3,3 +3,7 @@
 .idea/
 .vscode/
 node_modules/
+
+# Intermediate art working files (masters, import strips, walk-cycle experiments)
+# Nothing in js/ references these; only the exported sprites under assets/ ship.
+assets/_gen/

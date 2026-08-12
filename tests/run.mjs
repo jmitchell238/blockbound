@@ -390,6 +390,47 @@ function hexToRgbTest(hex) {
   return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
 }
 
+// —— Kids-nav / creative-fly regressions (v1.9.043–044) ——
+// Tapping to move must never latch the held-pad fly flags. Those are cleared
+// only by the pointer-release handler, so a tap that sets them leaves the
+// character ascending forever.
+const navMod = await import(pathToFileURL(path.join(root, 'js/systems/nav.js')).href);
+{
+  const input = { keys: {}, kidsQueue: [], stickX: 0, stickY: 0 };
+  const player = { x: 10, y: 40, h: 1.5, facing: 1, flying: true, canFly: true, vy: 0 };
+  const stubWorld = { w: 256, surface: [] };
+  navMod.setMoveTarget(input, 14, 32); // up and to the right
+  navMod.applyKidsNav(player, stubWorld, input, 0.016);
+  ok(!input._touchFlyUp && !input._touchFlyDown, 'nav does not latch sticky fly pads');
+  ok(input.up === true, 'nav steers up via per-frame intent');
+  ok(input.right === true, 'nav steers horizontally toward the target');
+
+  // Once at the target height, vertical steering must release.
+  const level = { keys: {}, kidsQueue: [], stickX: 0, stickY: 0 };
+  const atY = { x: 10, y: 40, h: 1.5, facing: 1, flying: true, canFly: true, vy: 0 };
+  navMod.setMoveTarget(level, 14, 39); // same height, still to the right
+  navMod.applyKidsNav(atY, stubWorld, level, 0.016);
+  ok(!level.up, 'nav stops ascending once level with the target');
+}
+
+const navSrc = fs.readFileSync(path.join(root, 'js/systems/nav.js'), 'utf8');
+ok(!/_touchFly(Up|Down)\s*=\s*true/.test(navSrc), 'nav never sets sticky fly pad flags');
+
+const gcSrc = fs.readFileSync(path.join(root, 'js/session/GameController.js'), 'utf8');
+ok(!/player\.flying\s*=\s*true/.test(gcSrc), 'creative never force-enables flight');
+
+// —— Blank-screen guards (v1.9.043) ——
+const mainSrc = fs.readFileSync(path.join(root, 'js/main.js'), 'utf8');
+ok(/finally\s*\{\s*requestAnimationFrame/.test(mainSrc), 'rAF loop restarts in a finally');
+ok(mainSrc.includes("addEventListener('error'") && mainSrc.includes('unhandledrejection'),
+  'global error reporting present');
+
+// —— Update-loop guards (v1.9.043) ——
+ok(swLegacy.includes("indexOf('update.html')"), 'legacy bridge skips clients already updating');
+ok(swLegacy.includes('registration.unregister'), 'legacy bridge retires itself after handoff');
+const updSrc = fs.readFileSync(path.join(root, 'update.html'), 'utf8');
+ok(updSrc.includes('bb-unstuck-once'), 'update.html has a re-entry guard');
+
 if (failed) {
   console.error(`\n${failed} failed`);
   process.exit(1);
