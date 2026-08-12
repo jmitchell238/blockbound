@@ -306,11 +306,22 @@ export function gameUpdate(dt) {
   }
   if (s.paused) return;
 
-  // Zoom
-  if (input.zoomDelta) {
-    ui.zoom = Math.max(0.7, Math.min(1.6, (ui.zoom || 1) + input.zoomDelta * 0.1));
+  // Zoom — wheel (delta) or iPad pinch (absolute)
+  if (input.zoomAbsolute != null && Number.isFinite(input.zoomAbsolute)) {
+    ui.zoom = Math.max(0.55, Math.min(2.0, input.zoomAbsolute));
+    cam.zoom = ui.zoom;
+    input.zoomAbsolute = null;
+  } else if (input.zoomDelta) {
+    ui.zoom = Math.max(0.55, Math.min(2.0, (ui.zoom || 1) + input.zoomDelta * 0.1));
     cam.zoom = ui.zoom;
     input.zoomDelta = 0;
+  }
+  // Don't dig / place while pinching
+  if (input.pinching) {
+    input.mineTx = null;
+    input.mineTy = null;
+    input.tapPlace = null;
+    input.holdMining = false;
   }
 
   const diff = getDifficulty(s.difficultyId);

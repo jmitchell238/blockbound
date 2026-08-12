@@ -58,6 +58,10 @@ export function makeInput() {
     _touchFlyUp: false,
     _touchFlyDown: false,
     zoomDelta: 0,
+    /** Absolute zoom from pinch (applied once per frame, then cleared) */
+    zoomAbsolute: null,
+    /** True while two-finger pinch is active (suppress mine/place/pan) */
+    pinching: false,
     hotbarTap: -1,
     keys: Object.create(null),
     /** 'classic' | 'kids' — set each frame from session */
@@ -76,6 +80,10 @@ export function makeInput() {
     _navLastY: null,
   };
 }
+
+/** Zoom limits shared by wheel + pinch (iPad needs a wider range). */
+export const ZOOM_MIN = 0.55;
+export const ZOOM_MAX = 2.0;
 
 export function bindInput(input, canvas, getCam) {
   const onKey = (e, down) => {
@@ -108,7 +116,13 @@ export function bindInput(input, canvas, getCam) {
     e.preventDefault();
   }, { passive: false });
 
+  // Block browser page-zoom gestures on the game surface (we handle pinch ourselves)
+  canvas.addEventListener('gesturestart', e => e.preventDefault());
+  canvas.addEventListener('gesturechange', e => e.preventDefault());
+
   const pointers = new Map();
+  let pinchStartDist = 0;
+  let pinchStartZoom = 1;
 
   function stagePos(e) {
     const rect = canvas.getBoundingClientRect();
@@ -119,25 +133,96 @@ export function bindInput(input, canvas, getCam) {
     };
   }
 
+  function twoFingerDist() {
+    if (pointers.size < 2) return 0;
+    const pts = [];
+    pointers.forEach(p => pts.push(p));
+    return Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+  }
+
+  function beginPinch() {
+    input.pinching = true;
+    pinchStartDist = twoFingerDist();
+    const cam = getCam && getCam();
+    pinchStartZoom = (cam && cam.zoom) || 1;
+    // Cancel any single-finger world / stick / dig so pinch isn't a false dig
+    input.pointerDown = false;
+    input.holdMining = false;
+    input._panning = false;
+    input.mineTx = null;
+    input.mineTy = null;
+    input.placeTx = null;
+    input.placeTy = null;
+    input.tapPlace = null;
+    input.pressStart = 0;
+    input._worldId = null;
+    input._stickId = null;
+    input.stickX = 0;
+    input.stickY = 0;
+    input._touchJump = false;
+    input._touchFlyUp = false;
+    input._touchFlyDown = false;
+    input.jump = false;
+  }
+
+  function endPinchIfNeeded() {
+    if (pointers.size < 2) {
+      input.pinching = false;
+      pinchStartDist = 0;
+    }
+  }
+
+  function applyPinchZoom() {
+    if (pointers.size < 2 || pinchStartDist < 12) return;
+    const d = twoFingerDist();
+    if (d < 12) return;
+    const scale = d / pinchStartDist;
+    // Continuous absolute zoom from the pinch start (not frame deltas)
+    const z = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, pinchStartZoom * scale));
+    input.zoomAbsolute = z;
+    const cam = getCam && getCam();
+    if (cam) cam.zoom = z;
+  }
+
   canvas.addEventListener('pointerdown', e => {
     canvas.setPointerCapture(e.pointerId);
     const p = stagePos(e);
     pointers.set(e.pointerId, p);
+    if (pointers.size >= 2) {
+      beginPinch();
+      e.preventDefault();
+      return;
+    }
     handlePointer(input, p, 'down', getCam);
   });
   canvas.addEventListener('pointermove', e => {
     if (!pointers.has(e.pointerId)) return;
     const p = stagePos(e);
     pointers.set(e.pointerId, p);
+    if (pointers.size >= 2) {
+      if (!input.pinching) beginPinch();
+      applyPinchZoom();
+      e.preventDefault();
+      return;
+    }
+    if (input.pinching) return; // leftover move after pinch ended this frame
     handlePointer(input, p, 'move', getCam);
   });
   canvas.addEventListener('pointerup', e => {
     const p = stagePos(e);
-    handlePointer(input, p, 'up', getCam);
+    const wasPinch = input.pinching || pointers.size >= 2;
     pointers.delete(e.pointerId);
+    endPinchIfNeeded();
+    if (wasPinch) {
+      // Don't fire tap-place when ending a pinch
+      e.preventDefault();
+      return;
+    }
+    handlePointer(input, p, 'up', getCam);
   });
   canvas.addEventListener('pointercancel', e => {
     pointers.delete(e.pointerId);
+    endPinchIfNeeded();
     input.stickX = 0;
     input.stickY = 0;
     input.jump = false;
@@ -149,6 +234,7 @@ export function bindInput(input, canvas, getCam) {
     input.mineTx = null;
     input.mineTy = null;
     input.pressStart = 0;
+    input.pinching = false;
   });
 
   canvas.addEventListener('contextmenu', e => e.preventDefault());
@@ -327,7 +413,7 @@ export function mapPointerToTile(input, p, cam) {
  * Call each frame: promote long press to mining.
  */
 export function updateHoldMine(input) {
-  if (!input.pointerDown || input.holdMining || input._panning) return;
+  if (!input.pointerDown || input.holdMining || input._panning || input.pinching) return;
   if (!input.pressStart) return;
   if (performance.now() - input.pressStart >= holdMineThreshold(input)) {
     input.holdMining = true;
