@@ -14,7 +14,7 @@ import { loadTextures } from './textures/textures.js';
 import {
   save, loadSave, writeSave, listWorlds, selectWorld, loadWorldData,
   createWorldEntry, renameWorld, deleteWorld, getWorldMeta, worldSummaryLine,
-  formatSeedDisplay, persistSession, setControlMode, getControlMode,
+  formatSeedDisplay, persistSession, setControlMode, getControlMode, preferKidsOnTouch,
 } from './save/save.js';
 import { audioSetMuted, ensureAudio } from './audio/audio.js';
 import {
@@ -93,6 +93,11 @@ function setScreen(name) {
     el.classList.toggle('hidden', el.dataset.screen !== name);
   });
   document.querySelectorAll('.play-chrome').forEach(el => {
+    // Context action is shown only when there is something to do
+    if (el.id === 'btnTouchAct') {
+      el.classList.add('hidden');
+      return;
+    }
     el.classList.toggle('hidden', !isPlay);
   });
   // creative chrome only when playing creative
@@ -103,6 +108,23 @@ function setScreen(name) {
     window.__bbPendingReload = false;
     safeReloadForUpdate();
   }
+}
+
+/** Big iPad button: Use / Eat / Hit / Boat — never requires a keyboard. */
+function syncTouchActButton(session) {
+  const btn = document.getElementById('btnTouchAct');
+  if (!btn) return;
+  if (screenName !== 'play' || !session || !session.ui || !session.ui.touchAct) {
+    btn.classList.add('hidden');
+    return;
+  }
+  const act = session.ui.touchAct;
+  btn.classList.remove('hidden', 'act-use', 'act-eat', 'act-hit', 'act-boat');
+  btn.textContent = act.label || 'Use';
+  if (act.kind === 'eat') btn.classList.add('act-eat');
+  else if (act.kind === 'attack') btn.classList.add('act-hit');
+  else if (act.label === 'Sail' || act.label === 'Leave') btn.classList.add('act-boat');
+  else btn.classList.add('act-use');
 }
 
 function pickSplash() {
@@ -757,6 +779,7 @@ function frame(now) {
         s.ui.toastT = 2;
       }
     }
+    syncTouchActButton(s);
     if (ctx) {
       try {
         ctx.clearRect(0, 0, W, H);
@@ -768,6 +791,7 @@ function frame(now) {
     }
   } else if (ctx) {
     drawMenuBackdrop(ctx, now);
+    syncTouchActButton(null);
   }
 
   requestAnimationFrame(frame);
@@ -914,6 +938,22 @@ function wireUI() {
       s.input.flyToggle = true; // applied next frame in updatePlayer
     });
   }
+  const touchAct = document.getElementById('btnTouchAct');
+  if (touchAct) {
+    touchAct.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const s = getSession();
+      if (!s || !s.ui || !s.ui.touchAct) return;
+      const kind = s.ui.touchAct.kind;
+      if (kind === 'use' || kind === 'eat') {
+        // handleUse covers doors, chests, beds, boat, eat
+        s.input.usePressed = true;
+      } else if (kind === 'attack') {
+        s.input.attackPressed = true;
+      }
+    });
+  }
   const modeBtn = document.getElementById('btnMode');
   if (modeBtn) {
     modeBtn.classList.add('hidden');
@@ -1004,11 +1044,13 @@ function checkRemoteVersion() {
 }
 
 loadSave();
+preferKidsOnTouch(); // iPad / phones → Kids controls (unless parent chose Classic)
 selectedListId = save.worldId || null;
 resizeCanvas();
 wireUI();
 pickSplash();
 updateMuteButtons();
+updateControlModeUi();
 setScreen('title');
 registerSW();
 checkRemoteVersion();

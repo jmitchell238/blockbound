@@ -36,8 +36,8 @@
 
         <div id="howPanel" class="how hidden">
           <ol>
-            <li><b>Kids mode</b> (Options): like The Blockheads — <b>tap where to walk</b>, <b>tap blocks to queue digs</b>, select a block then <b>tap to queue builds</b>. Character walks over and does the jobs. Tap again to cancel. Drag to look around.</li>
-            <li><b>Classic</b>: stick + JUMP. <b>Tap</b> to place, <b>hold</b> to dig. Tap doors/chests/beds to use. Tap enemies to fight.</li>
+            <li><b>iPad / Kids mode</b> (on by default for touch): <b>tap where to walk</b>, <b>tap blocks to dig</b>, pick a block then <b>tap to build</b>. Big colored button appears to <b>Open / Eat / Hit</b> — no keyboard ever needed. Drag to look around.</li>
+            <li><b>Classic</b> (Options): stick + JUMP. Hold to dig, tap to place. Same big action button on tablets.</li>
             <li>Open <b>Craft</b> (⚒ / C). Pick a recipe, then press <b>CRAFT</b>. Place a <b>Workbench</b> for tools. <b>Furnace</b> smelts ores.</li>
             <li>In caves, place <b>ladders</b> on any open air (the back wall counts). Stack ladders to climb.</li>
             <li>Worlds <b>loop left/right</b>. Dig to <b>magma</b>; the <b>sky</b> is the ceiling.</li>
@@ -154,9 +154,11 @@
     <button id="btnBag" class="icon-btn play-chrome bag-btn hidden" type="button" title="Inventory">🎒</button>
     <button id="btnCreative" class="icon-btn play-chrome creative-btn hidden" type="button" title="Creative blocks">✦</button>
     <button id="btnFly" class="icon-btn play-chrome fly-btn hidden" type="button" title="Toggle fly">✈ Fly</button>
+    <!-- Big context action for iPad (no keyboard): Use / Eat / Hit / Boat -->
+    <button id="btnTouchAct" class="touch-act-btn play-chrome hidden" type="button" title="Action">Use</button>
   </div>
 
   <!-- ?v= busts sticky SW/browser caches when version bumps -->
-  <script type="module" src="js/main.js?v=1.9.034"></script>
+  <script type="module" src="js/main.js?v=1.9.035"></script>
 </body>
 </html>

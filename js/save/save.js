@@ -18,8 +18,10 @@ function defaultLibrary() {
   return {
     muted: false,
     reducedMotion: false,
-    /** 'classic' stick | 'kids' tap-to-walk + free camera */
-    controlMode: 'classic',
+    /** 'classic' stick | 'kids' tap-to-walk + free camera — kids default on touch */
+    controlMode: 'kids',
+    /** User picked a mode in Options (don't auto-override) */
+    controlModeUserSet: false,
     selectedWorldId: null,
     defaults: {
       difficultyId: 'normal',
@@ -65,7 +67,7 @@ export let activeWorldId = null;
 export let save = {
   muted: false,
   reducedMotion: false,
-  controlMode: 'classic',
+  controlMode: 'kids',
   difficultyId: 'normal',
   worldSizeId: 'standard',
   worldSize: 4096,
@@ -94,7 +96,7 @@ function buildSaveFacade(payload) {
   return {
     muted: library.muted,
     reducedMotion: library.reducedMotion,
-    controlMode: library.controlMode === 'kids' ? 'kids' : 'classic',
+    controlMode: library.controlMode === 'classic' ? 'classic' : 'kids',
     difficultyId: (meta && meta.difficultyId) || library.defaults.difficultyId || 'normal',
     worldSizeId: (meta && meta.worldSizeId) || library.defaults.worldSizeId || 'standard',
     worldSize: (meta && meta.worldSize) || 4096,
@@ -249,7 +251,7 @@ export function writeSave() {
   // Persist library prefs (muted, selection, defaults) + current meta list
   library.muted = !!save.muted;
   library.reducedMotion = !!save.reducedMotion;
-  library.controlMode = save.controlMode === 'kids' ? 'kids' : 'classic';
+  library.controlMode = save.controlMode === 'classic' ? 'classic' : 'kids';
   if (save.difficultyId) library.defaults.difficultyId = save.difficultyId;
   if (save.worldSizeId) library.defaults.worldSizeId = save.worldSizeId;
   if (activeWorldId) library.selectedWorldId = activeWorldId;
@@ -258,15 +260,35 @@ export function writeSave() {
 
 /** Toggle or set Kids vs Classic controls. Returns new mode. */
 export function setControlMode(mode) {
-  const next = mode === 'kids' ? 'kids' : 'classic';
+  const next = mode === 'classic' ? 'classic' : 'kids';
   library.controlMode = next;
+  library.controlModeUserSet = true;
   save.controlMode = next;
   writeLibrary();
   return next;
 }
 
 export function getControlMode() {
-  return (save && save.controlMode) === 'kids' ? 'kids' : 'classic';
+  return (save && save.controlMode) === 'classic' ? 'classic' : 'kids';
+}
+
+/**
+ * iPad / phones: prefer Kids controls unless the player chose Classic in Options.
+ * Call once after loadSave().
+ */
+export function preferKidsOnTouch() {
+  let coarse = false;
+  try {
+    coarse = !!(navigator.maxTouchPoints > 0
+      || (window.matchMedia && window.matchMedia('(pointer: coarse)').matches));
+  } catch (_) {}
+  if (!coarse) return getControlMode();
+  if (library.controlModeUserSet) return getControlMode();
+  // Touch device, never chose — force Kids
+  library.controlMode = 'kids';
+  save.controlMode = 'kids';
+  writeLibrary();
+  return 'kids';
 }
 
 export function listWorlds() {

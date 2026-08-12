@@ -1,5 +1,5 @@
 // Blockbound — keep CACHE in sync with GAME_VERSION in js/core/constants.js
-const CACHE = 'blockbound-1.9.034';
+const CACHE = 'blockbound-1.9.035';
 
 const ASSETS = [
   './',

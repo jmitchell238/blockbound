@@ -188,7 +188,7 @@ export async function enterPlay(continueSave, extra) {
     session.ui.controlMode = mode;
     session.input.controlMode = mode;
     if (mode === 'kids') {
-      toast(session.ui, 'Kids · tap walk · tap dig · pick block & tap build');
+      toast(session.ui, 'Kids · tap walk · dig · build · big button uses things');
     }
   }
   return session;
@@ -217,7 +217,7 @@ export function gameUpdate(dt) {
   if (input.pauseToggle) {
     s.paused = !s.paused;
     input.pauseToggle = false;
-    if (s.paused) toast(ui, 'Paused — Esc to resume');
+    if (s.paused) toast(ui, 'Paused — ☰ menu or Esc to resume');
   }
   if (s.paused) return;
 
@@ -238,7 +238,7 @@ export function gameUpdate(dt) {
   if (player.canFly && !s._flyInited) {
     s._flyInited = true;
     player.flying = true;
-    toast(ui, 'Creative fly ON · JUMP up · DOWN pad down · double-tap JUMP or ✈ to land');
+    toast(ui, '✈ Flying · UP / DOWN pads · ✈ button to land');
   }
   input._flyPads = !!(player.canFly && player.flying && ui.showTouch);
 
@@ -394,8 +394,8 @@ export function gameUpdate(dt) {
     s._pendingFlyToast = false;
     if (player.canFly && wasFlying !== !!player.flying) {
       toast(ui, player.flying
-        ? '✈ Flying · JUMP = up · DOWN = down · double-tap JUMP to walk'
-        : 'Walking · double-tap JUMP to fly');
+        ? '✈ Flying · UP & DOWN pads · tap ✈ to walk'
+        : 'Walking · tap ✈ Fly to fly again');
       try {
         const flyBtn = document.getElementById('btnFly');
         if (flyBtn) {
@@ -709,36 +709,70 @@ export function gameUpdate(dt) {
   }
   if (player.inBoat) s._hadBoat = true;
 
-  // Interact prompt (tap-first for touch; F still works on desktop)
+  // Interact prompt + big touch action (iPad has no F / X keys)
   const hit = nearInteract(world, world.meta, player.x, player.y);
   const slot = selectedSlot(inv);
   const touch = !!ui.showTouch;
   const kids = ui.controlMode === 'kids';
-  const useKey = touch ? 'Tap' : 'F / Tap';
   const qn = (input.kidsQueue && input.kidsQueue.length) || 0;
-  ui.prompt = hit && !kids
-    ? (hit.kind === 'door' ? useKey + ' · ' + (isDoorOpen(world.meta, hit.x, hit.y) ? 'Close door' : 'Open door')
-      : hit.kind === 'chest' ? useKey + ' · Open chest'
-      : hit.kind === 'bed' ? useKey + ' · Sleep (night) · set spawn'
-      : hit.kind === 'furnace' ? useKey + ' · Furnace'
-      : hit.kind === 'campfire' ? useKey + ' · Warm up'
-      : hit.kind === 'craft' ? useKey + ' · Craft'
-      : useKey + ' · Use')
-    : kids
-      ? (qn
-        ? (qn + ' job' + (qn > 1 ? 's' : '') + ' queued · tap again to cancel · drag to look')
+  const hostileNear = isHostileNearPlayer(ents, player, 2.8);
+
+  // Context button for pure touch: Use / Eat / Hit / Boat
+  ui.touchAct = null;
+  if (touch || kids) {
+    if (hit) {
+      let label = 'Use';
+      if (hit.kind === 'door') label = isDoorOpen(world.meta, hit.x, hit.y) ? 'Close' : 'Open';
+      else if (hit.kind === 'chest') label = 'Chest';
+      else if (hit.kind === 'bed') label = 'Sleep';
+      else if (hit.kind === 'furnace') label = 'Smelt';
+      else if (hit.kind === 'campfire') label = 'Warm';
+      else if (hit.kind === 'craft') label = 'Craft';
+      ui.touchAct = { kind: 'use', label };
+    } else if (player.inBoat) {
+      ui.touchAct = { kind: 'use', label: 'Leave' };
+    } else if (slot && slot.id === 'boat') {
+      ui.touchAct = { kind: 'use', label: 'Sail' };
+    } else if (slot && isFood(slot.id)) {
+      ui.touchAct = { kind: 'eat', label: 'Eat' };
+    } else if (hostileNear) {
+      ui.touchAct = { kind: 'attack', label: 'Hit' };
+    }
+  }
+
+  if (kids) {
+    ui.prompt = qn
+      ? (qn + ' job' + (qn > 1 ? 's' : '') + ' · big button = use/eat · drag to look')
+      : (ui.touchAct
+        ? ('Tap ' + ui.touchAct.label + ' button · or tap the world')
         : slot && isBlockItem(slot.id)
-          ? 'Tap empty to build · tap dirt/stone to dig · tap air to walk'
-          : 'Tap to walk · tap blocks to dig · select blocks then tap to build')
-      : (slot && slot.id === 'boat' ? useKey + ' · Launch boat (in water)'
-        : player.inBoat ? useKey + ' · Leave boat'
-        : slot && isFood(slot.id) ? (touch ? 'Tap air · Eat' : 'F · Eat')
-        : slot && (slot.id === 'bucket' || slot.id === 'bucket_water') ? 'Tap to use bucket'
-        : slot && slot.id === BLOCK.LADDER ? 'Tap air in caves · or wall/floor'
-        : slot && isAttachableBlock(slot.id) ? 'Tap wall/floor to place · hold to dig'
-        : slot && isBlockItem(slot.id) ? 'Tap empty tile to place · hold to dig'
-        : 'Hold to dig · tap enemies to fight'
-        );
+          ? 'Tap empty to build · tap blocks to dig · tap air to walk'
+          : 'Tap to walk · tap blocks to dig · hold to dig nearby');
+  } else if (hit) {
+    ui.prompt = touch
+      ? ('Tap ' + (ui.touchAct ? ui.touchAct.label : 'Use') + ' or tap the block')
+      : ((hit.kind === 'door' ? 'F / Tap · ' + (isDoorOpen(world.meta, hit.x, hit.y) ? 'Close door' : 'Open door')
+        : hit.kind === 'chest' ? 'F / Tap · Open chest'
+        : hit.kind === 'bed' ? 'F / Tap · Sleep'
+        : hit.kind === 'furnace' ? 'F / Tap · Furnace'
+        : hit.kind === 'campfire' ? 'F / Tap · Warm up'
+        : hit.kind === 'craft' ? 'F / Tap · Craft'
+        : 'F / Tap · Use'));
+  } else if (touch) {
+    ui.prompt = ui.touchAct
+      ? ('Tap ' + ui.touchAct.label)
+      : (slot && isBlockItem(slot.id)
+        ? 'Tap to place · hold to dig · stick to move'
+        : 'Stick to move · hold to dig · tap enemies');
+  } else {
+    ui.prompt = slot && slot.id === 'boat' ? 'F · Launch boat (in water)'
+      : player.inBoat ? 'F · Leave boat'
+      : slot && isFood(slot.id) ? 'F · Eat'
+      : slot && (slot.id === 'bucket' || slot.id === 'bucket_water') ? 'Tap to use bucket'
+      : slot && isAttachableBlock(slot.id) ? 'Tap wall/floor to place · hold to dig'
+      : slot && isBlockItem(slot.id) ? 'Tap empty tile to place · hold to dig'
+      : 'Hold to dig · tap enemies to fight';
+  }
 
   updateCamera(s, dt);
   updateWorldServices(s, dt);
@@ -840,7 +874,14 @@ export function handleUse(s) {
 export function gameRender(ctx) {
   if (!session) return;
   const s = session;
-  s.ui.showTouch = window.matchMedia('(pointer: coarse)').matches;
+  // Any touchscreen (iPad reports fine pointer sometimes — also check maxTouchPoints)
+  try {
+    s.ui.showTouch = !!(navigator.maxTouchPoints > 0
+      || window.matchMedia('(pointer: coarse)').matches
+      || window.matchMedia('(hover: none)').matches);
+  } catch (_) {
+    s.ui.showTouch = true;
+  }
   renderWorld(ctx, s.world, s.player, s.inv, s.cam, s.timeOfDay, s.ui, s.particles, s.ents);
   if (s.paused) {
     ctx.fillStyle = 'rgba(0,0,0,0.45)';
