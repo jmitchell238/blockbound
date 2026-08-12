@@ -189,8 +189,7 @@ export function bindInput(input, canvas, getCam) {
   }
 
   canvas.addEventListener('pointerdown', e => {
-    // Only capture for stick-like holds; full capture on iPad can steal chrome button taps
-    try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
+    // Do NOT setPointerCapture — on iPad it steals taps from HTML chrome buttons
     const p = stagePos(e);
     pointers.set(e.pointerId, p);
     if (pointers.size >= 2) {

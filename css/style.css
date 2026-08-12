@@ -621,73 +621,83 @@ button.ghost.danger {
   text-align: center;
 }
 
-/* Full-stage hit layer above canvas — iPad was losing taps on craft/bag/fly */
+/*
+ * Play chrome is FIXED to the iPad viewport (outside the letterboxed stage).
+ * Absolute-inside-stage was un-tappable / invisible when the canvas glitched.
+ */
 .play-chrome-layer {
-  position: absolute;
-  inset: 0;
-  z-index: 40;
-  pointer-events: none; /* only buttons capture */
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  top: 0;
+  z-index: 200;
+  pointer-events: none;
   line-height: normal;
 }
+.play-chrome-layer.is-play {
+  /* keep none on the layer; buttons set auto */
+}
 
-/* Play chrome sits ABOVE the hotbar on the left so it never covers HP bars */
+/* Play chrome buttons — large hit targets for little fingers */
 .icon-btn {
-  position: absolute;
-  z-index: 41;
+  position: fixed;
+  z-index: 210;
   width: auto;
-  min-width: 48px;
-  min-height: 48px;
+  min-width: 52px;
+  min-height: 52px;
   margin: 0;
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: rgba(10, 24, 18, 0.92);
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(10, 24, 18, 0.94);
   color: #fff;
-  border: 1px solid var(--line);
-  font-size: 0.92rem;
-  font-weight: 700;
+  border: 2px solid rgba(255, 255, 255, 0.22);
+  font-size: 1rem;
+  font-weight: 800;
   pointer-events: auto;
   line-height: normal;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
   top: auto;
   -webkit-user-select: none;
   user-select: none;
   touch-action: manipulation;
   cursor: pointer;
+  -webkit-tap-highlight-color: rgba(125, 255, 160, 0.35);
 }
 .icon-btn:not(.hidden) { display: block; }
 
-/* Row just above hotbar (hotbar ~58px tall) */
+/* Bottom row above home indicator */
 #btnMenu {
-  left: 6px;
-  bottom: max(72px, calc(env(safe-area-inset-bottom, 0px) + 68px));
+  left: max(10px, env(safe-area-inset-left, 0px));
+  bottom: max(88px, calc(env(safe-area-inset-bottom, 0px) + 78px));
 }
 .craft-btn {
-  left: 52px;
-  bottom: max(72px, calc(env(safe-area-inset-bottom, 0px) + 68px));
+  left: max(68px, calc(env(safe-area-inset-left, 0px) + 58px));
+  bottom: max(88px, calc(env(safe-area-inset-bottom, 0px) + 78px));
 }
 .bag-btn {
-  left: 98px;
-  bottom: max(72px, calc(env(safe-area-inset-bottom, 0px) + 68px));
-  font-size: 1rem;
-  padding: 8px 10px;
+  left: max(126px, calc(env(safe-area-inset-left, 0px) + 116px));
+  bottom: max(88px, calc(env(safe-area-inset-bottom, 0px) + 78px));
+  font-size: 1.1rem;
+  padding: 10px 12px;
 }
 .creative-btn {
-  left: 146px;
-  bottom: max(72px, calc(env(safe-area-inset-bottom, 0px) + 68px));
-  font-size: 1rem;
-  padding: 8px 10px;
-  background: rgba(40, 90, 55, 0.92);
+  left: max(184px, calc(env(safe-area-inset-left, 0px) + 174px));
+  bottom: max(88px, calc(env(safe-area-inset-bottom, 0px) + 78px));
+  font-size: 1.05rem;
+  padding: 10px 12px;
+  background: rgba(40, 90, 55, 0.95);
   color: #7dffa0;
-  border-color: rgba(125, 255, 160, 0.4);
+  border-color: rgba(125, 255, 160, 0.5);
 }
 .fly-btn {
-  left: 194px;
-  bottom: max(72px, calc(env(safe-area-inset-bottom, 0px) + 68px));
-  font-size: 0.82rem;
-  padding: 8px 10px;
-  background: rgba(30, 70, 120, 0.92);
+  left: max(242px, calc(env(safe-area-inset-left, 0px) + 232px));
+  bottom: max(88px, calc(env(safe-area-inset-bottom, 0px) + 78px));
+  font-size: 0.9rem;
+  padding: 10px 12px;
+  background: rgba(30, 70, 120, 0.95);
   color: #9fd4ff;
-  border-color: rgba(120, 190, 255, 0.5);
+  border-color: rgba(120, 190, 255, 0.55);
 }
 .fly-btn.is-on {
   background: rgba(40, 110, 180, 0.95);
@@ -703,24 +713,25 @@ button.ghost.danger {
 
 /* Big iPad action (Use / Eat / Hit) — no keyboard needed */
 .touch-act-btn {
-  position: absolute;
-  z-index: 42;
-  right: max(12px, env(safe-area-inset-right, 0px));
-  bottom: max(210px, calc(env(safe-area-inset-bottom, 0px) + 200px));
-  min-width: 88px;
-  min-height: 88px;
+  position: fixed;
+  z-index: 210;
+  right: max(16px, env(safe-area-inset-right, 0px));
+  bottom: max(220px, calc(env(safe-area-inset-bottom, 0px) + 200px));
+  min-width: 92px;
+  min-height: 92px;
   margin: 0;
   padding: 14px 16px;
   border-radius: 50%;
-  background: rgba(125, 255, 160, 0.92);
+  background: rgba(125, 255, 160, 0.95);
   color: #0a1f12;
-  border: 3px solid rgba(255, 255, 255, 0.85);
+  border: 3px solid rgba(255, 255, 255, 0.9);
   font-size: 1.05rem;
   font-weight: 800;
   line-height: 1.15;
   pointer-events: auto;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
   text-align: center;
+  touch-action: manipulation;
 }
 .touch-act-btn:not(.hidden) { display: flex; align-items: center; justify-content: center; }
 .touch-act-btn.act-use {
@@ -851,7 +862,12 @@ body.landscape .craft-btn,
 body.landscape .bag-btn,
 body.landscape .creative-btn,
 body.landscape .fly-btn {
-  bottom: max(64px, calc(env(safe-area-inset-bottom, 0px) + 58px));
+  bottom: max(72px, calc(env(safe-area-inset-bottom, 0px) + 64px));
+}
+body.landscape .touch-act-btn {
+  bottom: max(150px, calc(env(safe-area-inset-bottom, 0px) + 130px));
+  min-width: 80px;
+  min-height: 80px;
 }
 
 @media (orientation: landscape) and (max-height: 480px) {

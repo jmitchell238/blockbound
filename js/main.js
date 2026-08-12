@@ -89,6 +89,12 @@ function eventToStage(e) {
 function setScreen(name) {
   screenName = name;
   const isPlay = name === 'play';
+  document.body.classList.toggle('is-playing', isPlay);
+  const chromeLayer = document.getElementById('playChrome');
+  if (chromeLayer) {
+    chromeLayer.classList.toggle('is-play', isPlay);
+    chromeLayer.setAttribute('aria-hidden', isPlay ? 'false' : 'true');
+  }
   document.querySelectorAll('.menu-screen').forEach(el => {
     el.classList.toggle('hidden', el.dataset.screen !== name);
   });
@@ -781,23 +787,29 @@ function frame(now) {
     }
     syncTouchActButton(s);
     if (ctx) {
+      // Always paint a base fill first — clearRect alone leaves body green through a failed frame
       try {
-        ctx.clearRect(0, 0, W, H);
+        ctx.fillStyle = '#142820';
+        ctx.fillRect(0, 0, W, H);
+      } catch (_) {}
+      try {
         if (s) gameRender(ctx);
         else drawMenuBackdrop(ctx, now);
       } catch (err) {
         console.error('[blockbound] render error', err);
-        // Visible fallback so cave bugs never look like a dead app
         try {
           ctx.fillStyle = '#1a2830';
           ctx.fillRect(0, 0, W, H);
           ctx.fillStyle = '#7dffa0';
-          ctx.font = '700 16px system-ui';
+          ctx.font = '700 18px system-ui';
           ctx.textAlign = 'center';
-          ctx.fillText('Drawing glitch — open ☰ menu & resume', W / 2, H / 2);
+          ctx.fillText('Drawing glitch', W / 2, H / 2 - 12);
+          ctx.font = '600 14px system-ui';
+          ctx.fillStyle = '#e8fff0';
+          ctx.fillText('Tap ☰ Menu (bottom-left), then Fix/update', W / 2, H / 2 + 16);
           if (s && s.ui) {
-            s.ui.toast = 'Render glitch — try ☰ leave & re-enter';
-            s.ui.toastT = 3;
+            s.ui.toast = 'Render glitch — ☰ Menu → Fix / update game';
+            s.ui.toastT = 4;
           }
         } catch (_) {}
       }

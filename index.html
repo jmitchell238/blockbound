@@ -13,50 +13,37 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
-  <link rel="stylesheet" href="css/style.css?v=1.9.039" />
-  <!-- Emergency unstick: if a broken SW keeps an old shell, this runs first and can wipe caches -->
+  <link rel="stylesheet" href="css/style.css?v=1.9.040" />
   <script>
+    // One-shot cache wipe when this HTML shell is newer than the last run build
     (function () {
-      var BUILD = '1.9.039';
+      var BUILD = '1.9.040';
       window.__BB_BUILD = BUILD;
-      // Always try network for constants; if server is newer than this HTML shell, wipe SW caches.
       try {
-        fetch('js/core/constants.js?t=' + Date.now(), { cache: 'no-store' })
-          .then(function (r) { return r.ok ? r.text() : ''; })
-          .then(function (text) {
-            var m = text && text.match(/GAME_VERSION\s*=\s*['"]([^'"]+)['"]/);
-            var remote = m && m[1];
-            if (!remote) return;
-            // If HTML is stale vs server, or localStorage remembers an older build, hard clear
-            var seen = null;
-            try { seen = localStorage.getItem('bb-build'); } catch (e) {}
-            if (remote !== BUILD || (seen && seen !== remote)) {
-              var finish = function () {
-                try { localStorage.setItem('bb-build', remote); } catch (e) {}
-                if (!sessionStorage.getItem('bb-hard-' + remote)) {
-                  sessionStorage.setItem('bb-hard-' + remote, '1');
-                  location.replace(location.pathname + '?fresh=' + remote + '&t=' + Date.now());
-                }
-              };
-              var p = Promise.resolve();
-              if ('serviceWorker' in navigator) {
-                p = p.then(function () { return navigator.serviceWorker.getRegistrations(); })
-                  .then(function (regs) {
-                    return Promise.all((regs || []).map(function (r) { return r.unregister(); }));
-                  });
-              }
-              if (window.caches && caches.keys) {
-                p = p.then(function () { return caches.keys(); })
-                  .then(function (keys) {
-                    return Promise.all((keys || []).map(function (k) { return caches.delete(k); }));
-                  });
-              }
-              p.then(finish).catch(finish);
-            } else {
-              try { localStorage.setItem('bb-build', BUILD); } catch (e) {}
-            }
-          })
-          .catch(function () {});
+        var seen = localStorage.getItem('bb-build');
+        if (seen === BUILD) return;
+        var key = 'bb-wiped-' + BUILD;
+        if (sessionStorage.getItem(key)) {
+          localStorage.setItem('bb-build', BUILD);
+          return;
+        }
+        sessionStorage.setItem(key, '1');
+        var done = function () {
+          try { localStorage.setItem('bb-build', BUILD); } catch (e) {}
+          location.replace(location.pathname + '?bb=' + BUILD + '&t=' + Date.now());
+        };
+        var p = Promise.resolve();
+        if ('serviceWorker' in navigator) {
+          p = navigator.serviceWorker.getRegistrations().then(function (regs) {
+            return Promise.all((regs || []).map(function (r) { return r.unregister(); }));
+          });
+        }
+        if (window.caches && caches.keys) {
+          p = p.then(function () { return caches.keys(); }).then(function (keys) {
+            return Promise.all((keys || []).map(function (k) { return caches.delete(k); }));
+          });
+        }
+        p.then(done).catch(done);
       } catch (e) {}
     })();
   </script>
@@ -197,18 +184,18 @@
       </div>
     </div>
 
-    <!-- Play chrome lives in its own high layer so canvas never steals taps on iPad -->
-    <div id="playChrome" class="play-chrome-layer">
-      <button id="btnMenu" class="icon-btn play-chrome hidden" type="button" title="Menu">☰</button>
-      <button id="btnCraft" class="icon-btn play-chrome craft-btn hidden" type="button" title="Craft">⚒</button>
-      <button id="btnBag" class="icon-btn play-chrome bag-btn hidden" type="button" title="Inventory">🎒</button>
-      <button id="btnCreative" class="icon-btn play-chrome creative-btn hidden" type="button" title="Creative blocks">✦</button>
-      <button id="btnFly" class="icon-btn play-chrome fly-btn hidden" type="button" title="Toggle fly">✈ Fly</button>
-      <button id="btnTouchAct" class="touch-act-btn play-chrome hidden" type="button" title="Action">Use</button>
-    </div>
   </div>
 
-  <!-- ?v= busts sticky SW/browser caches when version bumps -->
-  <script type="module" src="js/main.js?v=1.9.039"></script>
+  <!-- OUTSIDE #stage: fixed to the iPad viewport so canvas/letterbox never steals taps -->
+  <div id="playChrome" class="play-chrome-layer" aria-hidden="true">
+    <button id="btnMenu" class="icon-btn play-chrome hidden" type="button" title="Menu">☰</button>
+    <button id="btnCraft" class="icon-btn play-chrome craft-btn hidden" type="button" title="Craft">⚒</button>
+    <button id="btnBag" class="icon-btn play-chrome bag-btn hidden" type="button" title="Inventory">🎒</button>
+    <button id="btnCreative" class="icon-btn play-chrome creative-btn hidden" type="button" title="Creative blocks">✦</button>
+    <button id="btnFly" class="icon-btn play-chrome fly-btn hidden" type="button" title="Toggle fly">✈ Fly</button>
+    <button id="btnTouchAct" class="touch-act-btn play-chrome hidden" type="button" title="Action">Use</button>
+  </div>
+
+  <script type="module" src="js/main.js?v=1.9.040"></script>
 </body>
 </html>

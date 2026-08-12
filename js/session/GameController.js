@@ -261,6 +261,17 @@ export async function enterPlay(continueSave, extra) {
     const mode = (save && save.controlMode) === 'classic' ? 'classic' : 'kids';
     session.ui.controlMode = mode;
     session.input.controlMode = mode;
+    // Apply difficulty flags immediately (don't wait for first gameUpdate frame)
+    try {
+      const diff = getDifficulty(session.difficultyId);
+      session.player.godMode = !!(diff.creative || diff.invincible);
+      session.player.canFly = !!diff.creative;
+      session.ui.creative = !!diff.creative;
+      if (diff.creative) {
+        session.player.flying = true;
+        session._flyInited = true;
+      }
+    } catch (_) {}
     sanitizePlayerInWorld(session.world, session.player);
     snapCameraToPlayer(session);
     // Local light around spawn so deep caves aren't pure black on load
@@ -273,7 +284,9 @@ export async function enterPlay(continueSave, extra) {
       }
     } catch (_) {}
     if (mode === 'kids') {
-      toast(session.ui, 'Kids · tap walk · dig · build · big button uses things');
+      toast(session.ui, 'Kids · tap walk · dig · build · ☰ is always bottom-left');
+    } else if (session.ui.creative) {
+      toast(session.ui, 'Creative · ✈ flying · dig / place by tapping');
     }
   }
   return session;
