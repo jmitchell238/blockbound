@@ -268,7 +268,9 @@ export async function enterPlay(continueSave, extra) {
       session.player.canFly = !!diff.creative;
       session.ui.creative = !!diff.creative;
       if (diff.creative) {
-        session.player.flying = true;
+        // Creative *allows* flight, it doesn't start in it. Spawning airborne
+        // makes tap-to-walk drift through the air instead of walking.
+        session.player.flying = false;
         session._flyInited = true;
       }
     } catch (_) {}
@@ -342,12 +344,12 @@ export function gameUpdate(dt) {
   // Creative flight
   player.canFly = !!diff.creative;
   if (!player.canFly) player.flying = false;
-  else if (player.flying == null) player.flying = true;
-  // Auto-enable fly the first time you play creative this session
+  else if (player.flying == null) player.flying = false;
+  // Tell the player fly is available — but let them start on the ground, so
+  // tap-to-walk walks. ✈ opts in.
   if (player.canFly && !s._flyInited) {
     s._flyInited = true;
-    player.flying = true;
-    toast(ui, '✈ Flying · UP / DOWN pads · ✈ button to land');
+    toast(ui, '✈ button to fly · tap the ground to walk');
   }
   input._flyPads = !!(player.canFly && player.flying && ui.showTouch);
 

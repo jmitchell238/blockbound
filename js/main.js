@@ -24,6 +24,49 @@ import { skyColors, drawParallax, drawBlock } from './render/index.js';
 
 const cv = document.getElementById('cv');
 let ctx = null;
+
+/**
+ * On-screen error reporter.
+ *
+ * iPads have no console we can read, and the canvas is usually the thing that
+ * died — so failures have to surface in the DOM or they are invisible. Shows
+ * the first error only; later ones are appended to a count.
+ */
+let _fatalCount = 0;
+let _noSessionReported = false;
+function reportFatal(where, err) {
+  _fatalCount++;
+  try { console.error('[blockbound]', where, err); } catch (_) {}
+  try {
+    let box = document.getElementById('bbFatal');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'bbFatal';
+      box.setAttribute('role', 'alert');
+      box.style.cssText = [
+        'position:fixed', 'left:0', 'right:0', 'top:0', 'z-index:9999',
+        'background:rgba(120,20,20,0.96)', 'color:#fff',
+        'font:600 12px/1.4 system-ui,-apple-system,sans-serif',
+        'padding:calc(8px + env(safe-area-inset-top,0px)) 12px 8px',
+        'white-space:pre-wrap', 'word-break:break-word', 'max-height:45vh',
+        'overflow:auto', '-webkit-user-select:text', 'user-select:text',
+      ].join(';');
+      box.addEventListener('click', () => { box.remove(); });
+      document.body.appendChild(box);
+    }
+    const msg = (err && (err.stack || err.message)) || String(err);
+    box.textContent = 'Blockbound ' + GAME_VERSION_LABEL + ' — error in ' + where
+      + (_fatalCount > 1 ? ' (+' + (_fatalCount - 1) + ' more)' : '')
+      + '\n' + msg + '\n\n(tap to dismiss)';
+  } catch (_) {}
+}
+
+window.addEventListener('error', (e) => {
+  reportFatal('script', e.error || (e.message + ' @ ' + e.filename + ':' + e.lineno));
+});
+window.addEventListener('unhandledrejection', (e) => {
+  reportFatal('promise', e.reason);
+});
 let last = performance.now();
 /** title | worlds | create | options | play */
 let screenName = 'title';
@@ -79,6 +122,12 @@ function resizeCanvas() {
   if (ctx) {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.imageSmoothingEnabled = false;
+  } else {
+    // No context => nothing ever paints and the page background (dark green)
+    // shows through. Never fail silently here.
+    reportFatal('canvas', new Error(
+      'getContext("2d") returned null at ' + cv.width + '×' + cv.height
+    ));
   }
 }
 
@@ -775,11 +824,29 @@ function confirmDeleteFromEdit() {
 }
 
 function frame(now) {
+  try {
+    frameBody(now);
+  } catch (err) {
+    // Nothing may escape: a single throw here would end the rAF chain forever
+    // and freeze the game on a blank page (iPad "green screen").
+    reportFatal('frame', err);
+  } finally {
+    requestAnimationFrame(frame);
+  }
+}
+
+function frameBody(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
 
   if (screenName === 'play') {
     const s = getSession();
+    if (!s && !_noSessionReported) {
+      // Play screen with no session: the world never renders and every chrome
+      // button except ☰ Menu early-returns, so the game looks frozen.
+      _noSessionReported = true;
+      reportFatal('session', new Error('play screen entered with no session'));
+    }
     try {
       if (s) gameUpdate(dt);
     } catch (err) {
@@ -822,8 +889,6 @@ function frame(now) {
     drawMenuBackdrop(ctx, now);
     syncTouchActButton(null);
   }
-
-  requestAnimationFrame(frame);
 }
 
 function drawMenuBackdrop(ctx, now) {

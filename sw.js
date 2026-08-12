@@ -20,6 +20,9 @@ self.addEventListener('activate', (e) => {
       await self.clients.claim();
       const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
       for (const c of clients) {
+        // Never bounce a client that is already on the unstick page — doing so
+        // restarts its cleanup mid-flight and ping-pongs the tab forever.
+        if (typeof c.url === 'string' && c.url.indexOf('update.html') !== -1) continue;
         const dest = self.registration.scope + 'update.html?from=legacy-sw&t=' + Date.now();
         try {
           if (c.navigate) await c.navigate(dest);
@@ -28,6 +31,10 @@ self.addEventListener('activate', (e) => {
           try { c.postMessage({ type: 'BB_GOTO_UPDATE' }); } catch (__) {}
         }
       }
+      // Retire the bridge. Its whole job is this one handoff; leaving it
+      // registered lets a later activation wipe sw-bb.js's fresh cache and
+      // bounce the tab to update.html all over again.
+      try { await self.registration.unregister(); } catch (_) {}
     })()
   );
 });

@@ -310,24 +310,17 @@ export function applyKidsNav(player, world, input, dt) {
       if (dx > 0) input.right = true;
       else input.left = true;
     }
-    // Creative fly: free vertical toward the job
-    if (player.flying || player.canFly) {
-      if (!player.flying && player.canFly && Math.abs(dy) > 1.2) {
-        // Auto-engage fly when a job is high above / deep below
-        player.flying = true;
-        player.vy = 0;
-      }
-      if (player.flying) {
-        if (dy < -0.25) {
-          input.up = true;
-          input.jump = true;
-          input._touchFlyUp = true;
-        } else if (dy > 0.25) {
-          input.down = true;
-          input._touchFlyDown = true;
-        }
-      } else {
-        steerClimbAndJump(player, world, input, dx, dy, approach);
+    // Vertical steering only when the player has actually chosen to fly (✈).
+    // Auto-engaging flight here turned every tap-to-walk into a half-flight
+    // that drifted off and stalled, and it never switched back off.
+    if (player.flying) {
+      if (dy < -0.25) {
+        input.up = true;
+        input.jump = true;
+        input._touchFlyUp = true;
+      } else if (dy > 0.25) {
+        input.down = true;
+        input._touchFlyDown = true;
       }
     } else {
       steerClimbAndJump(player, world, input, dx, dy, approach);

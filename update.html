@@ -44,13 +44,26 @@
   </div>
   <script>
     (function () {
-      var TARGET = './?fresh=1.9.042&t=' + Date.now();
+      var TARGET = './?fresh=1.9.043&t=' + Date.now();
       var log = document.getElementById('log');
       function say(m) { if (log) log.textContent = m; }
 
       document.getElementById('go').onclick = function () {
         location.replace(TARGET);
       };
+
+      // Re-entry guard: if this tab already ran the cleanup once, don't run it
+      // again — a second pass here means something bounced us back, and
+      // repeating the wipe is what produces the flickering update loop.
+      var GUARD = 'bb-unstuck-once';
+      try {
+        if (sessionStorage.getItem(GUARD)) {
+          say('Already cleaned — opening game…');
+          location.replace(TARGET);
+          return;
+        }
+        sessionStorage.setItem(GUARD, '1');
+      } catch (e) {}
 
       async function nuke() {
         say('Removing old service workers…');
@@ -66,10 +79,11 @@
         }
         try {
           localStorage.removeItem('bb-build');
-          localStorage.setItem('bb-build', '1.9.042');
-          // clear one-shot session locks from failed updates
+          localStorage.setItem('bb-build', '1.9.043');
+          // clear one-shot session locks from failed updates — but keep our own
+          // re-entry guard, or this page loses its memory of having run.
           Object.keys(sessionStorage).forEach(function (k) {
-            if (k.indexOf('bb-') === 0) sessionStorage.removeItem(k);
+            if (k.indexOf('bb-') === 0 && k !== GUARD) sessionStorage.removeItem(k);
           });
         } catch (e) {}
         say('Opening game…');
