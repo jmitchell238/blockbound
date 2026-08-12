@@ -133,104 +133,139 @@ export function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particl
   const startTX = Math.floor(cam.x - W / (2 * ts)) - 1;
   const startTY = Math.floor(cam.y - H / (2 * ts)) - 1;
 
-  const emitters = collectEmitters(world, startTX, startTY, tilesX, tilesY);
+  let emitters = [];
   const now = performance.now();
-
-  // Paint dark cave air only on sheltered open cells (covers sky there)
   try {
-    drawSmoothCaveBackdrop(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY, emitters, now, player);
-  } catch (err) {
-    // Never let cave backdrop kill the whole frame (was blanking iPads)
-    console.warn('[blockbound] cave backdrop', err);
+    emitters = collectEmitters(world, startTX, startTY, tilesX, tilesY);
+  } catch (_) {
+    emitters = [];
   }
 
-  // Terrain continuous surface
+  // Fancy world draw — fully isolated. On any failure, fall back to flat colors
+  // so iPad never sits on a blank sky with a "dead" game.
+  let worldOk = false;
   try {
-    drawSeamlessTerrain(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY, sky, emitters, now, player);
-  } catch (err) {
-    console.warn('[blockbound] terrain', err);
-  }
+    try {
+      drawSmoothCaveBackdrop(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY, emitters, now, player);
+    } catch (err) {
+      console.warn('[blockbound] cave backdrop', err);
+    }
+    try {
+      drawSeamlessTerrain(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY, sky, emitters, now, player);
+    } catch (err) {
+      console.warn('[blockbound] terrain', err);
+      drawSimpleTerrainFallback(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY);
+    }
 
-  // Non-terrain solids + deferred non-solids
-  const deferred = [];
-  for (let ty = startTY; ty <= startTY + tilesY; ty++) {
-    if (ty < 0 || ty >= WORLD_H) continue;
-    for (let tx = startTX; tx <= startTX + tilesX; tx++) {
-      const wx = wrapX(tx);
-      const id = getTile(world, wx, ty);
-      if (id === BLOCK.AIR || isTerrainBlock(id)) continue;
-      const meta = BLOCK_META[id];
-      const sx = (tx - cam.x) * ts + W / 2;
-      const sy = (ty - cam.y) * ts + H / 2;
-      let lvl = (
-        sampleLight(world, wx + 0.2, ty + 0.2)
-        + sampleLight(world, wx + 0.8, ty + 0.2)
-        + sampleLight(world, wx + 0.2, ty + 0.8)
-        + sampleLight(world, wx + 0.8, ty + 0.8)
-      ) * 0.25;
-      const fl = emitterFlickerAt(wx + 0.5, ty + 0.5, emitters, now);
-      if (lvl > 2) lvl = Math.min(15, lvl * (0.92 + 0.1 * fl));
-      let dayMul = lightToBrightness(lvl, { ambient: 0.04 });
-      const sheltered = isShelteredAir(world, wx, ty);
-      const nearSurface = !sheltered && ty <= (world.surface[wx] || SURFACE_Y) + 1;
-      if (nearSurface && lvl >= 8) {
-        const skyMul = 0.2 + 0.8 * sky.day;
-        dayMul = Math.max(dayMul, skyMul * lightToBrightness(lvl, { ambient: 0.15 }));
-      }
-      if (sheltered && lvl > 5) {
-        dayMul = Math.min(0.9, dayMul * (1 + (lvl / 15) * 0.05 * fl));
-      }
-      const ao = blockAO(world, wx, ty);
-      if (meta && !meta.solid && id !== BLOCK.WORKBENCH) {
-        deferred.push({ sx, sy, id, dayMul, wx, ty, ao });
-      } else {
-        drawBlock(ctx, sx, sy, ts, id, dayMul, wx, ty, ao, world);
+    const deferred = [];
+    for (let ty = startTY; ty <= startTY + tilesY; ty++) {
+      if (ty < 0 || ty >= WORLD_H) continue;
+      for (let tx = startTX; tx <= startTX + tilesX; tx++) {
+        const wx = wrapX(tx);
+        const id = getTile(world, wx, ty);
+        if (id === BLOCK.AIR || isTerrainBlock(id)) continue;
+        const meta = BLOCK_META[id];
+        const sx = (tx - cam.x) * ts + W / 2;
+        const sy = (ty - cam.y) * ts + H / 2;
+        let lvl = 8;
+        try {
+          lvl = (
+            sampleLight(world, wx + 0.2, ty + 0.2)
+            + sampleLight(world, wx + 0.8, ty + 0.2)
+            + sampleLight(world, wx + 0.2, ty + 0.8)
+            + sampleLight(world, wx + 0.8, ty + 0.8)
+          ) * 0.25;
+        } catch (_) {}
+        const fl = emitterFlickerAt(wx + 0.5, ty + 0.5, emitters, now);
+        if (lvl > 2) lvl = Math.min(15, lvl * (0.92 + 0.1 * fl));
+        let dayMul = lightToBrightness(lvl, { ambient: 0.08 });
+        try {
+          const sheltered = isShelteredAir(world, wx, ty);
+          const nearSurface = !sheltered && ty <= (world.surface[wx] || SURFACE_Y) + 1;
+          if (nearSurface && lvl >= 8) {
+            const skyMul = 0.2 + 0.8 * sky.day;
+            dayMul = Math.max(dayMul, skyMul * lightToBrightness(lvl, { ambient: 0.15 }));
+          }
+        } catch (_) {}
+        const ao = 0;
+        if (meta && !meta.solid && id !== BLOCK.WORKBENCH) {
+          deferred.push({ sx, sy, id, dayMul, wx, ty, ao });
+        } else {
+          try { drawBlock(ctx, sx, sy, ts, id, dayMul, wx, ty, ao, world); }
+          catch (_) { fillTileColor(ctx, sx, sy, ts, id); }
+        }
       }
     }
-  }
-  for (const d of deferred) {
-    drawBlock(ctx, d.sx, d.sy, ts, d.id, d.dayMul, d.wx, d.ty, d.ao, world);
+    for (const d of deferred) {
+      try { drawBlock(ctx, d.sx, d.sy, ts, d.id, d.dayMul, d.wx, d.ty, d.ao, world); }
+      catch (_) { fillTileColor(ctx, d.sx, d.sy, ts, d.id); }
+    }
+    worldOk = true;
+  } catch (err) {
+    console.warn('[blockbound] world draw failed — simple fallback', err);
+    drawSimpleTerrainFallback(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY);
   }
 
-  // Soft torch glows outdoors only (additive = white wash in caves)
-  {
+  // Soft torch glows outdoors only
+  try {
     const px = wrapX(Math.floor(player.x));
     const py = Math.floor(player.y - player.h * 0.5);
     if (!isShelteredAir(world, px, py)) {
       drawEmitterBlooms(ctx, world, cam, ts, emitters, now);
     }
-  }
+  } catch (_) {}
 
   // Hover outline
-  if (ui && ui.hoverTx != null && ui.hoverTy != null) {
-    const htx = nearestViewX(cam.x, ui.hoverTx);
-    const hsx = (htx - cam.x) * ts + W / 2;
-    const hsy = (ui.hoverTy - cam.y) * ts + H / 2;
-    ctx.save();
-    // White while aiming; blue-ish when placing (not hold-mining)
-    ctx.strokeStyle = (ui.hoverTx != null && ui.holdMining)
-      ? 'rgba(255,200,100,0.9)'
-      : 'rgba(140,210,255,0.85)';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(hsx + 1, hsy + 1, ts - 2, ts - 2);
-    ctx.restore();
-  }
+  try {
+    if (ui && ui.hoverTx != null && ui.hoverTy != null) {
+      const htx = nearestViewX(cam.x, ui.hoverTx);
+      const hsx = (htx - cam.x) * ts + W / 2;
+      const hsy = (ui.hoverTy - cam.y) * ts + H / 2;
+      ctx.save();
+      ctx.strokeStyle = (ui.hoverTx != null && ui.holdMining)
+        ? 'rgba(255,200,100,0.9)'
+        : 'rgba(140,210,255,0.85)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(hsx + 1, hsy + 1, ts - 2, ts - 2);
+      ctx.restore();
+    }
+  } catch (_) {}
 
   // Mining crack overlay
-  if (player.mining) {
-    const tx = nearestViewX(cam.x, player.mining.tx);
-    const sx = (tx - cam.x) * ts + W / 2;
-    const sy = (player.mining.ty - cam.y) * ts + H / 2;
-    const p = Math.min(1, player.mining.progress / player.mining.need);
-    drawCrack(ctx, sx, sy, ts, p);
+  try {
+    if (player.mining) {
+      const tx = nearestViewX(cam.x, player.mining.tx);
+      const sx = (tx - cam.x) * ts + W / 2;
+      const sy = (player.mining.ty - cam.y) * ts + H / 2;
+      const p = Math.min(1, player.mining.progress / player.mining.need);
+      drawCrack(ctx, sx, sy, ts, p);
+    }
+  } catch (_) {}
+
+  try { if (ents) drawEntities(ctx, ents, cam, ts); } catch (_) {}
+  try { if (particles) drawParticles(ctx, particles, cam, ts); } catch (_) {}
+
+  try {
+    drawPlayer(ctx, player, cam, ts, inv);
+  } catch (err) {
+    // Absolute last-resort player so the world never looks empty
+    try {
+      const sx = (player.x - cam.x) * ts + W / 2;
+      const sy = (player.y - cam.y) * ts + H / 2;
+      ctx.fillStyle = '#ee6c4d';
+      ctx.fillRect(sx - 8, sy - 28, 16, 28);
+      ctx.fillStyle = '#e8c49a';
+      ctx.fillRect(sx - 6, sy - 36, 12, 10);
+    } catch (_) {}
   }
-
-  if (ents) drawEntities(ctx, ents, cam, ts);
-  if (particles) drawParticles(ctx, particles, cam, ts);
-
-  drawPlayer(ctx, player, cam, ts, inv);
-  if (ui && ui.kidsQueue && ui.kidsQueue.length) drawKidsQueue(ctx, ui.kidsQueue, cam, ts);
-  else if (ui && ui.moveMarker) drawMoveMarker(ctx, ui.moveMarker, cam, ts);
+  try {
+    if (ui && ui.kidsQueue && ui.kidsQueue.length) drawKidsQueue(ctx, ui.kidsQueue, cam, ts);
+    else if (ui && ui.moveMarker) drawMoveMarker(ctx, ui.moveMarker, cam, ts);
+  } catch (_) {}
+  if (!worldOk && ui) {
+    ui.toast = ui.toast || 'Simple graphics mode';
+    if (ui.toastT < 0.5) ui.toastT = 2;
+  }
 
   // Rain only under open sky (not in caves / dug-outs)
   if (ui && ui.weather > 0.05) {
@@ -310,6 +345,48 @@ export function nearestViewX(camX, tileX) {
     if (d < bestD) { bestD = d; best = c; }
   }
   return best;
+}
+
+/** True when a canvas/image source is safe for drawImage (avoids iOS InvalidStateError). */
+export function isDrawable(img) {
+  if (!img) return false;
+  try {
+    if (typeof img.complete === 'boolean' && !img.complete) return false;
+    if (img.naturalWidth != null && img.naturalWidth === 0 && img.tagName === 'IMG') return false;
+    if (img.width === 0 || img.height === 0) return false;
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function fillTileColor(ctx, sx, sy, ts, id) {
+  const meta = BLOCK_META[id];
+  ctx.fillStyle = (meta && meta.color) || '#6a6a72';
+  ctx.fillRect(sx, sy, ts + 0.5, ts + 0.5);
+}
+
+/** Flat-color world when textured pipeline fails (keeps Easy/Creative playable on iPad). */
+function drawSimpleTerrainFallback(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY) {
+  for (let ty = startTY; ty <= startTY + tilesY; ty++) {
+    if (ty < 0 || ty >= WORLD_H) continue;
+    for (let tx = startTX; tx <= startTX + tilesX; tx++) {
+      const wx = wrapX(tx);
+      const id = getTile(world, wx, ty);
+      if (id === BLOCK.AIR || id === BLOCK.WATER) {
+        if (id === BLOCK.WATER) {
+          const sx = (tx - cam.x) * ts + W / 2;
+          const sy = (ty - cam.y) * ts + H / 2;
+          ctx.fillStyle = 'rgba(58,143,212,0.65)';
+          ctx.fillRect(sx, sy, ts + 0.5, ts + 0.5);
+        }
+        continue;
+      }
+      const sx = (tx - cam.x) * ts + W / 2;
+      const sy = (ty - cam.y) * ts + H / 2;
+      fillTileColor(ctx, sx, sy, ts, id);
+    }
+  }
 }
 
 /** Pulsing “go here” marker for Kids tap-to-walk. */
@@ -439,6 +516,7 @@ function drawSeamlessTerrain(ctx, world, cam, ts, startTX, startTY, tilesX, tile
   // overlapping the same material doesn't create a second grid.
   const pad = Math.max(1.0, ts * 0.04);
   tctx.imageSmoothingEnabled = true;
+  let drewAny = false;
   for (let ty = startTY; ty <= startTY + tilesY; ty++) {
     if (ty < 0 || ty >= WORLD_H) continue;
     for (let tx = startTX; tx <= startTX + tilesX; tx++) {
@@ -446,11 +524,21 @@ function drawSeamlessTerrain(ctx, world, cam, ts, startTX, startTY, tilesX, tile
       const id = getTile(world, wx, ty);
       if (!isTerrainBlock(id)) continue;
       const soft = getSoftTex(id) || getTileTex(id);
-      if (!soft) continue;
       const sx = (tx - cam.x) * ts + W / 2;
       const sy = (ty - cam.y) * ts + H / 2;
       tctx.globalAlpha = 1;
-      tctx.drawImage(soft, sx - pad, sy - pad, ts + pad * 2, ts + pad * 2);
+      if (isDrawable(soft)) {
+        try {
+          tctx.drawImage(soft, sx - pad, sy - pad, ts + pad * 2, ts + pad * 2);
+          drewAny = true;
+        } catch (_) {
+          fillTileColor(tctx, sx, sy, ts, id);
+          drewAny = true;
+        }
+      } else {
+        fillTileColor(tctx, sx, sy, ts, id);
+        drewAny = true;
+      }
 
       // Grass / snow top only on open surface (air above) — soft strip, not a box outline
       if ((id === BLOCK.GRASS || id === BLOCK.SNOW) && !isSolid(world, wx, ty - 1)) {
@@ -466,9 +554,13 @@ function drawSeamlessTerrain(ctx, world, cam, ts, startTX, startTY, tilesX, tile
       }
     }
   }
+  if (!drewAny) {
+    // No textures yet — still paint solid colors so the world is never empty
+    drawSimpleTerrainFallback(tctx, world, cam, ts, startTX, startTY, tilesX, tilesY);
+  }
 
   // —— 2) Smooth light field (multi-sample, bilinear upscale) ——
-  const RES = 4;
+  const RES = 3;
   const padT = 1;
   const tw = tilesX + 2 + padT * 2;
   const th = tilesY + 2 + padT * 2;
@@ -476,6 +568,11 @@ function drawSeamlessTerrain(ctx, world, cam, ts, startTX, startTY, tilesX, tile
   const bh = Math.max(1, th * RES);
   const otx = startTX - padT;
   const oty = startTY - padT;
+  if (!_tLightFieldCtx) {
+    // Composite without lighting multiply
+    ctx.drawImage(_terrainCvs, 0, 0);
+    return;
+  }
   if (_tLightField.width !== bw || _tLightField.height !== bh) {
     _tLightField.width = bw;
     _tLightField.height = bh;
@@ -1626,20 +1723,30 @@ export function drawPlayer(ctx, p, cam, ts, inv) {
     ctx.translate(mineStrike * drawW * 0.04, Math.abs(mineStrike) * drawH * 0.03);
   }
 
-  if (img) {
+  if (isDrawable(img)) {
     // Fixed draw size for ALL frames so jump/mine never shrink the character.
     // Original hero sprites are 96×176 with feet on the bottom edge.
     ctx.imageSmoothingEnabled = false; // crisp pixel art
-    ctx.drawImage(img, -drawW / 2, -drawH, drawW, drawH);
-  } else {
-    // Minimal procedural fallback (orange hoodie)
+    try {
+      ctx.drawImage(img, -drawW / 2, -drawH, drawW, drawH);
+    } catch (_) {
+      img = null;
+    }
+  }
+  if (!isDrawable(img)) {
+    // Minimal procedural fallback (orange hoodie) — always works without textures
     const bob = walking ? Math.abs(Math.sin(p.anim * 2)) * 2 : 0;
     ctx.fillStyle = '#ee6c4d';
-    roundRect(ctx, -pw * 0.4, -ph + bob + ph * 0.25, pw * 0.8, ph * 0.45, 3);
-    ctx.fill();
-    ctx.fillStyle = '#e8c49a';
-    roundRect(ctx, -pw * 0.35, -ph + bob, pw * 0.7, ph * 0.28, 4);
-    ctx.fill();
+    try {
+      roundRect(ctx, -pw * 0.4, -ph + bob + ph * 0.25, pw * 0.8, ph * 0.45, 3);
+      ctx.fill();
+      ctx.fillStyle = '#e8c49a';
+      roundRect(ctx, -pw * 0.35, -ph + bob, pw * 0.7, ph * 0.28, 4);
+      ctx.fill();
+    } catch (_) {
+      ctx.fillStyle = '#ee6c4d';
+      ctx.fillRect(-pw * 0.4, -ph + bob, pw * 0.8, ph);
+    }
   }
 
   // Pin selected hotbar item to hand; swing toward mine target when mining

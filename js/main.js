@@ -54,15 +54,15 @@ const appInput = makeInput();
 let listenersReady = false;
 
 function resizeCanvas() {
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
+  const vw = Math.max(320, window.innerWidth || 320);
+  const vh = Math.max(320, window.innerHeight || 320);
   applyViewport(vw, vh);
   document.body.classList.toggle('landscape', ORIENTATION === 'landscape');
   document.body.classList.toggle('portrait', ORIENTATION === 'portrait');
 
   const scale = Math.min(vw / W, vh / H);
-  const cssW = Math.floor(W * scale);
-  const cssH = Math.floor(H * scale);
+  const cssW = Math.max(1, Math.floor(W * scale));
+  const cssH = Math.max(1, Math.floor(H * scale));
   cv.style.width = cssW + 'px';
   cv.style.height = cssH + 'px';
   // Keep stage box in sync so absolute menu screens cover the full canvas and center correctly
@@ -72,10 +72,14 @@ function resizeCanvas() {
     stage.style.height = cssH + 'px';
   }
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  cv.width = Math.floor(W * dpr);
-  cv.height = Math.floor(H * dpr);
-  ctx = cv.getContext('2d');
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  cv.width = Math.max(1, Math.floor(W * dpr));
+  cv.height = Math.max(1, Math.floor(H * dpr));
+  // alpha:false → failed frames stay opaque (not "green body showing through")
+  ctx = cv.getContext('2d', { alpha: false });
+  if (ctx) {
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.imageSmoothingEnabled = false;
+  }
 }
 
 function eventToStage(e) {
