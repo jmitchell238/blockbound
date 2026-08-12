@@ -322,7 +322,7 @@ export function gameUpdate(dt) {
   if (input.pauseToggle) {
     s.paused = !s.paused;
     input.pauseToggle = false;
-    if (s.paused) toast(ui, 'Paused — ☰ menu or Esc to resume');
+    // No toast: the full-screen overlay already says it, louder.
   }
   if (s.paused) return;
 
@@ -1016,7 +1016,10 @@ export function gameRender(ctx) {
     ctx.fillText('Paused', W / 2, H / 2);
     ctx.font = '600 14px system-ui';
     ctx.fillStyle = '#9ec5b0';
-    ctx.fillText('Esc to resume · ☰ for menu', W / 2, H / 2 + 28);
+    // Name something the player can actually do. Children on an iPad have no
+    // Esc key, and the old line offered nothing else.
+    ctx.fillText(s.ui.showTouch ? 'Tap anywhere to keep playing'
+                                : 'Click or press Esc to keep playing', W / 2, H / 2 + 28);
   }
 }
 

@@ -2071,15 +2071,21 @@ export function drawHUD(ctx, player, inv, world, cam, ui, sky) {
     ctx.fillText(ui.seedLabel, 20, toolTop + 53);
   }
 
+  // Where the top-left info stack ends — the kids chip tucks in under it.
+  ui._infoBottom = toolTop + 58 + 8;
+
   // craft panel drawn in renderWorld after HUD (isolated try/catch)
 
   // Kids chip is not a touch control — it is the one place the tap-to-walk
   // rules are written down, so it must survive a mouse. (v1.9.045 tied
   // ui.showTouch to the last pointer used, which took the chip with it.)
   if (ui.controlMode === 'kids') {
+    // Under the info stack, not bottom-left: the DOM chrome row owns that band
+    // and on phone portrait the buttons landed straight on top of this chip.
     const qn = (ui.kidsQueue && ui.kidsQueue.length) || 0;
+    const cy = Math.max(12, ui._infoBottom || 120);
     ctx.fillStyle = 'rgba(10, 28, 18, 0.78)';
-    roundRect(ctx, 10, H - 128, 148, 54, 12);
+    roundRect(ctx, 12, cy, 148, 54, 12);
     ctx.fill();
     ctx.strokeStyle = 'rgba(125,255,160,0.5)';
     ctx.lineWidth = 1.5;
@@ -2087,13 +2093,13 @@ export function drawHUD(ctx, player, inv, world, cam, ui, sky) {
     ctx.fillStyle = '#7dffa0';
     ctx.font = '800 12px system-ui';
     ctx.textAlign = 'left';
-    ctx.fillText('KIDS MODE', 20, H - 108);
+    ctx.fillText('KIDS MODE', 20, cy + 20);
     ctx.fillStyle = '#e8fff0';
     ctx.font = '600 11px system-ui';
-    ctx.fillText(qn ? (qn + ' job' + (qn > 1 ? 's' : '') + ' queued') : 'Tap walk · dig · build', 20, H - 90);
+    ctx.fillText(qn ? (qn + ' job' + (qn > 1 ? 's' : '') + ' queued') : 'Tap walk · dig · build', 20, cy + 38);
     ctx.fillStyle = '#9ec5b0';
     ctx.font = '600 10px system-ui';
-    ctx.fillText('Drag look · pinch zoom', 20, H - 76);
+    ctx.fillText('Drag look · pinch zoom', 20, cy + 52);
   }
 
   if (ui.showTouch) {

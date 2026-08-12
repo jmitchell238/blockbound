@@ -614,6 +614,30 @@ ok(gcSrc.includes("lastPtr !== 'mouse'"), 'showTouch follows the device last use
   ok(/outsidePanel\(ui, x, y\)/.test(craftFn), 'craft panel also closes on an outside tap');
 }
 
+// —— HUD placement + pause clarity (v1.9.050) ——
+{
+  const renSrc5 = fs.readFileSync(path.join(root, 'js/render/index.js'), 'utf8');
+  ok(/ui\._infoBottom = /.test(renSrc5), 'HUD publishes where the info stack ends');
+  const chip = renSrc5.slice(renSrc5.indexOf("if (ui.controlMode === 'kids') {"),
+                             renSrc5.indexOf("if (ui.showTouch) {"));
+  ok(!/H - 128/.test(chip),
+    'kids chip no longer sits in the bottom-left band the chrome row owns');
+  ok(/ui\._infoBottom/.test(chip), 'kids chip anchors under the info stack');
+
+  const gcSrc5 = fs.readFileSync(path.join(root, 'js/session/GameController.js'), 'utf8');
+  ok(!gcSrc5.includes("'Paused — ☰ menu or Esc to resume'"),
+    'pause no longer toasts what the overlay already says');
+  ok(!gcSrc5.includes("'Esc to resume · ☰ for menu'"),
+    'pause subtitle is no longer keyboard-only');
+  ok(/Tap anywhere to keep playing/.test(gcSrc5),
+    'pause subtitle names a touch action');
+
+  const mainSrc5 = fs.readFileSync(path.join(root, 'js/main.js'), 'utf8');
+  const pd = mainSrc5.slice(mainSrc5.indexOf("cv.addEventListener('pointerdown'"),
+                            mainSrc5.indexOf("cv.addEventListener('pointermove'"));
+  ok(/s\.paused = false/.test(pd), 'a tap actually resumes, as the overlay promises');
+}
+
 if (failed) {
   console.error(`\n${failed} failed`);
   process.exit(1);

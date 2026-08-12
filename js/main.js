@@ -619,6 +619,14 @@ function ensureListeners() {
   cv.addEventListener('pointerdown', e => {
     if (screenName !== 'play') return;
     const s = getSession();
+    // Paused: any tap resumes, which is what the overlay now promises.
+    if (s && s.paused) {
+      s.paused = false;
+      e.preventDefault();
+      e.stopPropagation();
+      blockWorldInput();
+      return;
+    }
     if (!menuOpen(s)) return;
     const p = eventToStage(e);
     if (s.ui.craftOpen && !s.ui.bagOpen && !s.ui.creativeOpen && !s.ui.chestOpen) {
