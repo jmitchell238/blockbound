@@ -986,13 +986,20 @@ export function gameRender(ctx) {
   if (!session) return;
   const s = session;
   // Any touchscreen (iPad reports fine pointer sometimes — also check maxTouchPoints)
+  let canTouch;
   try {
-    s.ui.showTouch = !!(navigator.maxTouchPoints > 0
+    canTouch = !!(navigator.maxTouchPoints > 0
       || window.matchMedia('(pointer: coarse)').matches
       || window.matchMedia('(hover: none)').matches);
   } catch (_) {
-    s.ui.showTouch = true;
+    canTouch = true;
   }
+  // Capability alone over-reports: touchscreen laptops get a JUMP pad nobody
+  // wants. Follow the device actually in use — mouse or keyboard hides the
+  // pads, the next finger tap brings them back.
+  const lastPtr = s.input && s.input.lastPointerType;
+  s.ui.showTouch = canTouch && lastPtr !== 'mouse';
+  if (s.input) s.input._touchUI = s.ui.showTouch;
   renderWorld(ctx, s.world, s.player, s.inv, s.cam, s.timeOfDay, s.ui, s.particles, s.ents);
   if (s.paused) {
     ctx.fillStyle = 'rgba(0,0,0,0.45)';

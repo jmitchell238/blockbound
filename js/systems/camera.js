@@ -97,16 +97,20 @@ function updateKidsCamera(s, dt) {
   cam.x += pullX * edgePull;
   cam.y += pullY * edgePull;
 
-  // While auto-walking and user hasn't dragged, slowly track the character
+  // While auto-walking (and they haven't dragged), tighten the horizontal box
+  // so a long walk can't leave the character hugging the screen edge. This is
+  // deliberately still a box pull, never a re-center: kids jump and place a
+  // block under themselves, and a centering camera yanks the view out from
+  // under that. Vertical stays on the wide edge pull above, so jumping alone
+  // never moves the camera.
   const autoWalk = !!(input && input.moveTarget) && !input.camUserPanned;
   if (autoWalk) {
-    const targetX = player.x + (player.vx || 0) * 0.1;
-    const targetY = player.y - 1.4;
-    const d = wrapDeltaX(cam.x, targetX);
-    const ax = cam.x + d;
-    const follow = Math.min(1, dt * 1.4);
-    cam.x += (ax - cam.x) * follow;
-    cam.y += (targetY - cam.y) * follow;
+    const walkEdge = halfW * 0.45;
+    const wd = wrapDeltaX(cam.x, player.x + (player.vx || 0) * 0.1);
+    let walkPull = 0;
+    if (wd > walkEdge) walkPull = wd - walkEdge;
+    else if (wd < -walkEdge) walkPull = wd + walkEdge;
+    cam.x += walkPull * Math.min(1, dt * 3.0);
   }
 
   // If player issues a new walk target, allow soft follow again

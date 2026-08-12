@@ -431,6 +431,95 @@ ok(swLegacy.includes('registration.unregister'), 'legacy bridge retires itself a
 const updSrc = fs.readFileSync(path.join(root, 'update.html'), 'utf8');
 ok(updSrc.includes('bb-unstuck-once'), 'update.html has a re-entry guard');
 
+// —— Pointer-driven touch pads (v1.9.045) ——
+{
+  const inputMod = await import(pathToFileURL(path.join(root, 'js/input/input.js')).href);
+  const mk = (type) => {
+    const i = inputMod.makeInput();
+    i.lastPointerType = type;
+    i._touchUI = true;
+    return i;
+  };
+  // Lower-right corner: the JUMP pad's hit zone. W/H are live bindings that
+  // earlier tests may have resized, so read them rather than hardcoding.
+  const C = await import(pathToFileURL(path.join(root, 'js/core/constants.js')).href);
+  const jumpPt = { x: C.W - 60, y: C.H - 160, id: 1 };
+  const touch = mk('touch');
+  inputMod.handlePointer(touch, jumpPt, 'down');
+  ok(touch._touchJump === true, 'touch press still hits the JUMP pad');
+
+  const mouse = mk('mouse');
+  const stubCam = () => ({ x: 0, y: 40, zoom: 1 });
+  inputMod.handlePointer(mouse, jumpPt, 'down', stubCam);
+  ok(!mouse._touchJump, 'mouse click does not hit the hidden JUMP pad');
+  ok(mouse.pointerDown === true, 'mouse click there reaches the world instead');
+}
+const inputSrc = fs.readFileSync(path.join(root, 'js/input/input.js'), 'utf8');
+ok(/lastPointerType\s*=\s*e\.pointerType/.test(inputSrc), 'pointerdown records the device type');
+ok(gcSrc.includes("lastPtr !== 'mouse'"), 'showTouch follows the device last used');
+
+// —— Kids camera never re-centers (v1.9.045) ——
+{
+  const camMod = await import(pathToFileURL(path.join(root, 'js/systems/camera.js')).href);
+  // Jumping must not drag the view up — kids build under themselves mid-air.
+  const s = {
+    player: { x: 100, y: 40, vx: 0, vy: -8 },
+    cam: { x: 100, y: 41, zoom: 1 },
+    ui: { controlMode: 'kids', zoom: 1 },
+    input: { moveTarget: null, camUserPanned: false },
+  };
+  const y0 = s.cam.y;
+  for (let i = 0; i < 20; i++) {
+    s.player.y -= 0.15; // rising
+    camMod.updateCamera(s, 0.016);
+  }
+  ok(Math.abs(s.cam.y - y0) < 0.01, 'a short jump leaves the kids camera still');
+
+  // Walking keeps them on screen without snapping them back to the middle.
+  const w = {
+    player: { x: 100, y: 40, vx: 4, vy: 0 },
+    cam: { x: 100, y: 41, zoom: 1 },
+    ui: { controlMode: 'kids', zoom: 1 },
+    input: { moveTarget: { x: 140, y: 40 }, camUserPanned: false },
+  };
+  for (let i = 0; i < 400; i++) {
+    w.player.x += 4 * 0.016;
+    camMod.updateCamera(w, 0.016);
+  }
+  const lead = w.player.x - w.cam.x;
+  ok(lead > 0.5, 'walking camera lags behind instead of centering the player');
+  const C2 = await import(pathToFileURL(path.join(root, 'js/core/constants.js')).href);
+  const halfW = (C2.W / 2) / C2.TILE;
+  ok(lead < halfW, 'walking camera still keeps the player on screen');
+
+  // The real complaint: jumping mid-walk used to drag the camera up and
+  // re-center the character, pulling the view off the spot they were building.
+  const j = {
+    player: { x: 100, y: 40, vx: 4, vy: 0 },
+    cam: { x: 100, y: 41, zoom: 1 },
+    ui: { controlMode: 'kids', zoom: 1 },
+    input: { moveTarget: { x: 140, y: 40 }, camUserPanned: false },
+  };
+  const jy0 = j.cam.y;
+  for (let i = 0; i < 20; i++) {
+    j.player.x += 4 * 0.016;
+    j.player.y -= 0.15; // jumping while walking
+    camMod.updateCamera(j, 0.016);
+  }
+  ok(Math.abs(j.cam.y - jy0) < 0.01, 'jumping mid-walk never lifts the camera');
+}
+
+// —— World picker scrolling (v1.9.045) ——
+{
+  const css = fs.readFileSync(path.join(root, 'css/style.css'), 'utf8');
+  const grid = css.slice(css.indexOf('.world-grid {'), css.indexOf('.world-empty'));
+  ok(/touch-action:\s*pan-y/.test(grid), 'world grid allows touch scrolling');
+  ok(/overflow-y:\s*auto/.test(grid), 'world grid scrolls');
+  const land = css.slice(css.indexOf('body.landscape .world-grid'));
+  ok(!/max-height:\s*min\(280px/.test(land.slice(0, 400)),
+    'landscape world grid is not capped to one and a half rows');
+}
+
 if (failed) {
   console.error(`\n${failed} failed`);
   process.exit(1);

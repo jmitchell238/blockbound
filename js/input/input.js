@@ -79,6 +79,15 @@ export function makeInput() {
     _panStartY: 0,
     _panLastX: 0,
     _panLastY: 0,
+    /**
+     * Last pointing device seen ('touch' | 'pen' | 'mouse'). A keyboard press
+     * counts as 'mouse'. Drives whether the on-screen pads are drawn AND hit-
+     * tested — a touchscreen laptop shouldn't show a JUMP button to someone
+     * using the keyboard. null = nothing used yet, fall back to capability.
+     */
+    lastPointerType: null,
+    /** Mirror of ui.showTouch, so hidden pads don't swallow mouse clicks. */
+    _touchUI: true,
     _navStuckT: 0,
     _navLastX: null,
     _navLastY: null,
@@ -93,6 +102,8 @@ export function bindInput(input, canvas, getCam) {
   const onKey = (e, down) => {
     const k = e.key.toLowerCase();
     input.keys[k] = down;
+    // Typing means a real keyboard is present — hide the touch pads.
+    if (down) input.lastPointerType = 'mouse';
     if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', 'w', 'a', 's', 'd'].includes(k)) {
       e.preventDefault();
     }
@@ -190,6 +201,7 @@ export function bindInput(input, canvas, getCam) {
 
   canvas.addEventListener('pointerdown', e => {
     // Do NOT setPointerCapture — on iPad it steals taps from HTML chrome buttons
+    input.lastPointerType = e.pointerType || 'mouse';
     const p = stagePos(e);
     pointers.set(e.pointerId, p);
     if (pointers.size >= 2) {
@@ -247,11 +259,14 @@ export function bindInput(input, canvas, getCam) {
 export function handlePointer(input, p, phase, getCam) {
   const kids = input.controlMode === 'kids';
   // Kids mode: no virtual stick — whole lower-left is free for taps / pan
-  const inStick = !kids && p.x < 145 && p.y > H - 245;
+  // Pads that aren't drawn must not be hit-testable, or a mouse click on the
+  // lower-right world would silently jump instead of digging.
+  const padsOn = input._touchUI !== false && input.lastPointerType !== 'mouse';
+  const inStick = !kids && padsOn && p.x < 145 && p.y > H - 245;
   // Slightly larger hit zone matching the bright JUMP pad
-  const inJump = p.x > W - 130 && p.y > H - 235 && p.y < H - 85;
+  const inJump = padsOn && p.x > W - 130 && p.y > H - 235 && p.y < H - 85;
   // Creative fly: DOWN pad to the LEFT of JUMP (keeps clear of hotbar)
-  const inFlyDown = !!input._flyPads
+  const inFlyDown = !!input._flyPads && padsOn
     && p.x > W - 220 && p.x < W - 130
     && p.y > H - 220 && p.y < H - 100;
   const inHotbar = p.y > H - 70;
