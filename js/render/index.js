@@ -623,6 +623,17 @@ function drawSeamlessTerrain(ctx, world, cam, ts, startTX, startTY, tilesX, tile
   lctx.imageSmoothingQuality = 'high';
   lctx.drawImage(_tLightField, sx0, sy0, tw * ts, th * ts);
 
+  // The light plate is opaque everywhere, open sky included. 'multiply' treats a
+  // transparent destination as "just paint the source", so an unmasked plate
+  // paints its own colour straight over the sky — at full daylight the cap makes
+  // that rgb(220,211,198), a flat beige that swallows the sky gradient and makes
+  // snow terrain indistinguishable from air. Clip it to the pixels terrain
+  // actually drew, so it only ever shades real blocks.
+  lctx.save();
+  lctx.globalCompositeOperation = 'destination-in';
+  lctx.drawImage(_terrainCvs, 0, 0);
+  lctx.restore();
+
   // —— 3) Multiply continuous light onto terrain (no square shade plates) ——
   tctx.save();
   tctx.globalCompositeOperation = 'multiply';
@@ -689,11 +700,7 @@ export function drawClouds(ctx, camX, sky, timeOfDay, weather) {
   const t = timeOfDay;
   ctx.save();
   // Heavier, grayer cover when raining
-  // Cap the cover. Unclamped this reached ~0.96 at midday in heavy rain, and
-  // eight sprites at that alpha tile into a near-opaque sheet — which in a snow
-  // biome makes the sky the same white as SNOW, so ground and air look
-  // identical and a mined hole is invisible.
-  ctx.globalAlpha = Math.min(0.62, (0.22 + sky.day * 0.4) * (1 + rain * 0.55));
+  ctx.globalAlpha = (0.22 + sky.day * 0.4) * (1 + rain * 0.55);
   const n = rain > 0.2 ? 8 : 5;
   for (let i = 0; i < n; i++) {
     const parallax = 0.08 + i * 0.03;

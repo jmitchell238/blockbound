@@ -509,12 +509,18 @@ ok(gcSrc.includes("lastPtr !== 'mouse'"), 'showTouch follows the device last use
   ok(Math.abs(j.cam.y - jy0) < 0.01, 'jumping mid-walk never lifts the camera');
 }
 
-// —— Overcast never whites out the world (v1.9.046) ——
+// —— Light plate must not paint the sky (v1.9.047) ——
 {
   const renSrc = fs.readFileSync(path.join(root, 'js/render/index.js'), 'utf8');
-  const m = renSrc.match(/ctx\.globalAlpha = Math\.min\(([\d.]+),/);
-  ok(!!m && parseFloat(m[1]) <= 0.7,
-    'cloud cover alpha is capped well below opaque');
+  // The plate is opaque everywhere; 'multiply' onto transparent sky paints it
+  // solid beige. It has to be clipped to the pixels terrain actually drew.
+  const lightBlock = renSrc.slice(
+    renSrc.indexOf('lctx.drawImage(_tLightField'),
+    renSrc.indexOf("tctx.globalCompositeOperation = 'multiply'"));
+  ok(/destination-in/.test(lightBlock),
+    'light plate is masked to terrain before the multiply');
+  ok(/lctx\.drawImage\(_terrainCvs/.test(lightBlock),
+    'light plate mask uses the terrain canvas alpha');
 }
 
 // —— World picker scrolling (v1.9.045) ——
