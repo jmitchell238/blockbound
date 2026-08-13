@@ -20,7 +20,7 @@ export { tileKey, itemName } from '../content/items.js';
 export {
   wrapX, wrapDeltaX, generateWorld, generateWorldAsync, getTile, setTile, getLight,
   getRenderLight, lightToBrightness, isSolid, serializeWorld, deserializeWorld,
-  markLightDirty, flushLight, recomputeSkyLight, tickGravityNear, sampleLight,
+  markLightDirty, flushLight, recomputeSkyLight, tickGravityNear, sampleLight, emitLight,
 } from '../world/index.js';
 export {
   isRoofSolidId, isCaveOpenTile, isShelteredAir, caveAirColor,

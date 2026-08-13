@@ -1138,9 +1138,33 @@ console.log('\nMagma');
   const Y = 60;
 
   ok(BB.BLOCK_META[BB.BLOCK.LAVA].solid === false,
-    'magma is not solid — you can fall into it');
+    'lava is not solid — you can fall into it');
   ok(BB.BLOCK_META[BB.BLOCK.LAVA].mine >= 99,
-    'magma still cannot be mined directly');
+    'lava still cannot be mined directly');
+
+  // ——— one hardened crust layer over the molten rock (bb-byj) ———
+  ok(BB.BLOCK.MAGMA != null && BB.BLOCK_META[BB.BLOCK.MAGMA], 'MAGMA is its own block');
+  ok(BB.BLOCK_META[BB.BLOCK.MAGMA].solid === true, 'the crust is solid — you stand on it');
+  ok(BB.BLOCK_META[BB.BLOCK.MAGMA].mine < 50, 'the crust can be mined through');
+  ok(!BB.BLOCK_META[BB.BLOCK.MAGMA].hazard, 'the crust is hardened, so it does not burn');
+  ok(BB.BLOCK_META[BB.BLOCK.LAVA].name === 'Lava' && BB.BLOCK_META[BB.BLOCK.MAGMA].name === 'Magma',
+    'the two are named apart — one block used to be called both');
+
+  const wc = BB.generateWorld(31);
+  let crustCols = 0;
+  let lavaBelow = 0;
+  let crustDepth = 0;
+  for (let x = 0; x < 200; x++) {
+    if (BB.getTile(wc, x, BB.MAGMA_Y) === BB.BLOCK.MAGMA) crustCols++;
+    if (BB.getTile(wc, x, BB.MAGMA_Y + 1) === BB.BLOCK.LAVA) lavaBelow++;
+    // exactly one hardened layer, not a slab of it
+    if (BB.getTile(wc, x, BB.MAGMA_Y + 1) === BB.BLOCK.MAGMA) crustDepth++;
+  }
+  ok(crustCols === 200, `every column is capped with crust (${crustCols}/200)`);
+  ok(lavaBelow === 200, `molten lava sits directly beneath it (${lavaBelow}/200)`);
+  ok(crustDepth === 0, 'the crust is exactly one layer thick');
+  ok(BB.getTile(wc, 10, BB.WORLD_H - 1) === BB.BLOCK.BEDROCK, 'bedrock still floors the world');
+  ok(BB.emitLight(BB.BLOCK.MAGMA) > 0, 'the crust glows — it is the only light down there');
 
   // Deep magma used to be write-protected, which made the slab permanent.
   const w0 = BB.generateWorld(21);

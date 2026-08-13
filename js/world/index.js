@@ -206,7 +206,10 @@ export function generateWorld(seed, onProgress) {
         let id = BLOCK.AIR;
         if (y >= WORLD_H - 2) {
           id = BLOCK.BEDROCK;
-        } else if (y >= MAGMA_Y) {
+        } else if (y === MAGMA_Y) {
+          // One hardened layer caps the molten rock beneath it.
+          id = BLOCK.MAGMA;
+        } else if (y > MAGMA_Y) {
           id = BLOCK.LAVA;
         } else if (y > surface) {
           const depth = y - surface;
@@ -244,7 +247,7 @@ export function generateWorld(seed, onProgress) {
     for (let x = x0; x < x1; x++) {
       for (let y = SURFACE_Y + 4; y < MAGMA_Y - 2; y++) {
         const t = world.tiles[idx(x, y)];
-        if (t === BLOCK.BEDROCK || t === BLOCK.LAVA || t === BLOCK.AIR || t === BLOCK.WATER) continue;
+        if (t === BLOCK.BEDROCK || t === BLOCK.LAVA || t === BLOCK.MAGMA || t === BLOCK.AIR || t === BLOCK.WATER) continue;
         const n = valueNoise2D(x, y, seed + 200, 10);
         const n2 = valueNoise2D(x, y, seed + 300, 5);
         const depth = y - world.surface[x];
@@ -380,7 +383,8 @@ export async function generateWorldAsync(seed, onProgress) {
       for (let y = 0; y < WORLD_H; y++) {
         let id = BLOCK.AIR;
         if (y >= WORLD_H - 2) id = BLOCK.BEDROCK;
-        else if (y >= MAGMA_Y) id = BLOCK.LAVA;
+        else if (y === MAGMA_Y) id = BLOCK.MAGMA;
+        else if (y > MAGMA_Y) id = BLOCK.LAVA;
         else if (y > surface) {
           const depth = y - surface;
           if (depth === 1) id = bio === 1 ? BLOCK.SAND : bio === 2 ? BLOCK.SNOW : BLOCK.GRASS;
@@ -411,7 +415,7 @@ export async function generateWorldAsync(seed, onProgress) {
     for (let x = x0; x < x1; x++) {
       for (let y = SURFACE_Y + 4; y < MAGMA_Y - 2; y++) {
         const t = world.tiles[idx(x, y)];
-        if (t === BLOCK.BEDROCK || t === BLOCK.LAVA || t === BLOCK.AIR || t === BLOCK.WATER) continue;
+        if (t === BLOCK.BEDROCK || t === BLOCK.LAVA || t === BLOCK.MAGMA || t === BLOCK.AIR || t === BLOCK.WATER) continue;
         const n = valueNoise2D(x, y, seed + 200, 10);
         const n2 = valueNoise2D(x, y, seed + 300, 5);
         if ((y - world.surface[x]) > 6 && n > 0.58 && n2 > 0.42) world.tiles[idx(x, y)] = BLOCK.AIR;

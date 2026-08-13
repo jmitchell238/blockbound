@@ -30,6 +30,8 @@ export const BLOCK = {
   PLATFORM: 26,
   CAMPFIRE: 27,
   LANTERN: 28,
+  /** Hardened crust capping the molten LAVA below it. */
+  MAGMA: 29,
 };
 
 export const BLOCK_META = {
@@ -43,9 +45,13 @@ export const BLOCK_META = {
   [BLOCK.COAL]:      { name: 'Coal Ore', solid: true, mine: 1.1, drops: BLOCK.COAL, color: '#3a3a3a', spark: '#1a1a1a' },
   [BLOCK.IRON]:      { name: 'Iron Ore', solid: true, mine: 1.4, drops: BLOCK.IRON, color: '#8a7a70', spark: '#d4a574' },
   [BLOCK.GOLD]:      { name: 'Gold Ore', solid: true, mine: 1.6, drops: BLOCK.GOLD, color: '#9a8a50', spark: '#ffd700' },
-  // Not solid: you fall into magma and sink through it. mine:99 keeps it
-  // unmineable — the way down is to quench it with water and mine the stone.
-  [BLOCK.LAVA]:      { name: 'Magma', solid: false, mine: 99, drops: null, color: '#ff4500', top: '#ff6a00', hazard: true },
+  // Molten. Not solid: you fall in and sink. mine:99 keeps it unmineable —
+  // the way down is to quench it with water and mine the stone that leaves.
+  [BLOCK.LAVA]:      { name: 'Lava', solid: false, mine: 99, drops: null, color: '#ff4500', top: '#ff6a00', hazard: true },
+  // The single hardened layer capping the lava. Cooled, so it does not burn;
+  // mineable, so breaking through it is the deliberate act that opens the
+  // molten layers below. Glows faintly, which is the only light down there.
+  [BLOCK.MAGMA]:     { name: 'Magma', solid: true, mine: 1.8, drops: BLOCK.MAGMA, color: '#4a1f18', top: '#6d2a1d', spark: '#ff6a00', light: 6 },
   [BLOCK.BEDROCK]:   { name: 'Bedrock', solid: true, mine: 99, drops: null, color: '#1a1a22' },
   [BLOCK.WATER]:     { name: 'Water', solid: false, mine: 0, drops: null, color: '#3a8fd4', alpha: 0.55, fluid: true },
   [BLOCK.SNOW]:      { name: 'Snow', solid: true, mine: 0.25, drops: BLOCK.SNOW, color: '#eef6ff', top: '#ffffff', gravity: true },

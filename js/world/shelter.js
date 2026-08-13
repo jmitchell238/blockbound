@@ -53,7 +53,7 @@ export function normalizeWallId(id) {
   if (id == null || id === BLOCK.AIR) return null;
   if (id === BLOCK.GRASS) return BLOCK.DIRT;
   if (id === BLOCK.SNOW) return BLOCK.DIRT; // snow surface walls still earthy
-  if (id === BLOCK.LAVA || id === BLOCK.BEDROCK) return BLOCK.STONE;
+  if (id === BLOCK.LAVA || id === BLOCK.MAGMA || id === BLOCK.BEDROCK) return BLOCK.STONE;
   if (id === BLOCK.WATER || id === BLOCK.LEAVES || id === BLOCK.WOOD) return null;
   if (id === BLOCK.TORCH || id === BLOCK.LANTERN || id === BLOCK.LADDER) return null;
   if (id === BLOCK.CAMPFIRE || id === BLOCK.GLASS || id === BLOCK.PLATFORM) return null;

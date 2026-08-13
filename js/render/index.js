@@ -2180,6 +2180,7 @@ export function drawMinimap(ctx, world, player, cam) {
       else if (id === BLOCK.STONE || id === BLOCK.COAL) col = '#778';
       else if (id === BLOCK.WATER) col = '#48c';
       else if (id === BLOCK.LAVA) col = '#f50';
+      else if (id === BLOCK.MAGMA) col = '#a33';
       else if (id === BLOCK.SAND) col = '#db6';
       else if (id === BLOCK.SNOW) col = '#eef';
       else if (id === BLOCK.IRON || id === BLOCK.GOLD || id === BLOCK.COPPER) col = '#fc5';
