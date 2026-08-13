@@ -60,7 +60,10 @@ export function setTile(world, x, y, id, opts) {
   if (y < 0 || y >= WORLD_H) return false;
   const i = idx(x, y);
   if (world.tiles[i] === BLOCK.BEDROCK && id !== BLOCK.BEDROCK) return false;
-  if (world.tiles[i] === BLOCK.LAVA && id !== BLOCK.LAVA && y >= MAGMA_Y) return false;
+  // The magma slab used to be write-protected below MAGMA_Y, which made it a
+  // permanent floor. It is a liquid now: it reflows into anything you clear, so
+  // the slab defends itself without a special case, and quenching it with water
+  // has to be allowed to write stone here.
   if (world.tiles[i] === id) return true;
   const was = world.tiles[i];
   world.tiles[i] = id;

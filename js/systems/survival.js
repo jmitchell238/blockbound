@@ -44,7 +44,9 @@ export function updateSurvival(s, dt) {
     }
   } else {
     s.hungerTimer = 0;
-    if (player.hunger > 50 && player.hp < player.maxHp && Math.abs(player.vx) < 0.1) {
+    player.burning = Math.max(0, (player.burning || 0) - dt);
+    if (player.hunger > 50 && player.hp < player.maxHp && Math.abs(player.vx) < 0.1
+      && !(player.burning > 0)) {
       player.hp = Math.min(player.maxHp, player.hp + dt * 3);
     }
   }

@@ -1123,6 +1123,105 @@ console.log('\nLiquid flow');
   ok(Object.keys(round.liquid || {}).length === entries, 'flow levels survive save + load');
 }
 
+
+// —— Magma as a liquid (v1.9.061, bb-z8t + bb-8so + bb-hr1) ——
+console.log('\nMagma');
+{
+  const liqUrl = pathToFileURL(path.join(root, 'js/world/liquid.js')).href;
+  const { tickLiquids, WATER_STEP, LAVA_SLOW } = await import(liqUrl);
+  const API = { getTile: BB.getTile, setTile: BB.setTile };
+  const settle = (w, steps = 400) => { for (let i = 0; i < steps; i++) tickLiquids(w, WATER_STEP, API); };
+  const slab = (yTop, yBot, x0, x1, w) => {
+    for (let x = x0; x <= x1; x++) for (let y = yTop; y <= yBot; y++) BB.setTile(w, x, y, BB.BLOCK.STONE);
+  };
+  BB.applyWorldSize(1024);
+  const Y = 60;
+
+  ok(BB.BLOCK_META[BB.BLOCK.LAVA].solid === false,
+    'magma is not solid — you can fall into it');
+  ok(BB.BLOCK_META[BB.BLOCK.LAVA].mine >= 99,
+    'magma still cannot be mined directly');
+
+  // Deep magma used to be write-protected, which made the slab permanent.
+  const w0 = BB.generateWorld(21);
+  const deep = BB.WORLD_H - 5;
+  ok(BB.getTile(w0, 50, deep) === BB.BLOCK.LAVA, 'the world still has a magma slab');
+  ok(BB.setTile(w0, 50, deep, BB.BLOCK.STONE) === true,
+    'deep magma can now be written (needed to quench it)');
+
+  // ——— water quenches magma into stone ———
+  const w1 = BB.generateWorld(22);
+  slab(Y - 6, Y + 6, 100, 140, w1);
+  for (let x = 115; x <= 125; x++) { BB.setTile(w1, x, Y, BB.BLOCK.AIR); BB.setTile(w1, x, Y - 1, BB.BLOCK.AIR); }
+  BB.setTile(w1, 120, Y, BB.BLOCK.LAVA);
+  settle(w1);
+  BB.setTile(w1, 120, Y - 1, BB.BLOCK.WATER);   // pour water onto the magma
+  settle(w1);
+  ok(BB.getTile(w1, 120, Y) === BB.BLOCK.STONE,
+    'water poured onto magma turns it to stone');
+
+  // ——— magma reflows into a void, so one block at a time gets you nowhere ———
+  const w2 = BB.generateWorld(23);
+  slab(Y - 6, Y + 6, 200, 240, w2);
+  for (let x = 215; x <= 225; x++) BB.setTile(w2, x, Y, BB.BLOCK.LAVA);
+  settle(w2);
+  BB.setTile(w2, 220, Y, BB.BLOCK.AIR);          // clear one tile out of the middle
+  settle(w2);
+  ok(BB.getTile(w2, 220, Y) === BB.BLOCK.LAVA,
+    'magma flows back into a single cleared tile');
+
+  // ——— but cut off the supply and the hole stays open ———
+  const w3 = BB.generateWorld(24);
+  slab(Y - 6, Y + 6, 300, 340, w3);
+  for (let x = 315; x <= 325; x++) BB.setTile(w3, x, Y, BB.BLOCK.LAVA);
+  settle(w3);
+  BB.setTile(w3, 319, Y, BB.BLOCK.STONE);        // walls either side
+  BB.setTile(w3, 321, Y, BB.BLOCK.STONE);
+  BB.setTile(w3, 320, Y, BB.BLOCK.AIR);
+  settle(w3);
+  ok(BB.getTile(w3, 320, Y) === BB.BLOCK.AIR,
+    'walling the magma off keeps the hole open — the way down is to cut supply');
+
+  // ——— magma is slower than water ———
+  const mk = (id, seed) => {
+    const w = BB.generateWorld(seed);
+    slab(Y - 6, Y + 6, 400, 460, w);
+    for (let x = 410; x <= 450; x++) BB.setTile(w, x, Y, BB.BLOCK.AIR);
+    BB.setTile(w, 430, Y, id);
+    return w;
+  };
+  const spread = (w) => { let n = 0; for (let x = 410; x <= 450; x++) if (isLiq(BB.getTile(w, x, Y))) n++; return n; };
+  const isLiq = (t) => t === BB.BLOCK.WATER || t === BB.BLOCK.LAVA;
+  const ww = mk(BB.BLOCK.WATER, 25);
+  const wl = mk(BB.BLOCK.LAVA, 26);
+  for (let i = 0; i < 6; i++) { tickLiquids(ww, WATER_STEP, API); tickLiquids(wl, WATER_STEP, API); }
+  ok(spread(ww) > spread(wl),
+    `magma oozes slower than water (${spread(wl)} vs ${spread(ww)} tiles after 6 ticks)`);
+  ok(LAVA_SLOW > 1, 'magma has a slower step rate than water');
+
+  // ——— swim physics exist and are gentler than falling ———
+  const psrc = fs.readFileSync(path.join(root, 'js/player/index.js'), 'utf8');
+  ok(/feet === BLOCK\.LAVA \|\| body === BLOCK\.LAVA/.test(psrc),
+    'the player has a magma branch, reachable now magma is not solid');
+  ok(/LAVA_SINK/.test(psrc) && /LAVA_SWIM/.test(psrc), 'magma has sink and swim speeds');
+  const sink = +psrc.match(/const LAVA_SINK = ([\d.]+)/)[1];
+  const swim = +psrc.match(/const LAVA_SWIM = ([\d.]+)/)[1];
+  ok(sink < 4, `sinking is slower than falling through air (${sink} tiles/s)`);
+  ok(swim > sink, 'you can swim upward faster than you sink — magma is escapable');
+  ok(/underfoot === BLOCK\.LAVA/.test(psrc),
+    'the swim stroke still applies at the surface, so you can climb onto a ledge');
+  ok(!/p\.vy = JUMP_VEL \/ TILE \* 0\.6/.test(psrc),
+    'the old hazard bounce is gone — it fought the sinking');
+  ok(/p\.burning = /.test(psrc), 'burning is flagged so idle regen can be suppressed');
+
+  // On Easy the burn is 2.8 hp/s and idle regen is 3 hp/s: without this the
+  // player healed faster than magma hurt and was simply immortal in it.
+  const surv = fs.readFileSync(path.join(root, 'js/systems/survival.js'), 'utf8');
+  ok(/!\(player\.burning > 0\)/.test(surv), 'idle regen is suppressed while burning');
+  const gcSrcM = fs.readFileSync(path.join(root, 'js/session/GameController.js'), 'utf8');
+  ok(/player\.hazardMul = /.test(gcSrcM), 'magma burn scales with difficulty');
+}
+
 if (failed) {
   console.error(`\n${failed} failed`);
   process.exit(1);

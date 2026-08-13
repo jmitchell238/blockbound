@@ -364,6 +364,9 @@ export function gameUpdate(dt) {
   player.godMode = !!(diff.creative || diff.invincible);
   // Creative flight
   player.canFly = !!diff.creative;
+  // Magma burn scales with the same dial that scales mob damage: Creative 0,
+  // Easy 0.35, Normal 1, Hard 1.55. No new tuning knob to keep in sync.
+  player.hazardMul = diff.creative ? 0 : diff.mobDamageMul;
   if (!player.canFly) player.flying = false;
   else if (player.flying == null) player.flying = false;
   // Tell the player fly is available — but let them start on the ground, so

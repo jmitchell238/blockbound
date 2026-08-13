@@ -34,8 +34,14 @@ export const WATER_STEP = 0.18;
 export const MAX_CELLS_PER_STEP = 400;
 
 export function isLiquid(id) {
-  return id === BLOCK.WATER;
+  return id === BLOCK.WATER || id === BLOCK.LAVA;
 }
+
+/**
+ * Magma is thick: it steps once every LAVA_SLOW flow ticks, so it visibly
+ * oozes rather than snapping into place the way water does.
+ */
+export const LAVA_SLOW = 4;
 
 /**
  * Level of the liquid at a tile, 0 when there is none.
@@ -89,27 +95,54 @@ export function scheduleCell(world, x, y) {
  * one-wide two-deep hole fill both tiles instead of only the one you poured
  * into. Water that can fall does not spread sideways at all.
  */
-function stepCell(world, x, y, api) {
+function stepCell(world, x, y, api, tick) {
   const { getTile, setTile } = api;
   const here = getTile(world, x, y);
 
+  // Magma quenched by water turns to stone. This is the whole route down
+  // through the magma slab: pour water, get a stone tile, mine it, let magma
+  // flow back in, pour again. Handled from the magma side so a single rule
+  // covers both "water poured onto magma" and "magma flowed into water".
+  if (here === BLOCK.LAVA && touches(world, x, y, BLOCK.WATER, getTile)) {
+    setTile(world, x, y, BLOCK.STONE);
+    clearLevel(world, x, y);
+    scheduleCell(world, x, y);
+    return true;
+  }
+
   if (!isLiquid(here)) {
-    // An empty cell fills if something above it is falling in, or a
-    // high-enough neighbour reaches it.
     if (!canHold(here)) return false;
-    const feed = supportFor(world, x, y, api);
-    if (feed > 0) {
+    const feedWater = supportFor(world, x, y, api, BLOCK.WATER);
+    const feedLava = supportFor(world, x, y, api, BLOCK.LAVA);
+    // Both reaching the same empty tile is the same reaction as above.
+    if (feedWater > 0 && feedLava > 0) {
+      setTile(world, x, y, BLOCK.STONE);
+      scheduleCell(world, x, y);
+      return true;
+    }
+    if (feedWater > 0) {
       setTile(world, x, y, BLOCK.WATER);
-      setLevel(world, x, y, feed);
+      setLevel(world, x, y, feedWater);
+      scheduleCell(world, x, y);
+      return true;
+    }
+    if (feedLava > 0) {
+      if (tick % LAVA_SLOW !== 0) { scheduleCell(world, x, y); return false; }
+      setTile(world, x, y, BLOCK.LAVA);
+      setLevel(world, x, y, feedLava);
       scheduleCell(world, x, y);
       return true;
     }
     return false;
   }
 
+  if (here === BLOCK.LAVA && tick % LAVA_SLOW !== 0) {
+    scheduleCell(world, x, y);
+    return false;
+  }
+
   // Sources never drain and never need topping up.
   if (isSource(world, x, y, getTile)) {
-    // ...but they still push: schedule below and beside so the flow starts.
     if (canHold(getTile(world, x, y + 1))
       || canHold(getTile(world, x - 1, y))
       || canHold(getTile(world, x + 1, y))) {
@@ -119,7 +152,7 @@ function stepCell(world, x, y, api) {
   }
 
   const level = getLevel(world, x, y, getTile);
-  const support = supportFor(world, x, y, api);
+  const support = supportFor(world, x, y, api, here);
 
   if (support <= 0) {
     // Nothing feeds this any more — the puddle drains rather than sitting
@@ -137,24 +170,32 @@ function stepCell(world, x, y, api) {
   return false;
 }
 
+/** Is any orthogonal neighbour this block? */
+function touches(world, x, y, id, getTile) {
+  return getTile(world, x - 1, y) === id || getTile(world, x + 1, y) === id
+    || getTile(world, x, y - 1) === id || getTile(world, x, y + 1) === id;
+}
+
 /** Can liquid occupy this tile? */
 function canHold(id) {
   return id === BLOCK.AIR;
 }
 
 /**
- * The level this cell is entitled to, given its neighbours.
+ * The level this cell is entitled to from liquid of one kind, given its
+ * neighbours. Water and magma never prop each other up — where they meet they
+ * react instead.
  * Fed from directly above at full strength (a waterfall stays full all the way
  * down); from the sides at one less than the neighbour.
  */
-function supportFor(world, x, y, api) {
+function supportFor(world, x, y, api, kind) {
   const { getTile } = api;
   const above = getTile(world, x, y - 1);
-  if (isLiquid(above)) return MAX_LEVEL - 1;
+  if (above === kind) return MAX_LEVEL - 1;
 
   let best = 0;
   for (const nx of [x - 1, x + 1]) {
-    if (!isLiquid(getTile(world, nx, y))) continue;
+    if (getTile(world, nx, y) !== kind) continue;
     // A neighbour only spreads sideways when it has something solid to sit on.
     // If it can still go down — into air, or into a column of liquid that is
     // itself falling — it does that instead. Testing merely "is the tile below
@@ -179,6 +220,8 @@ export function tickLiquids(world, dt, api) {
   world._liquidT = (world._liquidT || 0) + dt;
   if (world._liquidT < WATER_STEP) return 0;
   world._liquidT = 0;
+  world._liquidTick = (world._liquidTick || 0) + 1;
+  const tick = world._liquidTick;
 
   const queue = world._liquidQueue;
   world._liquidQueue = new Set();
@@ -195,7 +238,7 @@ export function tickLiquids(world, dt, api) {
     const c = k.indexOf(',');
     const x = +k.slice(0, c);
     const y = +k.slice(c + 1);
-    if (stepCell(world, x, y, api)) changed++;
+    if (stepCell(world, x, y, api, tick)) changed++;
   }
   return changed;
 }

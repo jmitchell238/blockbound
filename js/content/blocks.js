@@ -43,7 +43,9 @@ export const BLOCK_META = {
   [BLOCK.COAL]:      { name: 'Coal Ore', solid: true, mine: 1.1, drops: BLOCK.COAL, color: '#3a3a3a', spark: '#1a1a1a' },
   [BLOCK.IRON]:      { name: 'Iron Ore', solid: true, mine: 1.4, drops: BLOCK.IRON, color: '#8a7a70', spark: '#d4a574' },
   [BLOCK.GOLD]:      { name: 'Gold Ore', solid: true, mine: 1.6, drops: BLOCK.GOLD, color: '#9a8a50', spark: '#ffd700' },
-  [BLOCK.LAVA]:      { name: 'Magma', solid: true, mine: 99, drops: null, color: '#ff4500', top: '#ff6a00', hazard: true },
+  // Not solid: you fall into magma and sink through it. mine:99 keeps it
+  // unmineable — the way down is to quench it with water and mine the stone.
+  [BLOCK.LAVA]:      { name: 'Magma', solid: false, mine: 99, drops: null, color: '#ff4500', top: '#ff6a00', hazard: true },
   [BLOCK.BEDROCK]:   { name: 'Bedrock', solid: true, mine: 99, drops: null, color: '#1a1a22' },
   [BLOCK.WATER]:     { name: 'Water', solid: false, mine: 0, drops: null, color: '#3a8fd4', alpha: 0.55, fluid: true },
   [BLOCK.SNOW]:      { name: 'Snow', solid: true, mine: 0.25, drops: BLOCK.SNOW, color: '#eef6ff', top: '#ffffff', gravity: true },

@@ -80,6 +80,13 @@ export function autoJumpStep(world, p, ix) {
     && !isSolid(world, ax, footY - 2);      // ...and room for their head.
 }
 
+/** Magma burn, hp/sec before difficulty scaling. Scaled by player.hazardMul. */
+const LAVA_DPS = 8;
+/** Terminal sink speed in magma, tiles/sec. Falling through air is much faster. */
+const LAVA_SINK = 1.1;
+/** Upward swim speed in magma. Slower than water (2.2) but enough to clear a ledge. */
+const LAVA_SWIM = 2.0;
+
 export function playerAABB(p) {
   return {
     left: p.x - p.w / 2,
@@ -250,12 +257,30 @@ export function updatePlayer(p, world, input, dt, toolPower) {
   // Hazards
   const feet = getTile(world, Math.floor(p.x), Math.floor(p.y - 0.05));
   const body = getTile(world, Math.floor(p.x), Math.floor(p.y - p.h * 0.5));
+  // The tile you are floating *on*. Bobbing at the surface of a magma pool
+  // puts your feet exactly level with an adjacent ledge — a hair too low to
+  // step onto, and too high to still count as submerged, so without this the
+  // swim stroke cuts out at the surface and you can never climb out.
+  const underfoot = getTile(world, Math.floor(p.x), Math.floor(p.y + 0.05));
   if ((BLOCK_META[feet] && BLOCK_META[feet].hazard) || (BLOCK_META[body] && BLOCK_META[body].hazard)) {
-    if (!p.godMode && p.invuln <= 0) {
-      p.hp -= 18;
-      p.invuln = 0.8;
-      p.vy = JUMP_VEL / TILE * 0.6;
-      result.hurt = 18;
+    // This branch was unreachable until magma stopped being solid: collision
+    // always pushed the player out before it ran, so magma did nothing at all.
+    // Waking it up needed two changes. The bounce is gone — it fought the
+    // sinking magma is now supposed to allow, throwing the player up and down
+    // instead of letting them swim. And 18 points every 0.8s made a four-deep
+    // pool unsurvivable, so it burns continuously at a rate you can escape.
+    if (!p.godMode) {
+      const mul = p.hazardMul == null ? 1 : p.hazardMul;
+      p.hp -= LAVA_DPS * mul * dt;
+      // Block idle regen while burning. On Easy the burn is 2.8 hp/s and
+      // survival regen is 3 hp/s, so standing still in magma healed faster
+      // than it hurt and the player was simply immortal in it.
+      p.burning = 0.75;
+      p.burnFxT = (p.burnFxT || 0) - dt;
+      if (mul > 0 && p.burnFxT <= 0) {
+        p.burnFxT = 0.5;
+        result.hurt = LAVA_DPS * mul * 0.5;
+      }
     }
   }
 
@@ -275,6 +300,13 @@ export function updatePlayer(p, world, input, dt, toolPower) {
     p.vx *= 0.92;
     if (p.vy > 1.5) p.vy *= 0.85;
     if (input.jump || input.up) p.vy = Math.min(p.vy, -2.2);
+  } else if (feet === BLOCK.LAVA || body === BLOCK.LAVA || underfoot === BLOCK.LAVA) {
+    // Magma is thick. You sink slowly rather than fall, and you can swim back
+    // out under your own power — including up onto a one-block ledge, which is
+    // what stops a fall into the slab being a dead end.
+    p.vx *= 0.80;
+    if (p.vy > LAVA_SINK) p.vy = LAVA_SINK;
+    if (input.jump || input.up) p.vy = Math.min(p.vy, -LAVA_SWIM);
   }
 
   // Mining (creative: near-instant break)
