@@ -927,6 +927,37 @@ console.log('\nAuto-jump');
     'auto-jump is suppressed while flying or climbing');
 }
 
+
+// —— Esc does not pause on top of an open panel (v1.9.058, bb-ror) ——
+console.log('\nPause vs open panels');
+{
+  const gc = fs.readFileSync(path.join(root, 'js/session/GameController.js'), 'utf8');
+  const pause = gc.slice(gc.indexOf('// Pause.'), gc.indexOf('// Zoom'));
+
+  ok(/closeOpenPanel\(ui\)/.test(pause), 'Esc closes an open panel instead of pausing over it');
+  ok(/else s\.paused = !s\.paused/.test(pause), 'Esc still pauses when nothing is open');
+  ok(/ui\.creativeOpen \|\| ui\.bagOpen \|\| ui\.chestOpen \|\| ui\.craftOpen/.test(pause),
+    'all four panels count as open');
+  ok(/clearLatchedInput\(input\)/.test(pause),
+    'paused frames drop one-shot input instead of buffering it');
+
+  // Everything the update loop consumes as a one-shot must be cleared, or it
+  // fires the moment play resumes.
+  const body = gc.slice(gc.indexOf('function clearLatchedInput'),
+                        gc.indexOf('function closeOpenPanel'));
+  const oneShots = [
+    'craftToggle', 'bagToggle', 'creativeToggle', 'modeToggle', 'flyToggle',
+    'usePressed', 'attackPressed', 'jumpPressed', 'hotbarTap', 'tapPlace',
+  ];
+  const missed = oneShots.filter(k => !body.includes(k));
+  ok(missed.length === 0, 'clearLatchedInput covers every one-shot flag' +
+    (missed.length ? ` — missing ${missed.join(', ')}` : ''));
+  // Held movement must survive: it is re-read from the keyboard each frame and
+  // clearing it would make the player stutter on resume.
+  ok(!/input\.left = |input\.right = /.test(body),
+    'clearLatchedInput leaves held movement alone');
+}
+
 if (failed) {
   console.error(`\n${failed} failed`);
   process.exit(1);

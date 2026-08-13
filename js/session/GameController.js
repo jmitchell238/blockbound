@@ -322,13 +322,21 @@ export function gameUpdate(dt) {
 
   if (ui.toastT > 0) ui.toastT -= dt;
 
-  // Pause
+  // Pause. Esc closes an open panel first: pausing on top of one hid the panel
+  // behind the overlay and stranded whatever the player was carrying in it.
   if (input.pauseToggle) {
-    s.paused = !s.paused;
     input.pauseToggle = false;
     // No toast: the full-screen overlay already says it, louder.
+    if (ui.creativeOpen || ui.bagOpen || ui.chestOpen || ui.craftOpen) closeOpenPanel(ui);
+    else s.paused = !s.paused;
   }
-  if (s.paused) return;
+  if (s.paused) {
+    // Every one-shot handler below this return would otherwise keep its flag
+    // set and all fire at once the moment play resumes — press Esc, mash keys,
+    // un-pause, and the character would suddenly do all of it.
+    clearLatchedInput(input);
+    return;
+  }
 
   // Zoom — wheel (delta) or iPad pinch (absolute)
   if (input.zoomAbsolute != null && Number.isFinite(input.zoomAbsolute)) {
@@ -1224,6 +1232,28 @@ export function stowHotbarToBag(s) {
  * panel, the ✕ was the only way out on touch — tapping the dimmed area
  * outside is the gesture people already expect, and costs no new UI.
  */
+/**
+ * Drop one-shot input flags that would otherwise queue up while paused.
+ * Held state (movement keys, sprint) is deliberately left alone — it re-reads
+ * from the keyboard every frame anyway.
+ */
+function clearLatchedInput(input) {
+  input.craftToggle = false;
+  input.bagToggle = false;
+  input.creativeToggle = false;
+  input.modeToggle = false;
+  input.flyToggle = false;
+  input.usePressed = false;
+  input.attackPressed = false;
+  input.jumpPressed = false;
+  input.jump = false;
+  input.hotbarTap = -1;
+  input.tapPlace = null;
+  input.holdMining = false;
+  input.mineTx = null;
+  input.mineTy = null;
+}
+
 function closeOpenPanel(ui) {
   if (ui.creativeOpen) ui.creativeOpen = false;
   else if (ui.bagOpen) ui.bagOpen = false;
