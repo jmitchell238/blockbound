@@ -44,7 +44,7 @@
   </div>
   <script>
     (function () {
-      var TARGET = './?fresh=1.9.054&t=' + Date.now();
+      var TARGET = './?fresh=1.9.055&t=' + Date.now();
       var log = document.getElementById('log');
       function say(m) { if (log) log.textContent = m; }
 
@@ -79,7 +79,7 @@
         }
         try {
           localStorage.removeItem('bb-build');
-          localStorage.setItem('bb-build', '1.9.054');
+          localStorage.setItem('bb-build', '1.9.055');
           // clear one-shot session locks from failed updates — but keep our own
           // re-entry guard, or this page loses its memory of having run.
           Object.keys(sessionStorage).forEach(function (k) {

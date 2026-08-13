@@ -756,6 +756,82 @@ console.log('\nChest panel layout');
     'every chest label sets its own textAlign');
 }
 
+
+// —— Bottom HUD layout (v1.9.055, bb-c69 + bb-37u) ——
+// The renderer and the hit-tester used to carry separate copies of the hotbar
+// numbers and had drifted apart (drawn 42/5 vs tested 40/4), so taps near the
+// slot edges selected the wrong slot.
+console.log('\nBottom HUD layout');
+{
+  const hudUrl = pathToFileURL(path.join(root, 'js/render/hudLayout.js')).href;
+  const { hudLayout, hotbarSlotAt } = await import(hudUrl);
+  const N = 8;
+
+  for (const [name, VW, VH] of [['landscape', 640, 400], ['portrait', 390, 600]]) {
+    const L = hudLayout(VW, VH, N);
+    const { hp, hunger, energy } = L.bars;
+
+    ok(L.slots.length === N, `${name} lays out all ${N} hotbar slots`);
+
+    const off = L.slots.filter(s => s.x < 0 || s.y < 0 || s.x + s.w > VW || s.y + s.h > VH);
+    ok(off.length === 0, `${name} every hotbar slot is on-canvas` +
+      (off.length ? ` — ${off.length} off` : ''));
+
+    const outside = L.slots.filter(s =>
+      s.x < L.tray.x || s.y < L.tray.y ||
+      s.x + s.w > L.tray.x + L.tray.w || s.y + s.h > L.tray.y + L.tray.h);
+    ok(outside.length === 0, `${name} every hotbar slot sits inside the tray`);
+
+    // Bars sit above the tray, not on it, and do not overlap each other.
+    ok(hp.y + hp.h <= L.tray.y, `${name} health bar clears the hotbar tray`);
+    ok(hunger.y + hunger.h <= L.tray.y, `${name} hunger bar clears the hotbar tray`);
+    ok(hp.x + hp.w <= hunger.x, `${name} health and hunger bars do not overlap`);
+    ok(hp.y >= 0 && hunger.y >= 0, `${name} bars are on-canvas`);
+    // The energy sliver is reserved whether drawn or not, so the bars never jump.
+    ok(energy.y >= hp.y + hp.h && energy.y + energy.h <= L.tray.y,
+      `${name} energy sliver sits between the bars and the tray`);
+
+    // The contract that actually broke: what is drawn is what is tapped.
+    let mismatched = 0;
+    for (const s of L.slots) {
+      for (const [px, py] of [
+        [s.x + 0.5, s.y + 0.5],                 // top-left pixel
+        [s.x + s.w / 2, s.y + s.h / 2],         // centre
+        [s.x + s.w - 0.5, s.y + s.h - 0.5],     // bottom-right pixel
+      ]) {
+        if (hotbarSlotAt(VW, VH, N, px, py) !== s.i) mismatched++;
+      }
+    }
+    ok(mismatched === 0,
+      `${name} every drawn hotbar slot hit-tests to itself` +
+      (mismatched ? ` — ${mismatched} corners wrong` : ''));
+
+    console.log(`  · ${name} tray [${L.tray.x},${L.tray.y}] ${L.tray.w}x${L.tray.h}, ` +
+      `bars y=${hp.y} w=${hp.w}`);
+  }
+
+  // Neither side may keep its own copy of the numbers.
+  const renHud = fs.readFileSync(path.join(root, 'js/render/index.js'), 'utf8');
+  const inpHud = fs.readFileSync(path.join(root, 'js/input/input.js'), 'utf8');
+  const drawHud = renHud.slice(renHud.indexOf('export function drawHUD'),
+                               renHud.indexOf('export function drawBar'));
+  ok(/hudLayout\(W, H, HOTBAR_SIZE\)/.test(drawHud),
+    'drawHUD takes its hotbar geometry from hudLayout');
+  ok(!/const slot = 4\d;/.test(drawHud), 'drawHUD keeps no private hotbar slot size');
+  ok(/hotbarSlotAt\(/.test(inpHud), 'input.js hit-tests via hotbarSlotAt');
+  ok(!/const slot = 4\d;/.test(inpHud), 'input.js keeps no private hotbar slot size');
+  ok(sw.includes('hudLayout.js'), 'SW caches hudLayout.js');
+
+  // Buttons move to the right of the tray in landscape only.
+  const css = fs.readFileSync(path.join(root, 'css/style.css'), 'utf8');
+  ok(/body\.landscape \.bag-btn\s*\{[^}]*right:/.test(css),
+    'inventory button is right-aligned in landscape');
+  ok(/body\.landscape \.fly-btn\s*\{[^}]*right:/.test(css),
+    'fly button is right-aligned in landscape');
+  ok(/body:not\(\.landscape\)[^{]*\.bag-btn/.test(css),
+    'portrait chrome is lifted clear of the full-width tray');
+}
+
 if (failed) {
   console.error(`\n${failed} failed`);
   process.exit(1);

@@ -880,6 +880,35 @@ body.landscape .creative-btn,
 body.landscape .fly-btn {
   bottom: max(72px, calc(env(safe-area-inset-bottom, 0px) + 64px));
 }
+
+/* Inventory / creative / fly move to the right of the hotbar, the side a
+   player already reaches for. The hotbar tray is centred and never wider than
+   ~80% of the canvas in landscape, so this band is free. Menu and Craft stay
+   left. In portrait the tray is nearly full width, so they stay left there and
+   only rise clear of it (below). */
+body.landscape .bag-btn {
+  left: auto;
+  right: max(10px, env(safe-area-inset-right, 0px));
+}
+body.landscape .fly-btn {
+  left: auto;
+  right: max(72px, calc(env(safe-area-inset-right, 0px) + 62px));
+}
+body.landscape .creative-btn {
+  left: auto;
+  right: max(158px, calc(env(safe-area-inset-right, 0px) + 148px));
+}
+
+/* Portrait: the hotbar spans almost the whole width and the status bars sit
+   just above it, so the chrome row has to clear both instead of landing on
+   the tray the way it did through v1.9.054. */
+body:not(.landscape) #btnMenu,
+body:not(.landscape) .craft-btn,
+body:not(.landscape) .bag-btn,
+body:not(.landscape) .creative-btn,
+body:not(.landscape) .fly-btn {
+  bottom: max(200px, calc(env(safe-area-inset-bottom, 0px) + 190px));
+}
 body.landscape .touch-act-btn {
   bottom: max(150px, calc(env(safe-area-inset-bottom, 0px) + 130px));
   min-width: 80px;

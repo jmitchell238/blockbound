@@ -1,6 +1,6 @@
 /** Engine constants — version, viewport, physics. Content catalogs live in content/. */
 
-export const GAME_VERSION = '1.9.054';
+export const GAME_VERSION = '1.9.055';
 export const GAME_VERSION_LABEL = 'v' + GAME_VERSION;
 export const GAME_NAME = 'Blockbound';
 

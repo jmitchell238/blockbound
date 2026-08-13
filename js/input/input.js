@@ -1,5 +1,6 @@
 import { W, H, TILE } from '../core/constants.js';
 import { HOTBAR_SIZE } from '../inventory/inventory.js';
+import { hotbarSlotAt } from '../render/hudLayout.js';
 
 /**
  * Controls:
@@ -275,12 +276,12 @@ export function handlePointer(input, p, phase, getCam) {
 
   if (phase === 'down') {
     if (inHotbar) {
-      const slot = 40;
-      const gap = 4;
-      const total = HOTBAR_SIZE * slot + (HOTBAR_SIZE - 1) * gap;
-      const hx = (W - total) / 2;
-      const i = Math.floor((p.x - hx) / (slot + gap));
-      if (i >= 0 && i < HOTBAR_SIZE) input.hotbarTap = i;
+      // Same geometry the renderer draws — these numbers used to be a second,
+      // drifted copy (slot 40 / gap 4 vs the drawn 42 / 5), which selected the
+      // wrong slot near the edges. Still swallow the tap either way: falling
+      // through would place a block behind the tray.
+      const i = hotbarSlotAt(W, H, HOTBAR_SIZE, p.x, p.y);
+      if (i >= 0) input.hotbarTap = i;
       return;
     }
     if (inJump) {

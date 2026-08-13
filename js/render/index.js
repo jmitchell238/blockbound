@@ -6,6 +6,7 @@ import { getDifficulty, creativeCatalog } from '../core/difficulty.js';
 import { BLOCK, BLOCK_META, isPlatform } from '../content/blocks.js';
 import { FOOD, isTool, isFood, isWeapon } from '../content/tools.js';
 import { itemName, isBlockItem } from '../content/items.js';
+import { hudLayout } from './hudLayout.js';
 import {
   wrapX, wrapDeltaX, getTile, getLight, getRenderLight, sampleLight, lightToBrightness, isSolid,
 } from '../world/index.js';
@@ -1926,18 +1927,30 @@ export function roundRect(ctx, x, y, w, h, r) {
 }
 
 export function drawHUD(ctx, player, inv, world, cam, ui, sky) {
-  // Status bars — clear top-left (menu chrome lives above the hotbar now)
-  const barX = 12;
-  const barY = 10;
   const diff = getDifficulty(ui.difficultyId);
   const isCreative = !!(ui.creative || diff.creative);
 
+  const hud = hudLayout(W, H, HOTBAR_SIZE);
+
+  // Health and hunger ride just above the hotbar rather than top-left, so all
+  // the survival state a player reads mid-play sits in one band at the bottom.
   // Creative has no survival bars, and needs no badge saying so: the ✈ Fly
   // button only exists in creative, which already tells you where you are.
   if (!isCreative) {
-    drawBar(ctx, barX, barY, 132, 14, player.hp / player.maxHp, '#e74c3c', '♥');
-    drawBar(ctx, barX, barY + 18, 132, 12, player.hunger != null ? player.hunger / player.maxHunger : 1, '#e67e22', '🍖');
-    drawBar(ctx, barX, barY + 34, 132, 12, player.energy / player.maxEnergy, '#f1c40f', '⚡');
+    const { hp, hunger, energy } = hud.bars;
+    drawBar(ctx, hp.x, hp.y, hp.w, hp.h, player.hp / player.maxHp, '#e74c3c', '♥');
+    drawBar(ctx, hunger.x, hunger.y, hunger.w, hunger.h,
+      player.hunger != null ? player.hunger / player.maxHunger : 1, '#e67e22', '🍖');
+    // Only while it is actually limiting them — see hudLayout.
+    const efrac = player.energy / player.maxEnergy;
+    if (efrac < 0.999) {
+      ctx.fillStyle = 'rgba(0,0,0,0.45)';
+      roundRect(ctx, energy.x, energy.y, energy.w, energy.h, 1.5);
+      ctx.fill();
+      ctx.fillStyle = '#f1c40f';
+      roundRect(ctx, energy.x, energy.y, Math.max(2, energy.w * Math.max(0, efrac)), energy.h, 1.5);
+      ctx.fill();
+    }
   }
 
   // Coordinates, biome, seed, tool, backpack count, difficulty, control mode
@@ -1961,18 +1974,14 @@ export function drawHUD(ctx, player, inv, world, cam, ui, sky) {
   }
 
   // Hotbar with textured icons
-  const slot = 42;
-  const gap = 5;
-  const total = HOTBAR_SIZE * slot + (HOTBAR_SIZE - 1) * gap;
-  const hx = (W - total) / 2;
-  const hy = H - 60;
-  // tray
+  // Geometry from hudLayout so the hit-tester in input.js can read the exact
+  // same numbers (bb-37u).
+  const { slot, tray } = hud;
   ctx.fillStyle = 'rgba(6,14,10,0.55)';
-  roundRect(ctx, hx - 8, hy - 8, total + 16, slot + 16, 14);
+  roundRect(ctx, tray.x, tray.y, tray.w, tray.h, 14);
   ctx.fill();
 
-  for (let i = 0; i < HOTBAR_SIZE; i++) {
-    const x = hx + i * (slot + gap);
+  for (const { i, x, y: hy } of hud.slots) {
     const sel = i === inv.selected;
     ctx.fillStyle = sel ? 'rgba(125,255,160,0.18)' : 'rgba(0,0,0,0.4)';
     roundRect(ctx, x, hy, slot, slot, 10);
