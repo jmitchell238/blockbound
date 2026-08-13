@@ -958,6 +958,74 @@ console.log('\nPause vs open panels');
     'clearLatchedInput leaves held movement alone');
 }
 
+
+// —— Kids camera keeps up with a walker (v1.9.059, bb-mbj) ——
+// The old pull was purely proportional, so it settled at a constant error
+// instead of catching up: ~6 tiles behind on an 11.4-tile half-screen, which
+// parked the character over halfway to the edge and left it there.
+console.log('\nKids camera');
+{
+  const camUrl = pathToFileURL(path.join(root, 'js/systems/camera.js')).href;
+  const { updateCamera } = await import(camUrl);
+  BB.applyWorldSize(1024);
+  BB.applyViewport(1180, 820);
+  const halfW = (BB.W / 2) / 28;
+
+  const makeSession = () => ({
+    ui: { controlMode: 'kids', zoom: 1 },
+    input: { camUserPanned: false, panFreelookT: 0, _panning: false, moveTarget: null },
+    player: { x: 500, y: 40, vx: 0, vy: 0 },
+    cam: { x: 500, y: 38.8, zoom: 1 },
+  });
+  const run = (s, steps, dt = 1 / 60) => {
+    for (let i = 0; i < steps; i++) {
+      s.player.x += s.player.vx * dt;
+      updateCamera(s, dt);
+    }
+  };
+
+  // A walker at a normal speed, held for four seconds.
+  const walk = makeSession();
+  walk.player.vx = 5.5;
+  run(walk, 240);
+  const lag = Math.abs(walk.player.x - walk.cam.x);
+  ok(lag < halfW * 0.4,
+    `a sustained walk settles well inside the screen (${lag.toFixed(2)} of ${halfW.toFixed(1)} tiles)`);
+  ok(lag > 0.5, 'the camera still trails rather than locking to centre');
+  console.log(`  · settled ${lag.toFixed(2)} tiles = ${(lag / halfW * 100).toFixed(0)}% toward the edge`);
+
+  // Same, faster (sprinting) — must not degrade back into a standing lag.
+  const sprint = makeSession();
+  sprint.player.vx = 8.2;
+  run(sprint, 240);
+  const slag = Math.abs(sprint.player.x - sprint.cam.x);
+  ok(slag < halfW * 0.45,
+    `sprinting does not reopen the gap (${slag.toFixed(2)} tiles)`);
+
+  // The property the box camera exists to protect: jumping on the spot must
+  // not move the view, or it yanks out from under a kid placing a block.
+  const jump = makeSession();
+  const cx0 = jump.cam.x;
+  const cy0 = jump.cam.y;
+  for (let i = 0; i < 180; i++) {
+    jump.player.vy = Math.sin(i / 8) * 6;
+    jump.player.y = 40 - Math.abs(Math.sin(i / 8)) * 1.8;
+    updateCamera(jump, 1 / 60);
+  }
+  ok(Math.abs(jump.cam.x - cx0) < 0.01, 'jumping in place does not pan the camera sideways');
+  ok(Math.abs(jump.cam.y - cy0) < 0.01, 'jumping in place does not pan the camera vertically');
+
+  // A drag to look around still wins over the walk pull.
+  const pan = makeSession();
+  pan.player.vx = 5.5;
+  pan.input.camUserPanned = true;
+  pan.cam.x = 495;
+  run(pan, 60);
+  const drifted = Math.abs(pan.cam.x - 495);
+  ok(drifted < halfW * 0.72,
+    'after a drag the walk pull does not snatch the camera back');
+}
+
 if (failed) {
   console.error(`\n${failed} failed`);
   process.exit(1);

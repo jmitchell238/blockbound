@@ -97,20 +97,29 @@ function updateKidsCamera(s, dt) {
   cam.x += pullX * edgePull;
   cam.y += pullY * edgePull;
 
-  // While auto-walking (and they haven't dragged), tighten the horizontal box
-  // so a long walk can't leave the character hugging the screen edge. This is
-  // deliberately still a box pull, never a re-center: kids jump and place a
-  // block under themselves, and a centering camera yanks the view out from
-  // under that. Vertical stays on the wide edge pull above, so jumping alone
-  // never moves the camera.
-  const autoWalk = !!(input && input.moveTarget) && !input.camUserPanned;
-  if (autoWalk) {
-    const walkEdge = halfW * 0.45;
-    const wd = wrapDeltaX(cam.x, player.x + (player.vx || 0) * 0.1);
+  // While walking (and they haven't dragged), tighten the horizontal box so a
+  // long walk can't leave the character hugging the screen edge. Still a box
+  // pull, never a re-center: kids jump and place a block under themselves, and
+  // a centering camera yanks the view out from under that. Vertical stays on
+  // the wide edge pull above, so jumping alone never moves the camera.
+  //
+  // Two things were wrong here. It only engaged while a tap-to-walk target was
+  // set, so nothing else moved the camera; and a pure proportional pull settles
+  // at a *constant* error rather than catching up — at walking speed the
+  // character parked ~6 tiles off-centre on an 11.4-tile half-screen and stayed
+  // there. Matching the walker's speed first removes that standing error, so
+  // the box edge is where they actually end up.
+  const walking = Math.abs(player.vx || 0) > 0.6;
+  if (walking && !(input && input.camUserPanned)) {
+    const walkEdge = halfW * 0.28;
+    const wd = wrapDeltaX(cam.x, player.x);
     let walkPull = 0;
     if (wd > walkEdge) walkPull = wd - walkEdge;
     else if (wd < -walkEdge) walkPull = wd + walkEdge;
-    cam.x += walkPull * Math.min(1, dt * 3.0);
+    if (walkPull !== 0) {
+      cam.x += (player.vx || 0) * dt;              // keep pace — no drift
+      cam.x += walkPull * Math.min(1, dt * 3.0);   // then close the gap
+    }
   }
 
   // If player issues a new walk target, allow soft follow again
