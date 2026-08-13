@@ -730,6 +730,10 @@ button.ghost.danger {
   z-index: 210;
   right: max(16px, env(safe-area-inset-right, 0px));
   bottom: max(220px, calc(env(safe-area-inset-bottom, 0px) + 200px));
+  /* Menu buttons are full-width blocks; this one is a round pad. Without an
+     explicit width the bare `button` rule wins and stretches it into an
+     ellipse across the whole screen. Same guard `.icon-btn` uses. */
+  width: auto;
   min-width: 92px;
   min-height: 92px;
   margin: 0;
