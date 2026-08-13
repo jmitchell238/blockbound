@@ -842,9 +842,9 @@ console.log('\nOptions HUD toggles');
   const renSrc = fs.readFileSync(path.join(root, 'js/render/index.js'), 'utf8');
   const htmlSrc = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 
-  ok(/export function setHudToggle/.test(saveSrc), 'save exposes setHudToggle');
-  ok(/export function getHudToggle/.test(saveSrc), 'save exposes getHudToggle');
-  ok(/writeLibrary\(\);/.test(saveSrc.slice(saveSrc.indexOf('export function setHudToggle'),
+  ok(/export function setPlayToggle/.test(saveSrc), 'save exposes setPlayToggle');
+  ok(/export function getPlayToggle/.test(saveSrc), 'save exposes getPlayToggle');
+  ok(/writeLibrary\(\);/.test(saveSrc.slice(saveSrc.indexOf('export function setPlayToggle'),
                                             saveSrc.indexOf('export function getControlMode'))),
     'flipping a toggle persists it');
   // A library written before this version has neither key — it must not read
@@ -857,7 +857,7 @@ console.log('\nOptions HUD toggles');
     ok(new RegExp(`ui\\.${key} = `).test(gcSrc), `session syncs ${key} each frame`);
     ok(new RegExp(`ui\\.${key} !== false`).test(renSrc), `renderer honours ${key}`);
   }
-  ok(/updateHudToggleUi\(\);/.test(mainSrc.slice(mainSrc.indexOf('function showOptions'),
+  ok(/updatePlayToggleUi\(\);/.test(mainSrc.slice(mainSrc.indexOf('function showOptions'),
                                                  mainSrc.indexOf('function showOptions') + 260)),
     'opening Options refreshes the toggle labels');
 
@@ -869,6 +869,62 @@ console.log('\nOptions HUD toggles');
                                hudBody.indexOf('// Minimap'));
   ok(!/roundRect/.test(coords), 'coordinates draw with no card behind them');
   ok(/fillText/.test(coords), 'coordinates are still drawn');
+}
+
+
+// —— Auto-jump over a one-block step (v1.9.057, bb-cho) ——
+// systems/nav.js has hopped steps for tap-to-walk since it existed; driving
+// manually never did, so kids got stuck on single blocks.
+console.log('\nAuto-jump');
+{
+  const playerUrl = pathToFileURL(path.join(root, 'js/player/index.js')).href;
+  const { autoJumpStep } = await import(playerUrl);
+
+  BB.applyWorldSize(1024);
+  const w = BB.generateWorld(99);
+  // Flatten a shelf so the geometry under test is the only thing present.
+  const x0 = 100;
+  const gy = w.surface[x0] + 1;         // first solid tile below the feet
+  for (let x = x0 - 4; x <= x0 + 8; x++) {
+    for (let y = gy - 6; y < gy; y++) BB.setTile(w, x, y, BB.BLOCK.AIR);
+    BB.setTile(w, x, gy, BB.BLOCK.STONE);
+  }
+  const stand = { x: x0 + 0.5, y: gy, w: 0.55, h: 1.55 };
+
+  ok(autoJumpStep(w, stand, 1) === false, 'flat ground does not auto-jump');
+  ok(autoJumpStep(w, stand, 0) === false, 'standing still never auto-jumps');
+
+  // One-block step to the right → hop.
+  BB.setTile(w, x0 + 1, gy - 1, BB.BLOCK.STONE);
+  ok(autoJumpStep(w, stand, 1) === true, 'a one-block step auto-jumps');
+  ok(autoJumpStep(w, stand, -1) === false, 'walking away from the step does not');
+  // The case that matters for the guard: a step is right there, but they are
+  // not walking into it. Checking this on flat ground would pass either way.
+  ok(autoJumpStep(w, stand, 0) === false, 'standing still beside a step does not jump');
+
+  // Make it two tall — no longer clearable, so it must not fire.
+  BB.setTile(w, x0 + 1, gy - 2, BB.BLOCK.STONE);
+  ok(autoJumpStep(w, stand, 1) === false, 'a two-block wall does not auto-jump');
+
+  // Back to one tall, but with a ceiling directly over the step: no headroom.
+  BB.setTile(w, x0 + 1, gy - 2, BB.BLOCK.AIR);
+  ok(autoJumpStep(w, stand, 1) === true, 'one-block step again after clearing');
+  BB.setTile(w, x0 + 1, gy - 3, BB.BLOCK.STONE);
+  ok(autoJumpStep(w, stand, 1) === false, 'no auto-jump into an overhang');
+
+  // Wiring: the toggle reaches the player, and the player honours it.
+  const playerSrc = fs.readFileSync(path.join(root, 'js/player/index.js'), 'utf8');
+  const gcSrc = fs.readFileSync(path.join(root, 'js/session/GameController.js'), 'utf8');
+  const saveSrc = fs.readFileSync(path.join(root, 'js/save/save.js'), 'utf8');
+  const htmlSrc = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+  ok(/p\.autoJump !== false/.test(playerSrc), 'player honours the auto-jump toggle');
+  ok(/player\.autoJump = /.test(gcSrc), 'session pushes the toggle onto the player');
+  ok(/'autoJump'/.test(saveSrc) && /library\.autoJump !== false/.test(saveSrc),
+    'auto-jump persists and defaults on for old libraries');
+  ok(htmlSrc.includes('btnAutoJump'), 'Options has an auto-jump button');
+  // It must not fire while flying or on a ladder, where jump means something else.
+  ok(/!p\.flying && !wantClimb/.test(playerSrc),
+    'auto-jump is suppressed while flying or climbing');
 }
 
 if (failed) {

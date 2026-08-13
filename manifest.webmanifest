@@ -2,7 +2,7 @@
   "name": "Blockbound",
   "short_name": "Blockbound",
   "description": "Mine, craft, and build in a looping 2D world — dig to magma, climb to the sky. Inspired by The Blockheads.",
-  "start_url": "./?v=1.9.056",
+  "start_url": "./?v=1.9.057",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",

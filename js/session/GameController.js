@@ -427,6 +427,7 @@ export function gameUpdate(dt) {
   // Options toggles — read every frame so Options takes effect without reload.
   ui.showCoords = !save || save.showCoords !== false;
   ui.showMinimap = !save || save.showMinimap !== false;
+  player.autoJump = !save || save.autoJump !== false;
   if (ui.controlMode !== 'kids') {
     if (input.moveTarget || (input.kidsQueue && input.kidsQueue.length)) clearKidsQueue(input);
   }

@@ -15,7 +15,7 @@ import {
   save, loadSave, writeSave, listWorlds, selectWorld, loadWorldData,
   createWorldEntry, renameWorld, deleteWorld, getWorldMeta, worldSummaryLine,
   formatSeedDisplay, persistSession, setControlMode, getControlMode, preferKidsOnTouch,
-  getHudToggle, setHudToggle,
+  getPlayToggle, setPlayToggle,
 } from './save/save.js';
 import { audioSetMuted, ensureAudio } from './audio/audio.js';
 import {
@@ -216,15 +216,16 @@ function updateControlModeUi() {
 }
 
 /** Options toggles that only change what the play screen draws. */
-const HUD_TOGGLE_BUTTONS = [
+const PLAY_TOGGLE_BUTTONS = [
   ['btnCoords', 'showCoords', 'Coordinates'],
   ['btnMinimap', 'showMinimap', 'Minimap'],
+  ['btnAutoJump', 'autoJump', 'Auto-jump'],
 ];
 
-function updateHudToggleUi() {
+function updatePlayToggleUi() {
   const s = getSession();
-  for (const [btnId, key, label] of HUD_TOGGLE_BUTTONS) {
-    const on = getHudToggle(key);
+  for (const [btnId, key, label] of PLAY_TOGGLE_BUTTONS) {
+    const on = getPlayToggle(key);
     const btn = document.getElementById(btnId);
     if (btn) btn.textContent = `${label}: ${on ? 'On' : 'Off'}`;
     // Live session picks it up without waiting for a reload.
@@ -611,7 +612,7 @@ function showCreate() {
 function showOptions() {
   updateMuteButtons();
   updateControlModeUi();
-  updateHudToggleUi();
+  updatePlayToggleUi();
   setScreen('options');
 }
 
@@ -1008,12 +1009,12 @@ function wireUI() {
     writeSave();
     updateMuteButtons();
   });
-  for (const [btnId, key] of HUD_TOGGLE_BUTTONS) {
+  for (const [btnId, key] of PLAY_TOGGLE_BUTTONS) {
     const btn = document.getElementById(btnId);
     if (!btn) continue;
     btn.addEventListener('click', () => {
-      setHudToggle(key);
-      updateHudToggleUi();
+      setPlayToggle(key);
+      updatePlayToggleUi();
     });
   }
   const ctrlBtn = document.getElementById('btnControlMode');
@@ -1266,7 +1267,7 @@ wireUI();
 pickSplash();
 updateMuteButtons();
 updateControlModeUi();
-updateHudToggleUi();
+updatePlayToggleUi();
 setScreen('title');
 registerSW();
 checkRemoteVersion();

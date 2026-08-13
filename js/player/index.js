@@ -57,6 +57,29 @@ export function makePlayer(spawnTileX, spawnTileY) {
   };
 }
 
+/**
+ * Is the player walking into a single-block step they could hop onto?
+ *
+ * Deliberately stricter than steerClimbAndJump in systems/nav.js, which also
+ * fires for two-tall walls and for "the target is above me". This one wants a
+ * step exactly one tile high with two tiles of headroom, so it never triggers
+ * against a wall the player could not clear anyway, and — because it needs a
+ * horizontal intent — never while standing still or holding still under an
+ * overhang.
+ *
+ * @param {number} ix horizontal intent, -1 / 0 / +1
+ */
+export function autoJumpStep(world, p, ix) {
+  if (!ix) return false;
+  const dir = Math.sign(ix);
+  const ax = Math.floor(p.x + dir * 0.55);
+  // p.y is the feet; the tile the body stands in is one above the ground.
+  const footY = Math.floor(p.y - 0.02);
+  return isSolid(world, ax, footY)          // a step, exactly one tall...
+    && !isSolid(world, ax, footY - 1)       // ...with room to stand on it...
+    && !isSolid(world, ax, footY - 2);      // ...and room for their head.
+}
+
 export function playerAABB(p) {
   return {
     left: p.x - p.w / 2,
@@ -123,7 +146,13 @@ export function updatePlayer(p, world, input, dt, toolPower) {
   if (ix > 0.1) p.facing = 1;
   else if (ix < -0.1) p.facing = -1;
 
-  if (input.jump) p.jumpBuf = JUMP_BUFFER;
+  // Auto-jump. Tap-to-walk has hopped steps since nav.js existed; driving
+  // manually never did, so kids got stuck on single blocks the character
+  // would have climbed on its own.
+  const autoHop = p.autoJump !== false && !p.flying && !wantClimb && !p.crouching
+    && p.onGround && autoJumpStep(world, p, ix);
+
+  if (input.jump || autoHop) p.jumpBuf = JUMP_BUFFER;
   else p.jumpBuf = Math.max(0, p.jumpBuf - dt);
 
   if (p.flying) {

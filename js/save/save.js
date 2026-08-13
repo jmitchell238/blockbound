@@ -25,6 +25,7 @@ function defaultLibrary() {
     /** Play-screen toggles (Options). Everything defaults visible. */
     showCoords: true,
     showMinimap: true,
+    autoJump: true,
     selectedWorldId: null,
     defaults: {
       difficultyId: 'normal',
@@ -73,6 +74,7 @@ export let save = {
   controlMode: 'kids',
   showCoords: true,
   showMinimap: true,
+  autoJump: true,
   difficultyId: 'normal',
   worldSizeId: 'standard',
   worldSize: 4096,
@@ -105,6 +107,7 @@ function buildSaveFacade(payload) {
     // Absent in libraries saved before v1.9.056 — treat missing as on.
     showCoords: library.showCoords !== false,
     showMinimap: library.showMinimap !== false,
+    autoJump: library.autoJump !== false,
     difficultyId: (meta && meta.difficultyId) || library.defaults.difficultyId || 'normal',
     worldSizeId: (meta && meta.worldSizeId) || library.defaults.worldSizeId || 'standard',
     worldSize: (meta && meta.worldSize) || 4096,
@@ -282,6 +285,7 @@ export function writeSave() {
   library.controlMode = save.controlMode === 'classic' ? 'classic' : 'kids';
   library.showCoords = save.showCoords !== false;
   library.showMinimap = save.showMinimap !== false;
+  library.autoJump = save.autoJump !== false;
   if (save.difficultyId) library.defaults.difficultyId = save.difficultyId;
   if (save.worldSizeId) library.defaults.worldSizeId = save.worldSizeId;
   if (activeWorldId) library.selectedWorldId = activeWorldId;
@@ -299,21 +303,21 @@ export function setControlMode(mode) {
 }
 
 /** Play-screen toggles that Options can turn off. */
-export const HUD_TOGGLES = ['showCoords', 'showMinimap'];
+export const PLAY_TOGGLES = ['showCoords', 'showMinimap', 'autoJump'];
 
-/** @param {'showCoords'|'showMinimap'} key */
-export function getHudToggle(key) {
+/** @param {'showCoords'|'showMinimap'|'autoJump'} key */
+export function getPlayToggle(key) {
   return library[key] !== false;
 }
 
 /**
  * Flip a play-screen toggle and persist it. Returns the new value.
- * @param {'showCoords'|'showMinimap'} key
+ * @param {'showCoords'|'showMinimap'|'autoJump'} key
  * @param {boolean} [value] omit to toggle
  */
-export function setHudToggle(key, value) {
-  if (!HUD_TOGGLES.includes(key)) return false;
-  const next = value === undefined ? !getHudToggle(key) : !!value;
+export function setPlayToggle(key, value) {
+  if (!PLAY_TOGGLES.includes(key)) return false;
+  const next = value === undefined ? !getPlayToggle(key) : !!value;
   library[key] = next;
   save[key] = next;
   writeLibrary();
