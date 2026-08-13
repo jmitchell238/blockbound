@@ -22,6 +22,9 @@ function defaultLibrary() {
     controlMode: 'kids',
     /** User picked a mode in Options (don't auto-override) */
     controlModeUserSet: false,
+    /** Play-screen toggles (Options). Everything defaults visible. */
+    showCoords: true,
+    showMinimap: true,
     selectedWorldId: null,
     defaults: {
       difficultyId: 'normal',
@@ -68,6 +71,8 @@ export let save = {
   muted: false,
   reducedMotion: false,
   controlMode: 'kids',
+  showCoords: true,
+  showMinimap: true,
   difficultyId: 'normal',
   worldSizeId: 'standard',
   worldSize: 4096,
@@ -97,6 +102,9 @@ function buildSaveFacade(payload) {
     muted: library.muted,
     reducedMotion: library.reducedMotion,
     controlMode: library.controlMode === 'classic' ? 'classic' : 'kids',
+    // Absent in libraries saved before v1.9.056 — treat missing as on.
+    showCoords: library.showCoords !== false,
+    showMinimap: library.showMinimap !== false,
     difficultyId: (meta && meta.difficultyId) || library.defaults.difficultyId || 'normal',
     worldSizeId: (meta && meta.worldSizeId) || library.defaults.worldSizeId || 'standard',
     worldSize: (meta && meta.worldSize) || 4096,
@@ -272,6 +280,8 @@ export function writeSave() {
   library.muted = !!save.muted;
   library.reducedMotion = !!save.reducedMotion;
   library.controlMode = save.controlMode === 'classic' ? 'classic' : 'kids';
+  library.showCoords = save.showCoords !== false;
+  library.showMinimap = save.showMinimap !== false;
   if (save.difficultyId) library.defaults.difficultyId = save.difficultyId;
   if (save.worldSizeId) library.defaults.worldSizeId = save.worldSizeId;
   if (activeWorldId) library.selectedWorldId = activeWorldId;
@@ -284,6 +294,28 @@ export function setControlMode(mode) {
   library.controlMode = next;
   library.controlModeUserSet = true;
   save.controlMode = next;
+  writeLibrary();
+  return next;
+}
+
+/** Play-screen toggles that Options can turn off. */
+export const HUD_TOGGLES = ['showCoords', 'showMinimap'];
+
+/** @param {'showCoords'|'showMinimap'} key */
+export function getHudToggle(key) {
+  return library[key] !== false;
+}
+
+/**
+ * Flip a play-screen toggle and persist it. Returns the new value.
+ * @param {'showCoords'|'showMinimap'} key
+ * @param {boolean} [value] omit to toggle
+ */
+export function setHudToggle(key, value) {
+  if (!HUD_TOGGLES.includes(key)) return false;
+  const next = value === undefined ? !getHudToggle(key) : !!value;
+  library[key] = next;
+  save[key] = next;
   writeLibrary();
   return next;
 }

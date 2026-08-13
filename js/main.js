@@ -15,6 +15,7 @@ import {
   save, loadSave, writeSave, listWorlds, selectWorld, loadWorldData,
   createWorldEntry, renameWorld, deleteWorld, getWorldMeta, worldSummaryLine,
   formatSeedDisplay, persistSession, setControlMode, getControlMode, preferKidsOnTouch,
+  getHudToggle, setHudToggle,
 } from './save/save.js';
 import { audioSetMuted, ensureAudio } from './audio/audio.js';
 import {
@@ -211,6 +212,23 @@ function updateControlModeUi() {
   if (s && s.ui) {
     s.ui.controlMode = mode;
     if (s.input) s.input.controlMode = mode;
+  }
+}
+
+/** Options toggles that only change what the play screen draws. */
+const HUD_TOGGLE_BUTTONS = [
+  ['btnCoords', 'showCoords', 'Coordinates'],
+  ['btnMinimap', 'showMinimap', 'Minimap'],
+];
+
+function updateHudToggleUi() {
+  const s = getSession();
+  for (const [btnId, key, label] of HUD_TOGGLE_BUTTONS) {
+    const on = getHudToggle(key);
+    const btn = document.getElementById(btnId);
+    if (btn) btn.textContent = `${label}: ${on ? 'On' : 'Off'}`;
+    // Live session picks it up without waiting for a reload.
+    if (s && s.ui) s.ui[key] = on;
   }
 }
 
@@ -593,6 +611,7 @@ function showCreate() {
 function showOptions() {
   updateMuteButtons();
   updateControlModeUi();
+  updateHudToggleUi();
   setScreen('options');
 }
 
@@ -989,6 +1008,14 @@ function wireUI() {
     writeSave();
     updateMuteButtons();
   });
+  for (const [btnId, key] of HUD_TOGGLE_BUTTONS) {
+    const btn = document.getElementById(btnId);
+    if (!btn) continue;
+    btn.addEventListener('click', () => {
+      setHudToggle(key);
+      updateHudToggleUi();
+    });
+  }
   const ctrlBtn = document.getElementById('btnControlMode');
   if (ctrlBtn) {
     ctrlBtn.addEventListener('click', () => {
@@ -1239,6 +1266,7 @@ wireUI();
 pickSplash();
 updateMuteButtons();
 updateControlModeUi();
+updateHudToggleUi();
 setScreen('title');
 registerSW();
 checkRemoteVersion();

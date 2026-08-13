@@ -832,6 +832,45 @@ console.log('\nBottom HUD layout');
     'portrait chrome is lifted clear of the full-width tray');
 }
 
+
+// —— Options toggles for the play screen (v1.9.056, bb-8pp) ——
+console.log('\nOptions HUD toggles');
+{
+  const saveSrc = fs.readFileSync(path.join(root, 'js/save/save.js'), 'utf8');
+  const mainSrc = fs.readFileSync(path.join(root, 'js/main.js'), 'utf8');
+  const gcSrc = fs.readFileSync(path.join(root, 'js/session/GameController.js'), 'utf8');
+  const renSrc = fs.readFileSync(path.join(root, 'js/render/index.js'), 'utf8');
+  const htmlSrc = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+
+  ok(/export function setHudToggle/.test(saveSrc), 'save exposes setHudToggle');
+  ok(/export function getHudToggle/.test(saveSrc), 'save exposes getHudToggle');
+  ok(/writeLibrary\(\);/.test(saveSrc.slice(saveSrc.indexOf('export function setHudToggle'),
+                                            saveSrc.indexOf('export function getControlMode'))),
+    'flipping a toggle persists it');
+  // A library written before this version has neither key — it must not read
+  // as "everything off".
+  for (const key of ['showCoords', 'showMinimap']) {
+    ok(new RegExp(`library\\.${key} !== false`).test(saveSrc),
+      `missing ${key} in an old library defaults to on`);
+    ok(htmlSrc.includes(key === 'showCoords' ? 'btnCoords' : 'btnMinimap'),
+      `Options has a button for ${key}`);
+    ok(new RegExp(`ui\\.${key} = `).test(gcSrc), `session syncs ${key} each frame`);
+    ok(new RegExp(`ui\\.${key} !== false`).test(renSrc), `renderer honours ${key}`);
+  }
+  ok(/updateHudToggleUi\(\);/.test(mainSrc.slice(mainSrc.indexOf('function showOptions'),
+                                                 mainSrc.indexOf('function showOptions') + 260)),
+    'opening Options refreshes the toggle labels');
+
+  // Coordinates come back as bare text — the card background is what made the
+  // old readout expensive.
+  const hudBody = renSrc.slice(renSrc.indexOf('export function drawHUD'),
+                               renSrc.indexOf('export function drawBar'));
+  const coords = hudBody.slice(hudBody.indexOf('if (ui.showCoords !== false)'),
+                               hudBody.indexOf('// Minimap'));
+  ok(!/roundRect/.test(coords), 'coordinates draw with no card behind them');
+  ok(/fillText/.test(coords), 'coordinates are still drawn');
+}
+
 if (failed) {
   console.error(`\n${failed} failed`);
   process.exit(1);

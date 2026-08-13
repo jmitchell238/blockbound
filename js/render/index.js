@@ -1956,11 +1956,19 @@ export function drawHUD(ctx, player, inv, world, cam, ui, sky) {
   // Coordinates, biome, seed, tool, backpack count, difficulty, control mode
   // and the lap-progress panel all used to be drawn here. Together they ate
   // roughly half the canvas height down the left edge and a panel top-right,
-  // to say things a kid never acts on. Coordinates come back in bb-8pp as
-  // plain text behind an Options toggle; the rest is gone for good.
+  // to say things a kid never acts on. Only the coordinates came back, as
+  // plain text in the corner with no card behind them, and only if Options
+  // has them on.
+  if (ui.showCoords !== false) {
+    ctx.fillStyle = 'rgba(232,255,240,0.72)';
+    ctx.font = '600 11px system-ui';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText('x' + wrapX(Math.floor(player.x)) + ' y' + Math.floor(player.y), 12, 22);
+  }
 
   // Minimap — top right
-  drawMinimap(ctx, world, player, cam);
+  if (ui.showMinimap !== false) drawMinimap(ctx, world, player, cam);
 
   // Interact prompt
   if (ui.prompt) {

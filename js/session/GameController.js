@@ -424,6 +424,9 @@ export function gameUpdate(dt) {
   // Sync control mode (Options → Kids / Classic)
   ui.controlMode = (save && save.controlMode) || ui.controlMode || 'classic';
   input.controlMode = ui.controlMode;
+  // Options toggles — read every frame so Options takes effect without reload.
+  ui.showCoords = !save || save.showCoords !== false;
+  ui.showMinimap = !save || save.showMinimap !== false;
   if (ui.controlMode !== 'kids') {
     if (input.moveTarget || (input.kidsQueue && input.kidsQueue.length)) clearKidsQueue(input);
   }
