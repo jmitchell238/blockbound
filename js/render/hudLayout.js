@@ -15,9 +15,9 @@ export const HOTBAR_SLOT = 42;
 export const HOTBAR_GAP = 5;
 
 /** Height of the health / hunger bars. */
-const BAR_H = 10;
+export const BAR_H = 10;
 /** Gap between the tray and the bar row. */
-const BAR_LIFT = 8;
+export const BAR_LIFT = 8;
 /** The energy sliver is deliberately thin — see `bars.energy` below. */
 const ENERGY_H = 3;
 

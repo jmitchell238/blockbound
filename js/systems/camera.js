@@ -1,6 +1,7 @@
 import { W, H, TILE, WORLD_H } from '../core/constants.js';
 import { WORLD_W } from '../core/worldSize.js';
 import { wrapDeltaX } from '../world/index.js';
+import { HOTBAR_SLOT, BAR_H, BAR_LIFT } from '../render/hudLayout.js';
 
 /**
  * Soft lag-follow camera (Blockheads-style).
@@ -82,15 +83,21 @@ function updateKidsCamera(s, dt) {
 
   // Soft safe rectangle — only pull when near leaving the view
   const edgeX = halfW * 0.72; // more room before auto-reel
-  const edgeY = halfH * 0.72;
+  // Asymmetric vertical dead zone: allow upward drift (doesn't interfere with
+  // jumping), but keep the player well clear of the bottom HUD. Downward edge
+  // accounts for the hotbar + bars + margin so the player's sprite is fully
+  // visible above the UI.
+  const edgeY_up = halfH * 0.72;
+  const hudHeightPx = BAR_H + BAR_LIFT + HOTBAR_SLOT + TILE; // include margin
+  const edgeY_down = hudHeightPx / ts; // convert to game tiles
   let pullX = 0;
   let pullY = 0;
   if (dx > edgeX) pullX = dx - edgeX;
   else if (dx < -edgeX) pullX = dx + edgeX;
 
   const dy = (player.y - 0.8) - cam.y;
-  if (dy > edgeY) pullY = dy - edgeY;
-  else if (dy < -edgeY) pullY = dy + edgeY;
+  if (dy > edgeY_down) pullY = dy - edgeY_down;
+  else if (dy < -edgeY_up) pullY = dy + edgeY_up;
 
   // Soft edge pull (slow so it doesn't feel locked)
   const edgePull = Math.min(1, dt * 2.2);

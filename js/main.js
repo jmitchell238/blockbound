@@ -3,7 +3,7 @@
  * Game rules live in session/systems; this file only bootstraps.
  */
 import {
-  W, H, SURFACE_Y, GAME_VERSION_LABEL, applyViewport, ORIENTATION,
+  W, H, SURFACE_Y, GAME_VERSION, GAME_VERSION_LABEL, applyViewport, ORIENTATION,
 } from './core/constants.js';
 import { WORLD_W, WORLD_SIZE_PRESETS, applyWorldSize, worldSizePreset } from './core/worldSize.js';
 import { DIFFICULTIES, DIFFICULTY_IDS, getDifficulty } from './core/difficulty.js';
