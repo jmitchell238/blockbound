@@ -652,12 +652,45 @@ function drawSeamlessTerrain(ctx, world, cam, ts, startTX, startTY, tilesX, tile
   ctx.restore();
 }
 
-export function drawCelestial(ctx, sky, timeOfDay) {
-  const ang = timeOfDay * Math.PI * 2 - Math.PI / 2;
-  const cx = W / 2 + Math.cos(ang) * (W * 0.38);
-  const cy = H * 0.38 + Math.sin(ang) * (H * 0.3);
+/** Screen height the celestial arc peaks at, and the line it rises from. */
+const SKY_HORIZON_Y = 0.68;
+const SKY_ARC_H = 0.55;
 
-  if (sky.day > 0.12) {
+/**
+ * Where a body sits on screen, given how high it is (-1 below … 1 overhead)
+ * and how far through its own arc it is (0 rising … 1 setting).
+ *
+ * Altitude drives the vertical directly, so a body is high exactly when it is
+ * bright. The old version derived y from the raw clock angle, which ran the sun
+ * backwards: highest at midnight, lowest at noon.
+ */
+export function celestialPos(alt, sweep) {
+  return {
+    x: W / 2 - Math.cos(sweep * Math.PI) * (W * 0.38),
+    y: H * SKY_HORIZON_Y - alt * (H * SKY_ARC_H),
+  };
+}
+
+/**
+ * Fade a body out as it meets the horizon, so nothing pops in or out mid-sky.
+ * Below the horizon it is simply not drawn.
+ */
+export function celestialAlpha(alt) {
+  if (alt <= 0) return 0;
+  return Math.min(1, alt / 0.18);
+}
+
+export function drawCelestial(ctx, sky, timeOfDay) {
+  // The same phase that produces sky.day, so light and position never disagree:
+  // +1 overhead at noon, -1 at midnight.
+  const sunAlt = Math.sin(timeOfDay * Math.PI * 2 - Math.PI / 2);
+  const sunSweep = ((timeOfDay - 0.25) % 1 + 1) % 1 * 2; // 0 at dawn … 1 at dusk
+  const sunA = celestialAlpha(sunAlt);
+
+  if (sunA > 0) {
+    const { x: cx, y: cy } = celestialPos(sunAlt, sunSweep);
+    ctx.save();
+    ctx.globalAlpha = sunA;
     const rg = ctx.createRadialGradient(cx, cy, 4, cx, cy, 48);
     rg.addColorStop(0, sky.warm > 0.25 ? '#ffe0a0' : '#fff6b0');
     rg.addColorStop(0.35, sky.warm > 0.25 ? 'rgba(255,170,60,0.55)' : 'rgba(255,230,120,0.4)');
@@ -670,13 +703,20 @@ export function drawCelestial(ctx, sky, timeOfDay) {
     ctx.fillStyle = sky.warm > 0.25 ? '#ffb347' : '#ffe566';
     ctx.arc(cx, cy, 16, 0, Math.PI * 2);
     ctx.fill();
+    ctx.restore();
   }
 
-  const mx = W / 2 + Math.cos(ang + Math.PI) * (W * 0.38);
-  const my = H * 0.38 + Math.sin(ang + Math.PI) * (H * 0.3);
-  if (sky.day < 0.6) {
+  // The moon is opposite the sun, so exactly one of them is ever up.
+  const moonAlt = -sunAlt;
+  const moonSweep = ((timeOfDay + 0.25) % 1 + 1) % 1 * 2;
+  const moonA = celestialAlpha(moonAlt);
+
+  if (moonA > 0) {
+    const { x: mx, y: my } = celestialPos(moonAlt, moonSweep);
+    ctx.save();
+    ctx.globalAlpha = moonA;
     ctx.beginPath();
-    ctx.fillStyle = `rgba(230,230,255,${(1 - sky.day) * 0.95})`;
+    ctx.fillStyle = 'rgba(230,230,255,0.95)';
     ctx.arc(mx, my, 13, 0, Math.PI * 2);
     ctx.fill();
     // crescent shadow
@@ -684,7 +724,12 @@ export function drawCelestial(ctx, sky, timeOfDay) {
     ctx.beginPath();
     ctx.arc(mx + 5, my - 2, 11, 0, Math.PI * 2);
     ctx.fill();
-    // stars
+    ctx.restore();
+  }
+
+  // Stars follow darkness, not the moon — they should linger through a bright
+  // full-moon night and fade at dawn regardless of where the moon happens to be.
+  if (sky.day < 0.6) {
     for (let i = 0; i < 48; i++) {
       const sx = ((i * 97 + 13) % W);
       const sy = ((i * 53 + 7) % (H * 0.48));

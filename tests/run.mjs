@@ -1654,6 +1654,41 @@ console.log('\nPrefab tests');
   ok(swBb.includes('isUpgrade'), 'sw-bb.js only broadcasts BB_RELOAD on a real upgrade');
 }
 
+// ── Sun and moon ─────────────────────────────────────────────────────────────
+{
+  const R = await import(pathToFileURL(path.join(root, 'js/render/index.js')).href);
+  const { celestialAlpha, celestialPos, skyColors } = R;
+
+  // The bug: at deep twilight the sun sat high in the sky next to the moon.
+  let bothUp = 0;
+  let sunHighAtNight = 0;
+  for (let i = 0; i < 200; i++) {
+    const t = i / 200;
+    const sunAlt = Math.sin(t * Math.PI * 2 - Math.PI / 2);
+    const sa = celestialAlpha(sunAlt);
+    const ma = celestialAlpha(-sunAlt);
+    if (sa > 0 && ma > 0) bothUp++;
+    const day = skyColors(t, 0).day;
+    if (day < 0.3 && sa > 0) sunHighAtNight++;
+  }
+  ok(bothUp === 0, `sun and moon are never both up (${bothUp} overlaps)`);
+  ok(sunHighAtNight === 0, `the sun is never drawn at night (${sunHighAtNight} cases)`);
+
+  // Position must agree with brightness: highest when it is brightest.
+  const noon = celestialPos(Math.sin(0.5 * Math.PI * 2 - Math.PI / 2), 0.5);
+  const dawn = celestialPos(0, 0);
+  ok(noon.y < dawn.y, 'the sun is higher on screen at noon than at dawn');
+
+  // Rises on one side, sets on the other.
+  const rising = celestialPos(0.3, 0.15);
+  const setting = celestialPos(0.3, 0.85);
+  ok(rising.x < setting.x, 'the sun rises on one side and sets on the other');
+
+  // A body below the horizon is not drawn at all.
+  ok(celestialAlpha(-0.5) === 0 && celestialAlpha(0) === 0, 'nothing is drawn below the horizon');
+  ok(celestialAlpha(1) === 1, 'a body overhead is fully drawn');
+}
+
 if (failed) {
   console.error(`\n${failed} failed`);
   process.exit(1);
