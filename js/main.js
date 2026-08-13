@@ -10,6 +10,7 @@ import { DIFFICULTIES, DIFFICULTY_IDS, getDifficulty } from './core/difficulty.j
 import { randomSeed, parseSeed } from './core/seed.js';
 import { BLOCK } from './content/blocks.js';
 import { CHEATS } from './content/cheats.js';
+import { PREFABS } from './content/prefabs.js';
 import { makeInput, bindInput } from './input/input.js';
 import { loadTextures } from './textures/textures.js';
 import {
@@ -21,7 +22,7 @@ import {
 import { audioSetMuted, ensureAudio } from './audio/audio.js';
 import {
   enterPlay, enterMenu, getSession, gameUpdate, gameRender, gameClickCraft, gameUiPointer,
-  cheatSetDaytime, cheatHealFeed,
+  cheatSetDaytime, cheatHealFeed, beginPrefabPlacement, cancelPrefabPlacement, undoLastPrefab,
 } from './session/index.js';
 import { skyColors, drawParallax, drawBlock } from './render/index.js';
 
@@ -280,6 +281,48 @@ function renderCheatsMenu() {
     });
     container.appendChild(btn);
   });
+}
+
+function renderPrefabsPanel() {
+  const container = document.getElementById('prefabsContent');
+  if (!container) return;
+  container.innerHTML = '';
+
+  // Group prefabs by group
+  const grouped = {};
+  PREFABS.forEach(prefab => {
+    const group = prefab.group || 'Other';
+    if (!grouped[group]) grouped[group] = [];
+    grouped[group].push(prefab);
+  });
+
+  // Render each group with its prefabs
+  Object.keys(grouped).forEach(group => {
+    const heading = document.createElement('p');
+    heading.className = 'prefab-group-heading';
+    heading.textContent = group;
+    container.appendChild(heading);
+
+    const groupDiv = document.createElement('div');
+    groupDiv.className = 'prefab-group';
+    grouped[group].forEach(prefab => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'prefab-btn';
+      btn.innerHTML = `<span class="prefab-icon">${prefab.icon}</span><span class="prefab-name">${prefab.name}</span>`;
+      btn.addEventListener('click', () => {
+        closePrefabsPanel();
+        beginPrefabPlacement(prefab.id);
+      });
+      groupDiv.appendChild(btn);
+    });
+    container.appendChild(groupDiv);
+  });
+}
+
+function closePrefabsPanel() {
+  const panel = document.getElementById('prefabsPanel');
+  if (panel) panel.classList.add('hidden');
 }
 
 function renderDiffChips() {
@@ -792,6 +835,14 @@ function syncCheatChrome(session) {
       btn.addEventListener('click', () => cheatSetDaytime());
     } else if (cheat.id === 'heal') {
       btn.addEventListener('click', () => cheatHealFeed());
+    } else if (cheat.id === 'build') {
+      btn.addEventListener('click', () => {
+        const panel = document.getElementById('prefabsPanel');
+        if (panel) {
+          renderPrefabsPanel();
+          panel.classList.remove('hidden');
+        }
+      });
     }
 
     container.appendChild(btn);
@@ -1091,6 +1142,15 @@ function wireUI() {
     updateCheatsMasterUi();
     renderCheatsMenu();
     syncCheatChrome(getSession());
+  });
+
+  document.getElementById('btnClosePrefabs').addEventListener('click', () => {
+    closePrefabsPanel();
+    cancelPrefabPlacement();
+  });
+
+  document.getElementById('btnUndoBuild').addEventListener('click', () => {
+    undoLastPrefab();
   });
 
   document.getElementById('muteBtn').addEventListener('click', () => {

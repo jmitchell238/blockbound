@@ -98,11 +98,11 @@ turn a crash into "that world could not be read".
 
 ## 3. Gameplay — near term
 
-### ▲ 3.1 Cheats system *(specified, in progress)*
+### 3.1 Cheats system — **shipped v1.9.069–070**
 
 Master toggle plus per-cheat switches in Options. In-game icons appear only when
-cheats are on **and** that individual cheat is on. First cheat: instant builds
-(section 5).
+cheats are on **and** that individual cheat is on. Ships with Always Daytime,
+Heal & Feed, and Instant Builds (section 5).
 
 ### ▲ 3.2 Tree felling
 
@@ -225,7 +225,7 @@ with chests, Farm Plot, Animal Pen, Bridge-over-lava.
 
 | Cheat | Why |
 |---|---|
-| ▲ Instant builds | the headline |
+| ~~Instant builds~~ | **shipped** — 8 structures |
 | ▲ Give items | a block palette outside Creative mode |
 | Fly | currently Creative-only |
 | Instant mine | one-tap digging |
@@ -237,8 +237,9 @@ with chests, Farm Plot, Animal Pen, Bridge-over-lava.
 
 ### Guardrails
 
-- Cheats are **per world**, stored in `WorldMeta`, so one world can be a
-  sandbox and another a real survival run.
+- Cheats ship as **global preferences** in the library, reachable from Options
+  without a world loaded. Moving them per-world (into `WorldMeta`) so one world
+  can be a sandbox and another a real survival run is a reasonable later change.
 - The icon rule: visible only when the master toggle **and** the individual
   cheat are on.
 - Prefabs must refuse to overwrite bedrock and must clamp against `SKY_LIMIT`.
@@ -259,7 +260,7 @@ with chests, Farm Plot, Animal Pen, Bridge-over-lava.
 
 ## 7. Suggested order
 
-1. Cheats system with instant builds *(the feature that was asked for)*
+1. ~~Cheats system with instant builds~~ — shipped
 2. Tree felling *(removes a real confusion)*
 3. Render split *(unblocks everything visual)*
 4. Frame-rate overlay, then decide on chunk caching

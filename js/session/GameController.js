@@ -46,6 +46,8 @@ import {
   applyKidsNav, setMoveTarget, clearMoveTarget, clearKidsQueue,
   queueMine, queuePlace, queueUse, kidsQueueMarkers,
 } from '../systems/nav.js';
+import { placePrefab, undoPrefab } from '../world/prefab.js';
+import { getPrefab } from '../content/prefabs.js';
 
 /** Tile accessors handed to the liquid sim so it needs no world/index import. */
 const LIQUID_API = { getTile, setTile };
@@ -106,6 +108,8 @@ export function _finishSession(world, player, inv, timeOfDay, seed, ents, shared
     controlMode: (save && save.controlMode) || 'classic',
     moveMarker: null,
     kidsQueue: [],
+    pendingPrefab: null, // prefab id waiting for placement
+    lastPrefabUndo: null, // undo array for last prefab placement
   };
   const stats = {
     blocksMined: save.blocksMined | 0,
@@ -662,6 +666,24 @@ export function gameUpdate(dt) {
     const ptx = input.tapPlace.tx;
     const pty = input.tapPlace.ty;
     input.tapPlace = null;
+
+    // Prefab placement cheat: check first, before any other tap handling
+    if (ui.pendingPrefab) {
+      const prefab = getPrefab(ui.pendingPrefab);
+      ui.pendingPrefab = null;
+      if (prefab) {
+        const result = placePrefab(world, prefab, Math.floor(ptx), Math.floor(pty));
+        if (result.ok) {
+          sfxPlace();
+          // Store undo for a single undo action
+          ui.lastPrefabUndo = result.undo;
+          toast(ui, 'Built!');
+        } else {
+          toast(ui, result.reason || 'Can\'t build there');
+        }
+      }
+      return; // Consume the tap; don't continue to other handlers
+    }
 
     const slot = selectedSlot(inv);
     const tid = getTile(world, ptx, pty);
@@ -1686,6 +1708,38 @@ export function cheatHealFeed() {
   // burning is a countdown in seconds, not a flag — survival.js decays it.
   session.player.burning = 0;
   toast(session.ui, 'All better!');
+}
+
+/**
+ * Begin prefab placement: set pending state and wait for a tap.
+ */
+export function beginPrefabPlacement(prefabId) {
+  if (!session) return;
+  session.ui.pendingPrefab = prefabId;
+  toast(session.ui, 'Tap where to build!');
+}
+
+/**
+ * Cancel a pending prefab placement.
+ */
+export function cancelPrefabPlacement() {
+  if (!session) return;
+  session.ui.pendingPrefab = null;
+}
+
+/**
+ * Undo the last prefab placement.
+ */
+export function undoLastPrefab() {
+  if (!session) return;
+  if (!session.ui.lastPrefabUndo) {
+    toast(session.ui, 'Nothing to undo');
+    return;
+  }
+  const { world, ui } = session;
+  undoPrefab(world, ui.lastPrefabUndo);
+  ui.lastPrefabUndo = null;
+  toast(session.ui, 'Build undone');
 }
 
 export function getSession() {

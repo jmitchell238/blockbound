@@ -1,0 +1,193 @@
+/**
+ * Prefab structures for the instant-builds cheat — data only, matching the
+ * other content/ catalogs.
+ *
+ * Grid conventions:
+ * - `rows[0]` is the TOP row; the tap anchors the grid's bottom-centre.
+ * - `' '` (space) leaves whatever tile is already there. Use it for the corners
+ *   outside a roof line so a build never punches a square hole in the hillside.
+ * - `'.'` forces AIR. Interiors must be carved explicitly, or the surrounding
+ *   dirt stays and the "room" is solid ground.
+ * - Every other character must exist in that prefab's `legend`.
+ *
+ * These are drawn in a side-on cross-section, so a door belongs in a *side*
+ * wall at floor level — a door in the middle of the floor row reads as a hole,
+ * not an entrance. Every enclosed room also carries its own light: a sealed
+ * room with no torch renders as a black box and looks broken.
+ */
+
+import { BLOCK } from './blocks.js';
+
+export const PREFABS = [
+  {
+    id: 'starter-hut',
+    name: 'Starter Hut',
+    icon: '🏚️',
+    group: 'Homes',
+    legend: {
+      P: BLOCK.PLANKS,
+      D: BLOCK.DOOR,
+      T: BLOCK.TORCH,
+    },
+    rows: [
+      ' PPPPP ',
+      'PPPPPPP',
+      'P..T..P',
+      'P.....P',
+      'D.....P',
+      'PPPPPPP',
+    ],
+  },
+  {
+    id: 'cosy-cottage',
+    name: 'Cosy Cottage',
+    icon: '🏠',
+    group: 'Homes',
+    legend: {
+      P: BLOCK.PLANKS,
+      G: BLOCK.GLASS,
+      D: BLOCK.DOOR,
+      L: BLOCK.LANTERN,
+      B: BLOCK.BED,
+    },
+    rows: [
+      '   PPP   ',
+      '  PPPPP  ',
+      ' PPPPPPP ',
+      'PPPPPPPPP',
+      'P.G...G.P',
+      'P...L...P',
+      'D......BP',
+      'PPPPPPPPP',
+    ],
+  },
+  {
+    id: 'treehouse',
+    name: 'Treehouse',
+    icon: '🌳',
+    group: 'Homes',
+    legend: {
+      P: BLOCK.PLANKS,
+      W: BLOCK.WOOD,
+      E: BLOCK.LEAVES,
+      L: BLOCK.LADDER,
+      T: BLOCK.TORCH,
+    },
+    rows: [
+      '  EEEEE  ',
+      ' EEPPPEE ',
+      ' PPPPPPP ',
+      ' P..T..P ',
+      ' P.....P ',
+      ' PPP.PPP ',
+      '   WLW   ',
+      '   WLW   ',
+      '   WLW   ',
+      '   WLW   ',
+    ],
+  },
+  {
+    id: 'fountain',
+    name: 'Fountain',
+    icon: '⛲',
+    group: 'Fun',
+    legend: {
+      B: BLOCK.BRICK,
+      W: BLOCK.WATER,
+      L: BLOCK.LANTERN,
+    },
+    rows: [
+      'L.......L',
+      'B.......B',
+      'BWWWWWWWB',
+      'BWWWWWWWB',
+      'BBBBBBBBB',
+    ],
+  },
+  {
+    id: 'swimming-pool',
+    name: 'Swimming Pool',
+    icon: '🏊',
+    group: 'Fun',
+    legend: {
+      S: BLOCK.STONE,
+      W: BLOCK.WATER,
+    },
+    rows: [
+      '...........',
+      'S.........S',
+      'SWWWWWWWWWS',
+      'SWWWWWWWWWS',
+      'SWWWWWWWWWS',
+      'SSSSSSSSSSS',
+    ],
+  },
+  {
+    id: 'campfire-circle',
+    name: 'Campfire Circle',
+    icon: '🔥',
+    group: 'Fun',
+    legend: {
+      C: BLOCK.CAMPFIRE,
+      W: BLOCK.WOOD,
+      P: BLOCK.PLANKS,
+    },
+    rows: [
+      '.........',
+      '.........',
+      'W...C...W',
+      'PPPPPPPPP',
+    ],
+  },
+  {
+    id: 'watchtower',
+    name: 'Watchtower',
+    icon: '🗼',
+    group: 'Landmarks',
+    legend: {
+      S: BLOCK.STONE,
+      L: BLOCK.LADDER,
+      D: BLOCK.DOOR,
+      T: BLOCK.TORCH,
+      N: BLOCK.LANTERN,
+    },
+    rows: [
+      '  SSS  ',
+      ' S...S ',
+      ' S.N.S ',
+      ' SS.SS ',
+      ' S.L.S ',
+      ' S.L.S ',
+      ' S.LTS ',
+      ' S.L.S ',
+      ' S.L.S ',
+      ' SDL.S ',
+      ' SSSSS ',
+    ],
+  },
+  {
+    id: 'bridge',
+    name: 'Bridge',
+    icon: '🌉',
+    group: 'Landmarks',
+    legend: {
+      P: BLOCK.PLANKS,
+      W: BLOCK.WOOD,
+      T: BLOCK.TORCH,
+    },
+    rows: [
+      'T..W..T..W..T',
+      'W..W..W..W..W',
+      '.............',
+      'PPPPPPPPPPPPP',
+    ],
+  },
+];
+
+/**
+ * Lookup a prefab by id. Returns the prefab object or null if not found.
+ * @param {string} id
+ */
+export function getPrefab(id) {
+  return PREFABS.find(p => p.id === id) || null;
+}

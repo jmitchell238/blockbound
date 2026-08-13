@@ -13,10 +13,10 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
-  <link rel="stylesheet" href="css/style.css?v=1.9.069" />
+  <link rel="stylesheet" href="css/style.css?v=1.9.070" />
   <script>
     (function () {
-      var BUILD = '1.9.069';
+      var BUILD = '1.9.070';
       window.__BB_BUILD = BUILD;
       // If still on a known-bad shell marker, bounce to the unstick page
       try {
@@ -185,6 +185,18 @@
       </div>
     </div>
 
+    <!-- BUILD CHEAT PREFABS PANEL (overlay) -->
+    <div class="screen prefabs-panel hidden" id="prefabsPanel">
+      <div class="menu-card prefabs-card">
+        <h2 class="menu-title">Choose a Build</h2>
+        <div id="prefabsContent" class="prefabs-content"></div>
+        <div class="menu-actions">
+          <button id="btnUndoBuild" class="secondary" type="button">↶ Undo Last Build</button>
+          <button id="btnClosePrefabs" class="ghost" type="button">← Close</button>
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <!-- OUTSIDE #stage: fixed to the iPad viewport so canvas/letterbox never steals taps -->
@@ -198,6 +210,6 @@
     <button id="btnTouchAct" class="touch-act-btn play-chrome hidden" type="button" title="Action">Use</button>
   </div>
 
-  <script type="module" src="js/main.js?v=1.9.069"></script>
+  <script type="module" src="js/main.js?v=1.9.070"></script>
 </body>
 </html>

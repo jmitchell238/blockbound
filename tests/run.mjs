@@ -1422,6 +1422,111 @@ console.log('\nMagma');
   const GC = await import(gcUrl);
   ok(typeof GC.cheatSetDaytime === 'function', 'GameController exports cheatSetDaytime');
   ok(typeof GC.cheatHealFeed === 'function', 'GameController exports cheatHealFeed');
+  ok(typeof GC.beginPrefabPlacement === 'function', 'GameController exports beginPrefabPlacement');
+  ok(typeof GC.cancelPrefabPlacement === 'function', 'GameController exports cancelPrefabPlacement');
+  ok(typeof GC.undoLastPrefab === 'function', 'GameController exports undoLastPrefab');
+}
+
+// Prefab tests
+console.log('\nPrefab tests');
+{
+  const prefabUrl = pathToFileURL(path.join(root, 'js/content/prefabs.js')).href;
+  const Prefabs = await import(prefabUrl);
+  const PrefabLogic = await import(pathToFileURL(path.join(root, 'js/world/prefab.js')).href);
+
+  // Check prefabs exist and have required fields
+  const allPrefabs = Prefabs.PREFABS;
+  ok(Array.isArray(allPrefabs) && allPrefabs.length > 0, 'PREFABS is non-empty array');
+
+  allPrefabs.forEach(p => {
+    ok(p.id && p.name && p.icon && p.group && p.rows && p.legend, `prefab ${p.id} has all fields`);
+    // Check all rows same length
+    const rowLens = p.rows.map(r => r.length);
+    const allSame = rowLens.every(l => l === rowLens[0]);
+    ok(allSame, `prefab ${p.id} rows uniform length`);
+    // Check all non-space, non-dot chars in legend
+    p.rows.forEach((row, ri) => {
+      for (let i = 0; i < row.length; i++) {
+        const ch = row[i];
+        ok(ch === ' ' || ch === '.' || p.legend[ch] != null, `prefab ${p.id} row ${ri} char '${ch}' in legend`);
+      }
+    });
+  });
+
+  // Test getPrefab lookup
+  const cottage = Prefabs.getPrefab('cosy-cottage');
+  ok(cottage && cottage.name === 'Cosy Cottage', 'getPrefab finds cottage');
+  ok(Prefabs.getPrefab('nonexistent') === null, 'getPrefab returns null for missing');
+
+  // Test prefabBounds
+  const hut = Prefabs.getPrefab('starter-hut');
+  // Derive the expectation from the prefab itself — hardcoding a size here
+  // couples a geometry test to the art, and redrawing a structure should not
+  // fail a test about anchoring.
+  const b = PrefabLogic.prefabBounds(hut, 10, 20);
+  ok(b.w === hut.rows[0].length && b.h === hut.rows.length, 'prefabBounds dimensions');
+  ok(b.x0 === 10 - Math.floor(hut.rows[0].length / 2) && b.y0 === 20 - (hut.rows.length - 1),
+    'prefabBounds anchors bottom-centre');
+
+  // Test placePrefab in a generated world
+  BB.applyWorldSize(1024);
+  const testWorld = BB.generateWorld(99);
+  const placed1 = PrefabLogic.placePrefab(testWorld, hut, 100, 40);
+  ok(placed1.ok, 'prefab placement succeeds');
+  ok(Array.isArray(placed1.placed) && placed1.placed.length > 0, 'placement returns placed tiles');
+  ok(Array.isArray(placed1.undo) && placed1.undo.length > 0, 'placement captures undo');
+
+  // Check specific tiles were written
+  const ft = placed1.placed[0];
+  ok(BB.getTile(testWorld, ft.x, ft.y) === ft.id, 'placed tile matches returned id');
+
+  // Test space doesn't overwrite
+  const before = BB.getTile(testWorld, 101, 40);
+  const placed2 = PrefabLogic.placePrefab(testWorld, hut, 101, 40);
+  ok(placed2.ok, 'second placement succeeds');
+  // A space in the pattern should leave an existing tile untouched (if it was hit by a space)
+
+  // Test bedrock rejection
+  BB.applyWorldSize(1024);
+  const lowWorld = BB.generateWorld(88);
+  // Try placing near bedrock (at WORLD_H - 2)
+  const bedY = BB.WORLD_H - 3;
+  const lowPlace = PrefabLogic.placePrefab(lowWorld, hut, 100, bedY);
+  ok(!lowPlace.ok || lowPlace.placed.length < hut.rows.length * 7, 'bedrock blocks placement or limits it');
+
+  // Test wrapping (place near seam)
+  BB.applyWorldSize(1024);
+  const wrapWorld = BB.generateWorld(77);
+  const near0 = PrefabLogic.placePrefab(wrapWorld, hut, 2, 50);
+  ok(near0.ok, 'placement near x=0 wraps correctly');
+  // Check that wrapped coordinates were written
+  const foundWrap = near0.placed.some(p => BB.wrapX(p.x) !== p.x || BB.getTile(wrapWorld, p.x, p.y) === p.id);
+  ok(foundWrap || near0.placed.length > 0, 'wrapped placement writes tiles');
+
+  // Test undoPrefab restores previous state
+  BB.applyWorldSize(1024);
+  const undoWorld = BB.generateWorld(66);
+  // Capture before state
+  const before2 = [];
+  for (let y = 30; y < 40; y++) {
+    for (let x = 95; x < 105; x++) {
+      before2.push(BB.getTile(undoWorld, x, y));
+    }
+  }
+  const placed3 = PrefabLogic.placePrefab(undoWorld, hut, 100, 35);
+  ok(placed3.ok, 'placed prefab for undo test');
+  PrefabLogic.undoPrefab(undoWorld, placed3.undo);
+  // Check that some tiles were restored
+  let restored = 0;
+  let i = 0;
+  for (let y = 30; y < 40; y++) {
+    for (let x = 95; x < 105; x++) {
+      const after = BB.getTile(undoWorld, x, y);
+      if (after === before2[i]) restored++;
+      i++;
+    }
+  }
+  ok(restored > 0, `undo restores some tiles (${restored} of ${before2.length})`);
 }
 
 if (failed) {

@@ -6,7 +6,7 @@
 export const CHEATS = [
   { id: 'daytime', name: 'Always Daytime', icon: '☀️', blurb: 'Jump straight to morning' },
   { id: 'heal',    name: 'Heal & Feed',    icon: '❤️', blurb: 'Refill hearts and food' },
-  { id: 'build',   name: 'Instant Builds', icon: '🏠', blurb: 'Place whole houses and fountains', comingSoon: true },
+  { id: 'build',   name: 'Instant Builds', icon: '🏠', blurb: 'Place whole houses and fountains' },
 ];
 
 /**
