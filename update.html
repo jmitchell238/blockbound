@@ -44,28 +44,49 @@
   </div>
   <script>
     (function () {
-      var TARGET = './?fresh=1.9.070&t=' + Date.now();
+      // The version is read from the server, never hardcoded. A hardcoded one
+      // goes stale the moment a release ships, and a wrong `fresh=` value stops
+      // the game recognising that it just came back from a cleanup — which is
+      // exactly what turns a single hop into an endless flicker.
+      var version = '';
+      function target() {
+        return './?fresh=' + encodeURIComponent(version || 'unknown') + '&t=' + Date.now();
+      }
       var log = document.getElementById('log');
       function say(m) { if (log) log.textContent = m; }
 
       document.getElementById('go').onclick = function () {
-        location.replace(TARGET);
+        location.replace(target());
       };
+
+      function readVersion() {
+        return fetch('js/core/constants.js?_=' + Date.now(), { cache: 'no-store' })
+          .then(function (r) { return r.ok ? r.text() : ''; })
+          .then(function (text) {
+            var m = text.match(/GAME_VERSION\s*=\s*['"]([^'"]+)['"]/);
+            if (m && m[1]) version = m[1];
+          })
+          .catch(function () {});
+      }
 
       // Re-entry guard: if this tab already ran the cleanup once, don't run it
       // again — a second pass here means something bounced us back, and
       // repeating the wipe is what produces the flickering update loop.
       var GUARD = 'bb-unstuck-once';
+      // The game's own redirect budget. Wiping it here would hand the tab a
+      // fresh allowance on every pass and rebuild the loop we just broke.
+      var KEEP = [GUARD, 'bb-update-attempts'];
       try {
         if (sessionStorage.getItem(GUARD)) {
           say('Already cleaned — opening game…');
-          location.replace(TARGET);
+          readVersion().then(function () { location.replace(target()); });
           return;
         }
         sessionStorage.setItem(GUARD, '1');
       } catch (e) {}
 
       async function nuke() {
+        await readVersion();
         say('Removing old service workers…');
         if ('serviceWorker' in navigator) {
           var regs = await navigator.serviceWorker.getRegistrations();
@@ -79,15 +100,16 @@
         }
         try {
           localStorage.removeItem('bb-build');
-          localStorage.setItem('bb-build', '1.9.070');
-          // clear one-shot session locks from failed updates — but keep our own
-          // re-entry guard, or this page loses its memory of having run.
+          if (version) localStorage.setItem('bb-build', version);
+          // clear one-shot session locks from failed updates — but keep the
+          // re-entry guard and the redirect budget, or this page loses its
+          // memory of having run and the loop comes straight back.
           Object.keys(sessionStorage).forEach(function (k) {
-            if (k.indexOf('bb-') === 0 && k !== GUARD) sessionStorage.removeItem(k);
+            if (k.indexOf('bb-') === 0 && KEEP.indexOf(k) === -1) sessionStorage.removeItem(k);
           });
         } catch (e) {}
         say('Opening game…');
-        setTimeout(function () { location.replace(TARGET); }, 250);
+        setTimeout(function () { location.replace(target()); }, 250);
       }
 
       nuke().catch(function (e) {

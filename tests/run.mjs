@@ -1611,6 +1611,24 @@ console.log('\nPrefab tests');
   ok(fellTree(w, 0, 60).length > 0, 'felling works at the world seam');
 }
 
+// ── Update loop guards ───────────────────────────────────────────────────────
+{
+  const upd = fs.readFileSync(path.join(root, 'update.html'), 'utf8');
+  const mainJs = fs.readFileSync(path.join(root, 'js/main.js'), 'utf8');
+
+  // A hardcoded version in the redirect target goes stale on every release and
+  // breaks the game's "did I just come back from a cleanup?" check.
+  ok(!/fresh=\d+\.\d+\.\d+/.test(upd), 'update.html does not hardcode a version in fresh=');
+  ok(upd.includes('GAME_VERSION'), 'update.html reads the version from the server');
+  ok(upd.includes("'bb-update-attempts'"), "update.html preserves the game's redirect budget");
+
+  // The version check must be able to give up, or a stale shell redirects on
+  // every load and the title screen flickers forever.
+  ok(mainJs.includes('MAX_UPDATE_ATTEMPTS'), 'main.js caps update redirects');
+  ok(mainJs.includes('justCameFromUpdate'), 'main.js detects a post-cleanup load');
+  ok(mainJs.includes('__bbUpdateGaveUp'), 'main.js can stop asking for updates');
+}
+
 if (failed) {
   console.error(`\n${failed} failed`);
   process.exit(1);

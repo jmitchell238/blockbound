@@ -1391,19 +1391,60 @@ function registerSW() {
 }
 
 /**
- * If the server has a newer GAME_VERSION than this running shell, hard-reset.
- * Runs even during play — stuck broken builds must not keep kids offline forever.
+ * How many times this tab may bounce through update.html before it gives up.
+ * The cleanup either works on the first pass or it is not going to: a second
+ * and third pass just re-run a wipe that already failed, and the visible result
+ * is the title screen flashing forever with a new `&t=` on every hop.
+ */
+const UPDATE_ATTEMPT_KEY = 'bb-update-attempts';
+const MAX_UPDATE_ATTEMPTS = 1;
+
+function updateAttempts() {
+  try { return parseInt(sessionStorage.getItem(UPDATE_ATTEMPT_KEY) || '0', 10) || 0; }
+  catch (_) { return 0; }
+}
+
+/**
+ * True when this load is the landing after a cleanup that targeted the version
+ * we are already running. The cleanup did everything it knows how to do, so
+ * another trip through update.html cannot change the outcome.
+ */
+function justCameFromUpdate() {
+  try {
+    return new URLSearchParams(location.search).get('fresh') === GAME_VERSION;
+  } catch (_) { return false; }
+}
+
+/**
+ * If the server has a newer GAME_VERSION than this running shell, send the tab
+ * through the cleanup page. Runs even during play — stuck broken builds must
+ * not keep kids offline forever.
+ *
+ * The redirect is deliberately capped. A stale shell that keeps reading its own
+ * cached constants.js will report a mismatch on every single load, and without
+ * a cap that mismatch turns into an infinite redirect loop. Playing a build one
+ * version behind is a far better failure than never reaching the game at all.
  */
 function checkRemoteVersion() {
-  // Prefer navigating to the escape hatch if we're clearly stale
+  if (window.__bbUpdateGaveUp) return;
   fetch('js/core/constants.js?_=' + Date.now(), { cache: 'no-store' })
     .then(r => (r.ok ? r.text() : ''))
     .then(text => {
       const m = text.match(/GAME_VERSION\s*=\s*['"]([^'"]+)['"]/);
-      if (m && m[1] && m[1] !== GAME_VERSION) {
-        console.warn('[blockbound] remote', m[1], 'local', GAME_VERSION, '— update.html');
-        location.replace('update.html?from=' + encodeURIComponent(GAME_VERSION));
+      if (!m || !m[1] || m[1] === GAME_VERSION) return;
+
+      if (justCameFromUpdate() || updateAttempts() >= MAX_UPDATE_ATTEMPTS) {
+        // Stop asking. Log it loudly for a grown-up looking at the console, and
+        // let the child play the build that actually loaded.
+        window.__bbUpdateGaveUp = true;
+        console.warn('[blockbound] remote', m[1], 'local', GAME_VERSION,
+          '— cleanup already ran and did not take; staying on this build');
+        return;
       }
+
+      try { sessionStorage.setItem(UPDATE_ATTEMPT_KEY, String(updateAttempts() + 1)); } catch (_) {}
+      console.warn('[blockbound] remote', m[1], 'local', GAME_VERSION, '— update.html');
+      location.replace('update.html?from=' + encodeURIComponent(GAME_VERSION));
     })
     .catch(() => {});
 }
