@@ -574,13 +574,11 @@ ok(gcSrc.includes("lastPtr !== 'mouse'"), 'showTouch follows the device last use
     'craft chips no longer print have/need backwards');
   ok(!/itemName\(id\) \+ ' ' \+ have \+ '\/' \+ n/.test(renSrc3),
     'craft detail line no longer prints have/need backwards');
-  // The kids chip must be drawn outside the pointer-type-gated touch block.
-  const chipAt = renSrc3.indexOf("ctx.fillText('KIDS MODE'");
-  const touchAt = renSrc3.indexOf('if (ui.showTouch) {');
-  ok(chipAt > 0 && touchAt > 0 && chipAt < touchAt,
-    'kids chip is drawn independently of ui.showTouch');
-  ok(renSrc3.split("ctx.fillText('KIDS MODE'").length - 1 === 1,
-    'kids chip is drawn exactly once');
+  // v1.9.048–053 fussed over where the kids chip sat and whether ui.showTouch
+  // hid it. bb-7rk deleted it instead — the tap-to-walk rules live in How to
+  // Play, and the chip was competing with the play area for screen space.
+  ok(renSrc3.indexOf("ctx.fillText('KIDS MODE'") === -1,
+    'kids chip is gone rather than repositioned');
 
   const gcSrc3 = fs.readFileSync(path.join(root, 'js/session/GameController.js'), 'utf8');
   ok(!gcSrc3.includes('Tap to walk · tap blocks to dig · hold to dig nearby'),
@@ -618,12 +616,31 @@ ok(gcSrc.includes("lastPtr !== 'mouse'"), 'showTouch follows the device last use
 // —— HUD placement + pause clarity (v1.9.050) ——
 {
   const renSrc5 = fs.readFileSync(path.join(root, 'js/render/index.js'), 'utf8');
-  ok(/ui\._infoBottom = /.test(renSrc5), 'HUD publishes where the info stack ends');
-  const chip = renSrc5.slice(renSrc5.indexOf("if (ui.controlMode === 'kids') {"),
-                             renSrc5.indexOf("if (ui.showTouch) {"));
-  ok(!/H - 128/.test(chip),
-    'kids chip no longer sits in the bottom-left band the chrome row owns');
-  ok(/ui\._infoBottom/.test(chip), 'kids chip anchors under the info stack');
+  // v1.9.054 (bb-7rk): the whole top-left status stack is gone. These used to
+  // assert where the info card ended and that the kids chip tucked under it.
+  const hud = renSrc5.slice(renSrc5.indexOf('export function drawHUD'),
+                            renSrc5.indexOf('export function drawBar'));
+  const gone = [
+    ["'KIDS MODE'", 'kids-mode chip'],
+    ["'Tool: '", 'equipped-tool line'],
+    ["'🎒 Backpack '", 'backpack count'],
+    ['ui.seedLabel', 'seed label'],
+    ["' blocks around'", 'world-size readout'],
+    ["'% lap'", 'lap-progress readout'],
+    ["'✦ Creative'", 'creative badge'],
+    ['ui._infoBottom', 'info-stack anchor'],
+  ];
+  for (const [needle, label] of gone) {
+    ok(!hud.includes(needle), `HUD no longer draws the ${label}`);
+  }
+  // Coordinates return in bb-8pp as plain text — with no card behind them.
+  ok(!/roundRect\(ctx, 12, infoTop/.test(hud), 'no coords card background');
+  // What must survive the cull.
+  ok(/drawMinimap\(/.test(hud), 'minimap survives');
+  ok(/player\.hp \/ player\.maxHp/.test(hud), 'health bar survives');
+  ok(/player\.maxHunger/.test(hud), 'hunger bar survives');
+  ok(/inv\.hotbar\[i\]/.test(hud), 'hotbar survives');
+  ok(/'JUMP'/.test(hud), 'JUMP button survives');
 
   const gcSrc5 = fs.readFileSync(path.join(root, 'js/session/GameController.js'), 'utf8');
   ok(!gcSrc5.includes("'Paused — ☰ menu or Esc to resume'"),

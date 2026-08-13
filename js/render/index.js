@@ -4,10 +4,10 @@ import {
 import { WORLD_W } from '../core/worldSize.js';
 import { getDifficulty, creativeCatalog } from '../core/difficulty.js';
 import { BLOCK, BLOCK_META, isPlatform } from '../content/blocks.js';
-import { TOOLS, FOOD, isTool, isFood, isWeapon } from '../content/tools.js';
+import { FOOD, isTool, isFood, isWeapon } from '../content/tools.js';
 import { itemName, isBlockItem } from '../content/items.js';
 import {
-  wrapX, wrapDeltaX, getTile, getLight, getRenderLight, sampleLight, lightToBrightness, isSolid, biomeNameAt,
+  wrapX, wrapDeltaX, getTile, getLight, getRenderLight, sampleLight, lightToBrightness, isSolid,
 } from '../world/index.js';
 import {
   isRoofSolidId, isCaveOpenTile, isShelteredAir, caveAirColor,
@@ -1932,69 +1932,21 @@ export function drawHUD(ctx, player, inv, world, cam, ui, sky) {
   const diff = getDifficulty(ui.difficultyId);
   const isCreative = !!(ui.creative || diff.creative);
 
+  // Creative has no survival bars, and needs no badge saying so: the ✈ Fly
+  // button only exists in creative, which already tells you where you are.
   if (!isCreative) {
     drawBar(ctx, barX, barY, 132, 14, player.hp / player.maxHp, '#e74c3c', '♥');
     drawBar(ctx, barX, barY + 18, 132, 12, player.hunger != null ? player.hunger / player.maxHunger : 1, '#e67e22', '🍖');
     drawBar(ctx, barX, barY + 34, 132, 12, player.energy / player.maxEnergy, '#f1c40f', '⚡');
-  } else {
-    // Compact creative badge instead of survival bars
-    ctx.fillStyle = 'rgba(6,14,10,0.55)';
-    roundRect(ctx, barX, barY, 132, 28, 8);
-    ctx.fill();
-    ctx.fillStyle = '#7dffa0';
-    ctx.font = '700 12px system-ui';
-    ctx.textAlign = 'left';
-    ctx.fillText('✦ Creative', barX + 10, barY + 18);
   }
 
-  // Coords + biome under bars
-  const bx2 = wrapX(Math.floor(player.x));
-  const by2 = Math.floor(player.y);
-  const biome = biomeNameAt(world, player.x);
-  const infoTop = isCreative ? 46 : 62;
-  // Compact coords card — no weather label (player can see rain outside)
-  const infoH = player.spawnX != null || player.inBoat ? 34 : 22;
-  ctx.fillStyle = 'rgba(6,14,10,0.55)';
-  roundRect(ctx, 12, infoTop, 150, infoH, 8);
-  ctx.fill();
-  ctx.fillStyle = '#c8e8d8';
-  ctx.font = '600 11px system-ui';
-  ctx.textAlign = 'left';
-  ctx.fillText(biome + ' · x' + bx2 + ' y' + by2, 20, infoTop + 14);
-  if (player.spawnX != null) {
-    ctx.fillStyle = '#7dffa0';
-    ctx.font = '10px system-ui';
-    ctx.fillText('Bed spawn set', 20, infoTop + 28);
-  } else if (player.inBoat) {
-    ctx.fillStyle = '#9ec5b0';
-    ctx.font = '10px system-ui';
-    ctx.fillText('⛵ Sailing', 20, infoTop + 28);
-  }
+  // Coordinates, biome, seed, tool, backpack count, difficulty, control mode
+  // and the lap-progress panel all used to be drawn here. Together they ate
+  // roughly half the canvas height down the left edge and a panel top-right,
+  // to say things a kid never acts on. Coordinates come back in bb-8pp as
+  // plain text behind an Options toggle; the rest is gone for good.
 
-  // World loop panel — top right, leave room for version tag
-  ctx.fillStyle = 'rgba(8,16,12,0.5)';
-  roundRect(ctx, W - 128, 28, 116, 48, 10);
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(255,255,255,0.12)';
-  ctx.stroke();
-  ctx.fillStyle = '#e8fff0';
-  ctx.font = '600 10px system-ui,sans-serif';
-  ctx.textAlign = 'left';
-  const circ = ((player.x % WORLD_W) + WORLD_W) % WORLD_W;
-  const pct = ((circ / WORLD_W) * 100).toFixed(1);
-  const wLabel = WORLD_W >= 1000 ? (WORLD_W / 1000).toFixed(WORLD_W % 1000 === 0 ? 0 : 1) + 'k' : String(WORLD_W);
-  ctx.fillText(wLabel + ' blocks around', W - 120, 44);
-  ctx.fillStyle = '#7dffa0';
-  ctx.font = '700 13px system-ui,sans-serif';
-  ctx.fillText(pct + '% lap', W - 120, 60);
-  ctx.fillStyle = 'rgba(0,0,0,0.35)';
-  roundRect(ctx, W - 120, 66, 100, 6, 3);
-  ctx.fill();
-  ctx.fillStyle = '#7dffa0';
-  roundRect(ctx, W - 120, 66, Math.max(2, 100 * (circ / WORLD_W)), 6, 3);
-  ctx.fill();
-
-  // Minimap under lap panel
+  // Minimap — top right
   drawMinimap(ctx, world, player, cam);
 
   // Interact prompt
@@ -2047,64 +1999,11 @@ export function drawHUD(ctx, player, inv, world, cam, ui, sky) {
     ctx.fillText(String(i + 1), x + 5, hy + 12);
   }
 
-  // Tool + bag + world/seed under biome card
-  const toolTop = infoTop + 40;
-  ctx.fillStyle = 'rgba(6,14,10,0.5)';
-  roundRect(ctx, 12, toolTop, 150, 58, 8);
-  ctx.fill();
-  ctx.fillStyle = '#e8fff0';
-  ctx.font = '600 11px system-ui';
-  ctx.textAlign = 'left';
-  const tname = (TOOLS[inv.tool] && TOOLS[inv.tool].name) || 'Hands';  // equipped, not merely held
-  ctx.fillText('Tool: ' + tname, 20, toolTop + 15);
-  const bu = bagUsed(inv);
-  ctx.fillStyle = bu >= BAG_SIZE ? '#ff8a80' : '#9ec5b0';
-  ctx.font = '600 10px system-ui';
-  ctx.fillText('🎒 Backpack ' + bu + '/' + BAG_SIZE, 20, toolTop + 28);
-  ctx.fillStyle = isCreative ? '#7dffa0' : (player.sprinting ? '#f1c40f' : '#9ec5b0');
-  ctx.font = '600 10px system-ui';
-  const modeLine = diff.name
-    + (ui.controlMode === 'kids' ? ' · Kids' : '')
-    + (player.flying ? ' · ✈ fly' : '')
-    + (player.sprinting ? ' · sprinting' : (player.canSprint === false ? ' · no sprint' : ''));
-  ctx.fillText(modeLine, 20, toolTop + 41);
-  // Seed (tiny) — helps recreate worlds
-  if (ui.seedLabel) {
-    ctx.fillStyle = 'rgba(158,197,176,0.85)';
-    ctx.font = '600 9px system-ui';
-    ctx.fillText(ui.seedLabel, 20, toolTop + 53);
-  }
-
-  // Where the top-left info stack ends — the kids chip tucks in under it.
-  ui._infoBottom = toolTop + 58 + 8;
+  // The Tool / Backpack / difficulty / seed card and the KIDS MODE chip stood
+  // here. The selected hotbar slot already shows the equipped tool, and the
+  // tap-to-walk rules belong in How to Play, not permanently on screen.
 
   // craft panel drawn in renderWorld after HUD (isolated try/catch)
-
-  // Kids chip is not a touch control — it is the one place the tap-to-walk
-  // rules are written down, so it must survive a mouse. (v1.9.045 tied
-  // ui.showTouch to the last pointer used, which took the chip with it.)
-  if (ui.controlMode === 'kids') {
-    // Under the info stack, not bottom-left: the DOM chrome row owns that band
-    // and on phone portrait the buttons landed straight on top of this chip.
-    const qn = (ui.kidsQueue && ui.kidsQueue.length) || 0;
-    const cy = Math.max(12, ui._infoBottom || 120);
-    ctx.fillStyle = 'rgba(10, 28, 18, 0.78)';
-    roundRect(ctx, 12, cy, 148, 54, 12);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(125,255,160,0.5)';
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-    ctx.fillStyle = '#7dffa0';
-    ctx.font = '800 12px system-ui';
-    ctx.textAlign = 'left';
-    ctx.fillText('KIDS MODE', 20, cy + 20);
-    ctx.fillStyle = '#e8fff0';
-    ctx.font = '600 11px system-ui';
-    ctx.fillText(qn ? (qn + ' job' + (qn > 1 ? 's' : '') + ' queued') : 'Tap walk · dig · build', 20, cy + 38);
-    ctx.fillStyle = '#9ec5b0';
-    ctx.font = '600 10px system-ui';
-    ctx.fillText('Drag look · pinch zoom', 20, cy + 52);
-  }
 
   if (ui.showTouch) {
     const kids = ui.controlMode === 'kids';
@@ -2237,7 +2136,9 @@ export function drawMinimap(ctx, world, player, cam) {
   const mw = 88;
   const mh = 56;
   const mx = W - mw - 12;
-  const my = 84;
+  // Was 84, tucked under the lap panel. That panel is gone; the only thing
+  // left to clear up here is the DOM version tag.
+  const my = 36;
   ctx.fillStyle = 'rgba(6,14,10,0.55)';
   roundRect(ctx, mx - 4, my - 4, mw + 8, mh + 8, 8);
   ctx.fill();
