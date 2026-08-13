@@ -1308,9 +1308,51 @@ function wireUI() {
 }
 
 // ---------- PWA auto-update (aggressive — iPads were stuck on 1.9.035) ----------
+
+/**
+ * Whether this page was already under a service worker when it loaded.
+ *
+ * This is the difference between "a new version took over" and "a worker
+ * claimed a page that had none yet". Only the first is worth reloading for.
+ * Reloading on a first claim is a loop: the reload lands on a page that once
+ * again starts out uncontrolled, gets claimed, and reloads again.
+ */
+const HAD_CONTROLLER_AT_LOAD =
+  'serviceWorker' in navigator && !!navigator.serviceWorker.controller;
+
+/**
+ * Reloads are capped per tab. Every auto-reload path here has, at some point,
+ * managed to retrigger itself; a hard ceiling means the worst case is a stale
+ * build instead of a title screen that flickers forever.
+ */
+const RELOAD_KEY = 'bb-sw-reloads';
+const MAX_RELOADS = 2;
+
+function reloadBudgetSpent() {
+  try { return (parseInt(sessionStorage.getItem(RELOAD_KEY) || '0', 10) || 0) >= MAX_RELOADS; }
+  catch (_) { return false; }
+}
+
+function spendReloadBudget() {
+  try {
+    const n = parseInt(sessionStorage.getItem(RELOAD_KEY) || '0', 10) || 0;
+    sessionStorage.setItem(RELOAD_KEY, String(n + 1));
+  } catch (_) {}
+}
+
 function safeReloadForUpdate() {
   if (window.__bbReloaded) return;
+  if (!HAD_CONTROLLER_AT_LOAD) {
+    // First claim on a fresh page, not an update. Nothing to reload for.
+    console.info('[sw] first claim — no reload needed');
+    return;
+  }
+  if (reloadBudgetSpent()) {
+    console.warn('[sw] reload budget spent — staying on this build');
+    return;
+  }
   window.__bbReloaded = true;
+  spendReloadBudget();
   location.reload();
 }
 
@@ -1354,23 +1396,39 @@ function registerSW() {
         location.hostname === '127.0.0.1')) return;
 
   navigator.serviceWorker.addEventListener('message', (e) => {
-    if (e.data && (e.data.type === 'BB_RELOAD' || e.data.type === 'BB_GOTO_UPDATE')) {
+    if (!e.data) return;
+    // BB_GOTO_UPDATE is an explicit "you are broken, go get fixed" signal and is
+    // always honoured. BB_RELOAD fires on every activation, including the very
+    // first one on a clean install — treating that as "go to the update page"
+    // sends a perfectly healthy tab through the cleanup flow on every load.
+    if (e.data.type === 'BB_GOTO_UPDATE') {
       location.replace('update.html?from=sw-msg');
+    } else if (e.data.type === 'BB_RELOAD') {
+      safeReloadForUpdate();
     }
   });
 
-  // Abandon every old registration (especially sw.js?v=1.9.038), then use sw-bb.js only
-  navigator.serviceWorker.getRegistrations().then(regs =>
-    Promise.all(regs.map(r => r.unregister()))
-  ).then(() => {
-    if (window.caches && caches.keys) {
-      return caches.keys().then(keys =>
-        Promise.all(keys.filter(k => k.indexOf('blockbound-') === 0 && k !== 'blockbound-' + GAME_VERSION)
-          .map(k => caches.delete(k)))
-      );
-    }
-  }).then(() =>
-    navigator.serviceWorker.register('./sw-bb.js', { updateViaCache: 'none' })
+  // Abandon foreign registrations (especially the old sw.js?v=1.9.038), but
+  // KEEP an existing sw-bb.js. Unregistering the good worker on every load and
+  // immediately re-registering it forces a fresh install + claim each time,
+  // which fires controllerchange, which reloads, which does it all again —
+  // the flicker loop. Re-register only when it is genuinely missing.
+  navigator.serviceWorker.getRegistrations().then((regs) => {
+    const isOurs = (r) => {
+      const w = r.active || r.waiting || r.installing;
+      return !!(w && w.scriptURL && w.scriptURL.indexOf('sw-bb.js') !== -1);
+    };
+    const mine = regs.filter(isOurs);
+    return Promise.all(regs.filter(r => !isOurs(r)).map(r => r.unregister()))
+      .then(() => mine[0] || null);
+  }).then((existing) => {
+    if (!(window.caches && caches.keys)) return existing;
+    return caches.keys().then(keys =>
+      Promise.all(keys.filter(k => k.indexOf('blockbound-') === 0 && k !== 'blockbound-' + GAME_VERSION)
+        .map(k => caches.delete(k)))
+    ).then(() => existing);
+  }).then((existing) =>
+    existing || navigator.serviceWorker.register('./sw-bb.js', { updateViaCache: 'none' })
   ).then(reg => {
     activateWaitingWorker(reg);
     if (reg.installing) watchInstallingWorker(reg);

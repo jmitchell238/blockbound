@@ -1629,6 +1629,31 @@ console.log('\nPrefab tests');
   ok(mainJs.includes('__bbUpdateGaveUp'), 'main.js can stop asking for updates');
 }
 
+// ── Service-worker reload loop guards ────────────────────────────────────────
+{
+  const mainJs = fs.readFileSync(path.join(root, 'js/main.js'), 'utf8');
+  const swBb = fs.readFileSync(path.join(root, 'sw-bb.js'), 'utf8');
+
+  // The loop that shipped: unregister every worker on load, re-register, get
+  // claimed, reload, repeat. An existing sw-bb.js must be kept.
+  ok(mainJs.includes('sw-bb.js') && /isOurs/.test(mainJs),
+    'registerSW keeps an existing sw-bb.js instead of unregistering it');
+  ok(!/getRegistrations\(\)\.then\(regs =>\s*Promise\.all\(regs\.map\(r => r\.unregister\(\)\)\s*\)/.test(mainJs),
+    'registerSW no longer unregisters every worker unconditionally');
+
+  // A first claim is not an update, and reloads are capped.
+  ok(mainJs.includes('HAD_CONTROLLER_AT_LOAD'), 'reload distinguishes first claim from an update');
+  ok(mainJs.includes('MAX_RELOADS') && mainJs.includes('bb-sw-reloads'), 'reloads are capped per tab');
+
+  // BB_RELOAD must not send a healthy tab to the cleanup page.
+  ok(/BB_GOTO_UPDATE'\)\s*\{\s*\n\s*location\.replace/.test(mainJs)
+    || mainJs.indexOf("BB_GOTO_UPDATE") < mainJs.indexOf("BB_RELOAD'"),
+    'only BB_GOTO_UPDATE navigates to update.html');
+
+  // The worker only nudges clients when it is replacing an older build.
+  ok(swBb.includes('isUpgrade'), 'sw-bb.js only broadcasts BB_RELOAD on a real upgrade');
+}
+
 if (failed) {
   console.error(`\n${failed} failed`);
   process.exit(1);

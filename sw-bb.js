@@ -1,6 +1,6 @@
 // Blockbound service worker v2 (new filename so stuck sw.js controllers are abandoned)
 // Keep CACHE in sync with GAME_VERSION in js/core/constants.js
-const CACHE = 'blockbound-1.9.071';
+const CACHE = 'blockbound-1.9.072';
 
 const ASSETS = [
   './',
@@ -76,15 +76,25 @@ self.addEventListener('install', e => {
 
 self.addEventListener('activate', e => {
   e.waitUntil(
-    caches.keys()
-      .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
-      .then(() => self.clients.claim())
-      .then(() => self.clients.matchAll({ type: 'window' }))
-      .then(clients => {
-        clients.forEach(c => {
-          try { c.postMessage({ type: 'BB_RELOAD', cache: CACHE }); } catch (_) {}
+    caches.keys().then(keys => {
+      // A leftover cache from a different version is the one piece of evidence
+      // that survives the worker swap, so it is how we tell an upgrade from a
+      // first install. A fresh worker's own memory is always empty and cannot
+      // answer this.
+      const isUpgrade = keys.some(k => k.indexOf('blockbound-') === 0 && k !== CACHE);
+      return Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
+        .then(() => self.clients.claim())
+        .then(() => self.clients.matchAll({ type: 'window' }))
+        .then(clients => {
+          // Only nudge pages that were already running an older build. Telling
+          // a brand-new page to reload turns a clean first load into a flicker
+          // loop: it reloads, gets claimed again, and is told to reload again.
+          if (!isUpgrade) return;
+          clients.forEach(c => {
+            try { c.postMessage({ type: 'BB_RELOAD', cache: CACHE }); } catch (_) {}
+          });
         });
-      })
+    })
   );
 });
 
