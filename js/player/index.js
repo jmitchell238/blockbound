@@ -285,6 +285,17 @@ export function updatePlayer(p, world, input, dt, toolPower) {
   }
 
   // Water / boat
+  // Swim state for the renderer. Wading through a shallow puddle with your
+  // feet wet is not swimming — that needs the chest under, or your feet under
+  // with no ground beneath you. Kept separate from the physics branches below
+  // because those also fire while standing in ankle-deep water.
+  p.swimming = 0;
+  if (!p.inBoat) {
+    const liquid = (t) => t === BLOCK.WATER || t === BLOCK.LAVA;
+    if (liquid(body)) p.swimming = body === BLOCK.LAVA ? 2 : 1;
+    else if (liquid(feet) && !p.onGround) p.swimming = feet === BLOCK.LAVA ? 2 : 1;
+  }
+
   if (p.inBoat) {
     // Fast horizontal on water, no fall through
     const targetBoat = ix * (MOVE_SPEED * 1.35) / TILE;
@@ -363,6 +374,9 @@ export function updatePlayer(p, world, input, dt, toolPower) {
   // Idle/air: slow phase for subtle motion only
   if (p.onGround && Math.abs(p.vx) > 0.25 && !p.crouching) {
     p.anim += dt * 10;
+  } else if (p.swimming) {
+    // Strokes are slower than a walk cycle, and magma is thicker than water.
+    p.anim += dt * (p.swimming === 2 ? 3.5 : 6);
   } else {
     p.anim += dt * 2;
   }

@@ -1732,6 +1732,17 @@ export function drawPlayer(ctx, p, cam, ts, inv) {
   // Face +X locally; flip whole character (and held item) when facing left
   if (p.facing < 0) ctx.scale(-1, 1);
 
+  // Swimming: tip the body toward horizontal and stroke. Without this the
+  // character stayed bolt upright in water and magma, so the swim physics that
+  // already existed were invisible — you sank and rose in a standing pose.
+  // Pivot at mid-body, not the feet, or the head swings a huge arc.
+  if (p.swimming && !p.inBoat) {
+    const t = swimTilt(p);
+    ctx.translate(0, -drawH * 0.5);
+    ctx.rotate(t.ang);
+    ctx.translate(0, drawH * 0.5 + t.bob * drawH);
+  }
+
   // Lean + bob body toward the mined block (look up / down / forward)
   if (mineAim) {
     const lean = Math.max(-0.5, Math.min(0.5, mineAim.ang * 0.42 + mineStrike * 0.14));
@@ -1770,6 +1781,34 @@ export function drawPlayer(ctx, p, cam, ts, inv) {
 
   ctx.restore();
   ctx.restore();
+}
+
+/**
+ * Body tilt and bob for a swimming character. Pure, so the shape of the motion
+ * is testable without a canvas.
+ *
+ * Rules the numbers encode:
+ * - Swimming forward lies you flat; treading water keeps you nearer upright,
+ *   so the pose distinguishes crossing a lake from bobbing in place.
+ * - Striking upward for the surface pulls you back toward vertical — that is
+ *   the reach that gets you out onto a ledge, and it should look like one.
+ * - Magma is thick: less tilt and a slower, smaller stroke than water.
+ *
+ * @param {{swimming:number, vx:number, vy:number, anim:number}} p
+ * @returns {{ang:number, bob:number}} radians (clockwise tips the head forward)
+ *   and a bob as a fraction of draw height
+ */
+export function swimTilt(p) {
+  const thick = p.swimming === 2;
+  const speed = Math.min(1, Math.abs(p.vx || 0) / 3);
+  const rising = Math.min(1, Math.max(0, -(p.vy || 0) / 2.2));
+  const flat = thick ? 0.30 + 0.45 * speed : 0.50 + 0.65 * speed;
+  const stroke = thick ? 0.07 : 0.13;
+  const phase = (p.anim || 0) * 2;
+  return {
+    ang: flat * (1 - rising * 0.75) + Math.sin(phase) * stroke,
+    bob: Math.sin(phase) * (thick ? 0.015 : 0.03),
+  };
 }
 
 /** Convert sprite-pixel hand tip → feet-origin draw coords. */

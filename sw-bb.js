@@ -1,6 +1,6 @@
 // Blockbound service worker v2 (new filename so stuck sw.js controllers are abandoned)
 // Keep CACHE in sync with GAME_VERSION in js/core/constants.js
-const CACHE = 'blockbound-1.9.062';
+const CACHE = 'blockbound-1.9.063';
 
 const ASSETS = [
   './',

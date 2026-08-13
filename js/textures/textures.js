@@ -340,6 +340,15 @@ export function getPlayerPose(player, inv) {
     return { img: A.crouch || idle, key: 'crouch' };
   }
 
+  // Swimming reuses the walk frames rather than the jump frame: the renderer
+  // tips the whole body toward horizontal, and cycling legs under that tilt
+  // reads as a kick, where the tucked jump pose just reads as falling.
+  if (player.swimming && A.walk && A.walk.length) {
+    const walkKeys = ['walk0', 'walk1', 'walk2', 'walk1'];
+    const fi = Math.floor(Math.abs(player.anim)) % A.walk.length;
+    return { img: A.walk[fi] || idle, key: walkKeys[fi] || 'walk0' };
+  }
+
   if (!player.onGround) return { img: A.jump || idle, key: 'jump' };
 
   const walking = player.onGround && Math.abs(player.vx) > 0.2;

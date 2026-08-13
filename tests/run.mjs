@@ -1246,6 +1246,53 @@ console.log('\nMagma');
   ok(/player\.hazardMul = /.test(gcSrcM), 'magma burn scales with difficulty');
 }
 
+// ————— Swim pose —————
+{
+  console.log('\nSwim pose');
+  const { swimTilt } = await import(pathToFileURL(path.join(root, 'js/render/index.js')).href);
+  const psrc = fs.readFileSync(path.join(root, 'js/player/index.js'), 'utf8');
+  const tsrc = fs.readFileSync(path.join(root, 'js/textures/textures.js'), 'utf8');
+  const rsrc = fs.readFileSync(path.join(root, 'js/render/index.js'), 'utf8');
+
+  // The flag the whole pose hangs off. Wading a puddle must not count, or the
+  // character swims along the shoreline on dry ground.
+  ok(/p\.swimming = 0;/.test(psrc), 'swim state is cleared each frame');
+  ok(/liquid\(feet\) && !p\.onGround/.test(psrc),
+    'feet in water only counts as swimming when there is no ground under you');
+  ok(/p\.swimming === 2 \? 3\.5 : 6/.test(psrc), 'strokes cycle slower in magma than water');
+  ok(/player\.swimming && A\.walk/.test(tsrc), 'swimming picks walk frames, not the jump pose');
+  ok(/if \(p\.swimming && !p\.inBoat\)/.test(rsrc), 'the renderer tips the body while swimming');
+
+  const at = (o) => swimTilt({ swimming: 1, vx: 0, vy: 0, anim: 0, ...o });
+  // anim 0 → sin 0, so these read the tilt with the stroke at its midpoint.
+  const tread = at({});
+  const cross = at({ vx: 4 });
+  ok(cross.ang > tread.ang, `swimming forward lies you flatter than treading (${cross.ang.toFixed(2)} vs ${tread.ang.toFixed(2)} rad)`);
+  ok(cross.ang > 1.0 && cross.ang < Math.PI / 2,
+    `a full-speed swim is near horizontal but never past it (${cross.ang.toFixed(2)} rad)`);
+  ok(tread.ang > 0.2, 'treading water still leans — upright is the bug being fixed');
+
+  const reach = at({ vx: 4, vy: -2.2 });
+  ok(reach.ang < cross.ang * 0.5,
+    `striking upward pulls back toward vertical (${reach.ang.toFixed(2)} vs ${cross.ang.toFixed(2)} rad)`);
+
+  const magma = swimTilt({ swimming: 2, vx: 4, vy: 0, anim: 0 });
+  ok(magma.ang < cross.ang, `magma is thicker, so it tips you less (${magma.ang.toFixed(2)} vs ${cross.ang.toFixed(2)} rad)`);
+
+  // The stroke has to actually oscillate, or the pose is a static lean.
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (let a = 0; a < 7; a += 0.05) {
+    const s = swimTilt({ swimming: 1, vx: 0, vy: 0, anim: a });
+    lo = Math.min(lo, s.ang);
+    hi = Math.max(hi, s.ang);
+  }
+  ok(hi - lo > 0.15, `the stroke oscillates over the cycle (${(hi - lo).toFixed(2)} rad swing)`);
+  // anim = π/4 → phase π/2, the peak of the stroke.
+  ok(Math.abs(swimTilt({ swimming: 1, vx: 0, vy: 0, anim: Math.PI / 4 }).bob) > 0.02,
+    'the body bobs as it strokes');
+}
+
 if (failed) {
   console.error(`\n${failed} failed`);
   process.exit(1);
