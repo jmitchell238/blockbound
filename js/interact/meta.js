@@ -9,6 +9,9 @@ export function makeWorldMeta() {
     torchFacing: Object.create(null),
     /** tileKey → 'hang'|'floor' — lanterns hang from ceilings or sit on the ground */
     lanternMode: Object.create(null),
+    /** 'x,y' → 1..7 flow level. Sources have no entry, so a settled world
+        stores almost nothing here. See js/world/liquid.js. */
+    liquid: Object.create(null),
   };
 }
 
@@ -72,6 +75,7 @@ export function serializeMeta(meta) {
     milestones: Object.assign({}, meta.milestones || {}),
     torchFacing: Object.assign({}, meta.torchFacing || {}),
     lanternMode: Object.assign({}, meta.lanternMode || {}),
+    liquid: Object.assign({}, meta.liquid || {}),
   };
 }
 
@@ -83,5 +87,6 @@ export function deserializeMeta(data) {
   if (data.milestones) meta.milestones = Object.assign(Object.create(null), data.milestones);
   if (data.torchFacing) meta.torchFacing = Object.assign(Object.create(null), data.torchFacing);
   if (data.lanternMode) meta.lanternMode = Object.assign(Object.create(null), data.lanternMode);
+  if (data.liquid) meta.liquid = Object.assign(Object.create(null), data.liquid);
   return meta;
 }

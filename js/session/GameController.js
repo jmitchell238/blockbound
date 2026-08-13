@@ -7,7 +7,7 @@ import { BLOCK, BLOCK_META } from '../content/blocks.js';
 import { TOOLS, isTool, isFood, isWeapon } from '../content/tools.js';
 import { isBlockItem, tileKey, itemName } from '../content/items.js';
 import {
-  generateWorldAsync, deserializeWorld, getTile, flushLight, tickGravityNear,
+  generateWorldAsync, deserializeWorld, getTile, setTile, flushLight, tickGravityNear,
   wrapDeltaX, wrapX, isSolid,
 } from '../world/index.js';
 import {
@@ -41,10 +41,14 @@ import { updateSurvival } from '../systems/survival.js';
 import { updateCamera } from '../systems/camera.js';
 import { updateWeather } from '../systems/weather.js';
 import { updateWorldServices } from '../systems/autosave.js';
+import { tickLiquids } from '../world/liquid.js';
 import {
   applyKidsNav, setMoveTarget, clearMoveTarget, clearKidsQueue,
   queueMine, queuePlace, queueUse, kidsQueueMarkers,
 } from '../systems/nav.js';
+
+/** Tile accessors handed to the liquid sim so it needs no world/index import. */
+const LIQUID_API = { getTile, setTile };
 
 export let session = null;
 
@@ -908,6 +912,7 @@ export function gameUpdate(dt) {
   }
 
   updateCamera(s, dt);
+  tickLiquids(world, dt, LIQUID_API);
   updateWorldServices(s, dt);
 }
 

@@ -42,6 +42,7 @@ ok(fs.existsSync(path.join(root, 'js/core/seed.js')), 'seed module exists');
 ok(sw.includes('seed.js'), 'SW caches seed.js');
 ok(sw.includes('shelter.js'), 'SW caches shelter.js');
 ok(sw.includes('chestLayout.js'), 'SW caches chestLayout.js');
+ok(sw.includes('liquid.js'), 'SW caches liquid.js');
 ok(fs.existsSync(path.join(root, 'update.html')), 'update.html escape hatch');
 ok(constants.includes('applyViewport') && constants.includes('export let W'), 'viewport mutable W/H');
 
@@ -1024,6 +1025,102 @@ console.log('\nKids camera');
   const drifted = Math.abs(pan.cam.x - 495);
   ok(drifted < halfW * 0.72,
     'after a drag the walk pull does not snatch the camera back');
+}
+
+
+// —— Liquid flow (v1.9.060, bb-05a) ——
+// Reported: water placed at the top of a 1-wide 2-deep hole filled only the
+// top block. There was no flow at all — water never fell and never spread.
+console.log('\nLiquid flow');
+{
+  const liqUrl = pathToFileURL(path.join(root, 'js/world/liquid.js')).href;
+  const { tickLiquids, MAX_LEVEL, WATER_STEP, getLevel } = await import(liqUrl);
+  const API = { getTile: BB.getTile, setTile: BB.setTile };
+  const settle = (w, steps = 120) => {
+    for (let i = 0; i < steps; i++) tickLiquids(w, WATER_STEP, API);
+  };
+  /** Solid stone box with a hollow interior, so nothing leaks off the edges. */
+  const slab = (yTop, yBot, x0, x1, w) => {
+    for (let x = x0; x <= x1; x++) for (let y = yTop; y <= yBot; y++) BB.setTile(w, x, y, BB.BLOCK.STONE);
+  };
+
+  BB.applyWorldSize(1024);
+  const w = BB.generateWorld(5);
+  const Y = 60;
+
+  // ——— the reported bug ———
+  slab(Y - 4, Y + 4, 100, 120, w);
+  BB.setTile(w, 110, Y, BB.BLOCK.AIR);       // top of a 1-wide, 2-deep hole
+  BB.setTile(w, 110, Y + 1, BB.BLOCK.AIR);   // bottom
+  BB.setTile(w, 110, Y, BB.BLOCK.WATER);     // pour into the TOP spot
+  settle(w);
+  ok(BB.getTile(w, 110, Y) === BB.BLOCK.WATER, 'water stays in the top of the hole');
+  ok(BB.getTile(w, 110, Y + 1) === BB.BLOCK.WATER,
+    'water reaches the BOTTOM of a 1-wide 2-deep hole (the reported bug)');
+
+  // ——— spreads sideways, but not forever ———
+  const w2 = BB.generateWorld(6);
+  slab(Y - 4, Y + 4, 200, 260, w2);
+  for (let x = 205; x <= 255; x++) BB.setTile(w2, x, Y, BB.BLOCK.AIR); // trench
+  BB.setTile(w2, 230, Y, BB.BLOCK.WATER);
+  settle(w2);
+  let reach = 0;
+  for (let x = 205; x <= 255; x++) if (BB.getTile(w2, x, Y) === BB.BLOCK.WATER) reach++;
+  ok(reach > 3, `a puddle spreads sideways (${reach} tiles)`);
+  ok(reach < 30, `a single source does not flood the whole trench (${reach} tiles)`);
+  ok(BB.getTile(w2, 205, Y) === BB.BLOCK.AIR, 'the far end of the trench stays dry');
+
+  // ——— falls before it spreads ———
+  const w3 = BB.generateWorld(7);
+  slab(Y - 6, Y + 6, 300, 340, w3);
+  for (let y = Y; y <= Y + 4; y++) BB.setTile(w3, 320, y, BB.BLOCK.AIR); // a shaft
+  BB.setTile(w3, 319, Y, BB.BLOCK.AIR);
+  BB.setTile(w3, 321, Y, BB.BLOCK.AIR);
+  BB.setTile(w3, 320, Y, BB.BLOCK.WATER);
+  settle(w3);
+  ok(BB.getTile(w3, 320, Y + 4) === BB.BLOCK.WATER, 'water falls to the bottom of a shaft');
+  ok(BB.getTile(w3, 319, Y) === BB.BLOCK.AIR && BB.getTile(w3, 321, Y) === BB.BLOCK.AIR,
+    'water with somewhere to fall does not also spread sideways');
+
+  // ——— drains when the source is taken away ———
+  const w4 = BB.generateWorld(8);
+  slab(Y - 4, Y + 4, 400, 440, w4);
+  for (let x = 415; x <= 425; x++) BB.setTile(w4, x, Y, BB.BLOCK.AIR);
+  BB.setTile(w4, 420, Y, BB.BLOCK.WATER);
+  settle(w4);
+  const wet = () => { let n = 0; for (let x = 415; x <= 425; x++) if (BB.getTile(w4, x, Y) === BB.BLOCK.WATER) n++; return n; };
+  ok(wet() > 1, 'puddle formed before removing the source');
+  BB.setTile(w4, 420, Y, BB.BLOCK.AIR);
+  settle(w4);
+  ok(wet() === 0, 'the puddle drains once its source is gone');
+
+  // ——— storage: a settled world must not carry a level for every tile ———
+  const entries = Object.keys(w2.meta.liquid || {}).length;
+  ok(entries < 40, `flow levels stay sparse (${entries} entries for a whole puddle)`);
+  ok(getLevel(w2, 230, Y, BB.getTile) === MAX_LEVEL, 'the poured tile is a source');
+
+  // ——— a still world costs nothing ———
+  const w5 = BB.generateWorld(9);
+  w5._liquidQueue = null;
+  ok(tickLiquids(w5, 1, API) === 0, 'an untouched world does no liquid work');
+
+  // ——— falling sand wakes the water it displaces ———
+  const w6 = BB.generateWorld(11);
+  slab(Y - 6, Y + 4, 500, 540, w6);
+  for (let x = 515; x <= 525; x++) { BB.setTile(w6, x, Y, BB.BLOCK.AIR); BB.setTile(w6, x, Y - 1, BB.BLOCK.AIR); }
+  BB.setTile(w6, 520, Y, BB.BLOCK.WATER);
+  settle(w6);
+  BB.setTile(w6, 518, Y - 1, BB.BLOCK.SAND);
+  BB.tickGravityNear(w6, 518, Y - 1, 6);
+  settle(w6);
+  ok(BB.getTile(w6, 518, Y) === BB.BLOCK.SAND, 'sand fell into the puddle');
+  ok(BB.getTile(w6, 517, Y) === BB.BLOCK.WATER || BB.getTile(w6, 519, Y) === BB.BLOCK.WATER,
+    'water still surrounds the sand rather than leaving a dry hole');
+
+  // ——— meta round-trips ———
+  const metaMod = await import(pathToFileURL(path.join(root, 'js/interact/meta.js')).href);
+  const round = metaMod.deserializeMeta(metaMod.serializeMeta(w2.meta));
+  ok(Object.keys(round.liquid || {}).length === entries, 'flow levels survive save + load');
 }
 
 if (failed) {

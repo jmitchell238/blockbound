@@ -4,6 +4,7 @@ import {
 import { WORLD_W, applyWorldSize, WORLD_SIZE_PRESETS } from '../core/worldSize.js';
 import { makeRng, valueNoise1D, valueNoise2D } from '../core/rng.js';
 import { BLOCK, BLOCK_META, BIOME_NAMES, isPlatform, isGravityBlock } from '../content/blocks.js';
+import { scheduleCell, isLiquid } from './liquid.js';
 import { tileKey } from '../content/items.js';
 import { makeWorldMeta, serializeMeta, deserializeMeta } from '../interact/meta.js';
 
@@ -61,8 +62,13 @@ export function setTile(world, x, y, id, opts) {
   if (world.tiles[i] === BLOCK.BEDROCK && id !== BLOCK.BEDROCK) return false;
   if (world.tiles[i] === BLOCK.LAVA && id !== BLOCK.LAVA && y >= MAGMA_Y) return false;
   if (world.tiles[i] === id) return true;
+  const was = world.tiles[i];
   world.tiles[i] = id;
   if (!opts || !opts.silent) markLightDirty(world, wrapX(x), y);
+  // Any tile change can start or stop a flow — wake the neighbourhood.
+  if (isLiquid(id) || isLiquid(was) || was === BLOCK.AIR || id === BLOCK.AIR) {
+    scheduleCell(world, wrapX(x), y);
+  }
   return true;
 }
 
@@ -114,6 +120,11 @@ export function tickGravityNear(world, cx, cy, radius) {
         world.tiles[idx(x, y + 1)] = id;
         markLightDirty(world, x, y);
         markLightDirty(world, x, y + 1);
+        // Gravity writes tiles directly rather than through setTile, so it has
+        // to wake the liquid sim itself — otherwise sand dropping through a
+        // puddle leaves a hole the water never fills.
+        scheduleCell(world, x, y);
+        scheduleCell(world, x, y + 1);
         moved++;
       }
     }
