@@ -695,6 +695,44 @@ ok(gcSrc.includes("lastPtr !== 'mouse'"), 'showTouch follows the device last use
     'the player is told when their world could not be read');
 }
 
+// —— Spawn location & death message accuracy (bb-ms6) ——
+// The death message used to be picked from `player.spawnX != null`, but
+// findSpawn only honours a bed after checking a BED tile is still there. Mine
+// the bed away and the two disagreed: the player was told "at your bed" while
+// standing at world centre. findSpawn now reports which branch it took.
+console.log('\nSpawn location & message');
+{
+  const playerMod = await import(pathToFileURL(path.join(root, 'js/player/index.js')).href);
+  const { BLOCK } = BB;
+  const world = BB.generateWorld(123);
+  const centreX = Math.floor(BB.WORLD_W / 2);
+
+  // A bed well away from world centre, so the two branches return different x.
+  const bedX = BB.wrapX(centreX + 60);
+  const bedY = world.surface[bedX];
+  BB.setTile(world, bedX, bedY, BLOCK.BED);
+
+  const atBed = playerMod.findSpawn(world, { spawnX: bedX, spawnY: bedY });
+  ok(atBed.atBed === true, 'findSpawn reports atBed when the bed is still there');
+  ok(atBed.x === bedX, 'bed spawn returns the bed column, not world centre');
+
+  // Mine the bed away — the stored spawn is unchanged, the bed is not.
+  BB.setTile(world, bedX, bedY, BLOCK.AIR);
+  const gone = playerMod.findSpawn(world, { spawnX: bedX, spawnY: bedY });
+  ok(gone.atBed === false, 'findSpawn reports no bed once the bed is destroyed');
+  ok(gone.x === centreX, 'a destroyed bed falls back to world centre');
+
+  // Never set a bed at all.
+  const never = playerMod.findSpawn(world, { spawnX: null, spawnY: null });
+  ok(never.atBed === false && never.x === centreX, 'no bed set falls back to world centre');
+}
+
+// The toast must be driven by that flag, not by the stale spawnX check.
+{
+  const survival = fs.readFileSync(path.join(root, 'js/systems/survival.js'), 'utf8');
+  ok(survival.includes('sp.atBed ?'), 'death message reads the spawn result, not player.spawnX');
+}
+
 // —— Chest panel responsive layout (bb-508) ——
 // The panel used to be a hardcoded 340x560 box, which is taller than the whole
 // 640x400 landscape canvas: the backpack rows were drawn below the bottom edge

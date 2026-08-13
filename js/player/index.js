@@ -669,12 +669,13 @@ export function findSpawn(world, player) {
     }
     if (ok) {
       while (sy < WORLD_H - 1 && isSolid(world, sx, sy)) sy++;
-      return { x: sx, y: sy };
+      return { x: sx, y: sy, atBed: true };
     }
   }
+  // No valid bed found; fall back to world-centre spawn
   const sx = Math.floor(WORLD_W / 2);
   let sy = world.surface[sx];
   while (sy < WORLD_H - 1 && !isSolid(world, sx, sy + 1)) sy++;
   while (sy > SKY_LIMIT && isSolid(world, sx, sy)) sy--;
-  return { x: sx, y: sy + 1 };
+  return { x: sx, y: sy + 1, atBed: false };
 }

@@ -79,6 +79,6 @@ export function updateSurvival(s, dt) {
     player.y = sp.y;
     player.vx = 0;
     player.vy = 0;
-    toast(ui, player.spawnX != null ? 'Respawned at your bed' : 'You collapsed — respawned at spawn');
+    toast(ui, sp.atBed ? 'Respawned at your bed' : 'You collapsed — respawned at spawn');
   }
 }
