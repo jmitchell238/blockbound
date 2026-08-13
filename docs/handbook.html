@@ -1,0 +1,616 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="Architecture reference and improvement roadmap for Blockbound, a 2D mining and building sandbox." />
+<link rel="icon" href="../icons/icon-192.png" />
+<title>Blockbound Handbook</title>
+<style>
+  /* Palette lifted from the game's own BLOCK_META colours — grass, sky, dirt,
+     magma, bedrock — so the docs read as part of the same world. */
+  :root {
+    --grass: #4e9a32;
+    --sky: #3f7fb5;
+    --dirt: #8b5a2b;
+    --magma: #d1490a;
+    --stone: #6b7078;
+
+    --ground: #f4f6f1;
+    --surface: #ffffff;
+    --surface-2: #eaeee6;
+    --ink: #16201a;
+    --ink-2: #46524a;
+    --ink-3: #6d7a71;
+    --rule: #d5ddd3;
+    --rule-strong: #b9c4b7;
+    --accent: var(--grass);
+    --accent-ink: #2f6a1c;
+    --code-bg: #eef1ec;
+    --warn-bg: #fdf2e7;
+    --warn-rule: #e8c9a4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0e1712;
+      --surface: #14201a;
+      --surface-2: #1a2820;
+      --ink: #eaf3ea;
+      --ink-2: #b3c4b6;
+      --ink-3: #869688;
+      --rule: #26362c;
+      --rule-strong: #384d3f;
+      --grass: #7cc95a;
+      --sky: #6aa8dc;
+      --dirt: #b3773c;
+      --magma: #ff7a33;
+      --stone: #97a0a9;
+      --accent: #7cc95a;
+      --accent-ink: #9ddc7d;
+      --code-bg: #101a14;
+      --warn-bg: #241a10;
+      --warn-rule: #543c22;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #0e1712;
+    --surface: #14201a;
+    --surface-2: #1a2820;
+    --ink: #eaf3ea;
+    --ink-2: #b3c4b6;
+    --ink-3: #869688;
+    --rule: #26362c;
+    --rule-strong: #384d3f;
+    --grass: #7cc95a;
+    --sky: #6aa8dc;
+    --dirt: #b3773c;
+    --magma: #ff7a33;
+    --stone: #97a0a9;
+    --accent: #7cc95a;
+    --accent-ink: #9ddc7d;
+    --code-bg: #101a14;
+    --warn-bg: #241a10;
+    --warn-rule: #543c22;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    /* The game itself sets Segoe UI first; the docs inherit its voice. */
+    font-family: "Segoe UI", system-ui, -apple-system, Roboto, Ubuntu, sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 0 24px 96px;
+    display: grid;
+    grid-template-columns: 210px minmax(0, 1fr);
+    gap: 56px;
+    align-items: start;
+  }
+  @media (max-width: 900px) {
+    .wrap { grid-template-columns: minmax(0, 1fr); gap: 0; }
+    nav.toc { position: static !important; margin: 0 0 32px; }
+  }
+
+  /* ---- masthead ---- */
+  header.masthead {
+    grid-column: 1 / -1;
+    padding: 64px 0 40px;
+    border-bottom: 3px solid var(--ink);
+    margin-bottom: 48px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 28px;
+    justify-content: space-between;
+  }
+  .masthead h1 {
+    margin: 0;
+    font-size: clamp(2.4rem, 6vw, 3.6rem);
+    line-height: 1.02;
+    letter-spacing: -0.035em;
+    font-weight: 800;
+    text-wrap: balance;
+  }
+  .masthead h1 .b1 { color: var(--grass); }
+  .masthead h1 .b2 { color: var(--sky); }
+  .masthead p.sub {
+    margin: 12px 0 0;
+    max-width: 54ch;
+    color: var(--ink-2);
+    font-size: 1.05rem;
+  }
+  .strip { display: flex; gap: 0; border: 2px solid var(--ink); }
+  .strip i { display: block; width: 26px; height: 26px; }
+
+  /* ---- toc ---- */
+  nav.toc {
+    position: sticky;
+    top: 28px;
+    font-size: 0.86rem;
+    line-height: 1.45;
+  }
+  nav.toc .lbl {
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-size: 0.68rem;
+    font-weight: 700;
+    color: var(--ink-3);
+    margin-bottom: 12px;
+  }
+  nav.toc ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+  nav.toc a {
+    display: block;
+    padding: 4px 0 4px 14px;
+    border-left: 3px solid var(--rule);
+    color: var(--ink-2);
+    text-decoration: none;
+  }
+  nav.toc a:hover, nav.toc a:focus-visible { color: var(--accent-ink); border-left-color: var(--accent); }
+  nav.toc .gap { height: 14px; }
+
+  main { min-width: 0; }
+
+  /* ---- sections ---- */
+  section { margin: 0 0 60px; scroll-margin-top: 24px; }
+  h2 {
+    margin: 0 0 6px;
+    font-size: 1.62rem;
+    letter-spacing: -0.02em;
+    font-weight: 800;
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    text-wrap: balance;
+  }
+  /* The tile marker takes the colour of the block that section is about —
+     it encodes the subject, it isn't a numbered decoration. */
+  h2 .tile { width: 13px; height: 13px; flex: none; border-radius: 2px; background: var(--accent); }
+  h2 .num {
+    font-variant-numeric: tabular-nums;
+    color: var(--ink-3);
+    font-weight: 700;
+    font-size: 0.95rem;
+    letter-spacing: 0;
+  }
+  h3 {
+    margin: 32px 0 8px;
+    font-size: 1.06rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  .deck { margin: 0 0 22px; color: var(--ink-2); max-width: 68ch; }
+  p, li { max-width: 68ch; }
+  p { margin: 0 0 14px; }
+  ul, ol.body { padding-left: 20px; margin: 0 0 16px; display: flex; flex-direction: column; gap: 7px; }
+  a { color: var(--accent-ink); }
+  strong { font-weight: 700; }
+
+  code, pre, .mono {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  code { background: var(--code-bg); padding: 1px 5px; border-radius: 3px; font-size: 0.87em; }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    font-size: 0.82rem;
+    line-height: 1.55;
+    margin: 0 0 18px;
+  }
+  pre code { background: none; padding: 0; font-size: inherit; }
+
+  .tbl { overflow-x: auto; margin: 0 0 18px; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+  th, td { text-align: left; padding: 8px 14px 8px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th {
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 0.68rem;
+    color: var(--ink-3);
+    border-bottom: 2px solid var(--rule-strong);
+    white-space: nowrap;
+  }
+  td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+  .note {
+    border-left: 3px solid var(--magma);
+    background: var(--warn-bg);
+    padding: 12px 16px;
+    margin: 0 0 18px;
+    border-radius: 0 5px 5px 0;
+  }
+  .note p { margin: 0; }
+  .note .k {
+    display: block;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-size: 0.66rem;
+    font-weight: 700;
+    color: var(--magma);
+    margin-bottom: 4px;
+  }
+
+  .lede {
+    border: 2px solid var(--ink);
+    border-radius: 6px;
+    padding: 18px 20px;
+    margin: 0 0 26px;
+    background: var(--surface);
+  }
+  .lede p:last-child { margin-bottom: 0; }
+
+  .pill {
+    display: inline-block;
+    font-size: 0.66rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    padding: 2px 7px;
+    border-radius: 3px;
+    vertical-align: 2px;
+  }
+  .pill.done { background: var(--grass); color: #0d1a08; }
+  .pill.next { background: var(--sky); color: #061420; }
+
+  .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 0 34px; }
+  .cols ul { margin-bottom: 4px; }
+
+  hr.div { border: 0; border-top: 3px solid var(--ink); margin: 0 0 44px; }
+
+  footer {
+    grid-column: 1 / -1;
+    border-top: 1px solid var(--rule);
+    padding-top: 20px;
+    color: var(--ink-3);
+    font-size: 0.84rem;
+  }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <div>
+      <h1><span class="b1">Block</span><span class="b2">bound</span> Handbook</h1>
+      <p class="sub">How the game is built, which invariants will bite you, and what to build next. A 2D mining-and-building sandbox in native ES modules — no bundler, no dependencies, no build step.</p>
+    </div>
+    <div class="strip" aria-hidden="true">
+      <i style="background:#4e9a32"></i><i style="background:#8b5a2b"></i><i style="background:#6b7078"></i><i style="background:#3f7fb5"></i><i style="background:#d1490a"></i><i style="background:#1a1a22"></i>
+    </div>
+  </header>
+
+  <nav class="toc" aria-label="Contents">
+    <div class="lbl">Architecture</div>
+    <ol>
+      <li><a href="#tour">Ten-second tour</a></li>
+      <li><a href="#layers">Layering</a></li>
+      <li><a href="#world">World model</a></li>
+      <li><a href="#session">Session &amp; frame order</a></li>
+      <li><a href="#input">Input &amp; controls</a></li>
+      <li><a href="#render">Rendering</a></li>
+      <li><a href="#content">Content catalogs</a></li>
+      <li><a href="#save">Persistence</a></li>
+      <li><a href="#tests">Testing</a></li>
+      <li><a href="#edges">Sharp edges</a></li>
+    </ol>
+    <div class="gap"></div>
+    <div class="lbl">Roadmap</div>
+    <ol>
+      <li><a href="#arch-work">Architecture work</a></li>
+      <li><a href="#correctness">Correctness</a></li>
+      <li><a href="#gameplay">Gameplay</a></li>
+      <li><a href="#additions">Blocks &amp; items</a></li>
+      <li><a href="#builds">Instant builds</a></li>
+      <li><a href="#order">Suggested order</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+    <div class="lede">
+      <p><strong>The target player is a child on an iPad.</strong> That single fact explains most of the design: touch-first controls, no keyboard requirement, an aggressive service-worker update path, rendering that degrades rather than showing a blank screen, and a save format that fights for storage quota.</p>
+      <p>Roughly 11,000 lines of JavaScript. Full source of these docs lives in <code>docs/ARCHITECTURE.md</code> and <code>docs/ROADMAP.md</code>.</p>
+    </div>
+
+    <section id="tour">
+      <h2><span class="tile" style="background:var(--grass)"></span><span class="num">01</span> Ten-second tour</h2>
+<pre><code>index.html          shell: canvas, DOM menus, play-chrome buttons
+  └── js/main.js    composition root: DOM wiring, rAF loop, menus
+        └── js/session/GameController.js   update + render orchestration
+              ├── js/world/       tiles, generation, lighting, liquids
+              ├── js/player/      movement, collision, mining, placing
+              ├── js/entities/    critters, hostiles, dropped items
+              ├── js/systems/     camera, survival, weather, nav, autosave
+              ├── js/inventory/   hotbar, bag, crafting maths
+              ├── js/interact/    doors, chests, beds, stations
+              ├── js/render/      all canvas drawing
+              └── js/save/        multi-world library + payloads</code></pre>
+      <p>The two large files are <code>js/render/index.js</code> (~3,000 lines) and <code>js/session/GameController.js</code> (~1,700). Everything else is small and focused.</p>
+    </section>
+
+    <section id="layers">
+      <h2><span class="tile" style="background:var(--grass)"></span><span class="num">02</span> Layering and the dependency rule</h2>
+      <p class="deck">The intended dependency direction is one-way, and one rule holds the whole thing together.</p>
+      <ul>
+        <li><strong><code>core/</code></strong> — engine constants and pure maths. Imports almost nothing.</li>
+        <li><strong><code>content/</code></strong> — the data catalog: blocks, tools, recipes, prefabs, cheats. Adding game content should mostly mean editing these files.</li>
+        <li><strong>Domain modules</strong> (<code>world</code>, <code>player</code>, <code>inventory</code>, <code>entities</code>, <code>interact</code>) — rules and state shape.</li>
+        <li><strong><code>render/</code></strong> — reads state and draws. Never mutates game state.</li>
+        <li><strong><code>session/</code></strong> — owns the single <code>session</code> object and the frame order.</li>
+        <li><strong><code>main.js</code></strong> — the only file that touches the DOM, and the only owner of the rAF loop.</li>
+      </ul>
+      <div class="note">
+        <span class="k">The rule that matters</span>
+        <p>Domain and content modules stay free of <code>document</code>, <code>window</code>, and canvas. That is what lets <code>tests/run.mjs</code> import them directly in Node with no browser shim. Break it and the suite loses its ability to test behaviour at all.</p>
+      </div>
+    </section>
+
+    <section id="world">
+      <h2><span class="tile" style="background:var(--dirt)"></span><span class="num">03</span> The world model</h2>
+
+      <h3>Tiles</h3>
+      <p>A world is flat typed arrays of <code>WORLD_W × WORLD_H</code>: <code>tiles</code>, <code>light</code> (both <code>Uint8Array</code>), <code>surface</code> (<code>Int16Array</code>), and <code>biome</code>. <code>WORLD_H</code> is a fixed 128. <code>WORLD_W</code> is <em>mutable</em>, chosen per world:</p>
+      <div class="tbl">
+      <table>
+        <thead><tr><th>Preset</th><th>Width</th><th>Feel</th></tr></thead>
+        <tbody>
+          <tr><td>Tour</td><td class="num">1,024</td><td>~3 min lap</td></tr>
+          <tr><td>Standard</td><td class="num">4,096</td><td>~12 min lap (default)</td></tr>
+          <tr><td>Vast</td><td class="num">8,192</td><td>~25 min lap</td></tr>
+          <tr><td>Epic</td><td class="num">16,384</td><td>Blockheads 1×</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <div class="note">
+        <span class="k">Invariant</span>
+        <p>Anything that captures <code>WORLD_W</code> into a module-level constant at import time is wrong for every world that is not 4,096 wide. Read the live binding, or call <code>getWorldW()</code>.</p>
+      </div>
+
+      <h3>Horizontal wrap</h3>
+      <p>The signature feature: walk far enough and you return to where you started. Every horizontal coordinate goes through <code>wrapX()</code>, every horizontal <em>difference</em> through <code>wrapDeltaX()</code>. A raw <code>a.x - b.x</code> near the seam produces a distance of nearly a whole world — camera, mob AI, drop pickup and reach checks all depend on getting this right.</p>
+
+      <h3>Vertical bands</h3>
+<pre><code>y=0            space edge
+y=2            SKY_LIMIT — hard build ceiling
+y≈36           SURFACE_Y — nominal surface band
+   …           caves, ores
+y=WORLD_H-8    MAGMA_Y — magma crust caps molten lava
+y=WORLD_H-1    bedrock floor</code></pre>
+      <p><strong>Magma vs Lava</strong> is a deliberate two-block design. Magma is a solid, mineable, faintly glowing crust that does not burn. Lava beneath it is a non-solid hazard you sink into and cannot mine. Breaking the crust is a deliberate act with consequences; the route to bedrock is to quench lava with water and mine the stone it leaves.</p>
+
+      <h3>Lighting and liquids</h3>
+      <p>Light floods with radius <code>LIGHT_RADIUS = 16</code>, which must stay at or above the brightest emitter (lantern, 14). After generation, lighting is column-local — edits mark dirty columns and only those recompute, which is what keeps mining responsive at Epic width.</p>
+      <p>The liquid sim carries two constraints worth preserving. <strong>Levels, not booleans</strong> — a binary "is water" spreads without bound and one bucket would flood a flat world. <strong>Levels live in a sparse map, not a parallel array</strong> — a second full-world <code>Uint8Array</code> would be 2 MB on Epic, in memory and in every save. Only flowing tiles carry an entry, so a settled world stores almost nothing, and an active-cell queue means a still world costs nothing per frame.</p>
+    </section>
+
+    <section id="session">
+      <h2><span class="tile" style="background:var(--stone)"></span><span class="num">04</span> The session and its frame order</h2>
+      <p class="deck">One module-level <code>session</code> holds world, player, inventory, entities, input, ui, camera, stats, time of day, difficulty and pause. <code>gameUpdate(dt)</code> runs a deliberate sequence — the order is load-bearing.</p>
+      <ol class="body">
+        <li>Toast timer, pause handling (Esc closes an open panel before it pauses)</li>
+        <li>Zoom — wheel delta or iPad pinch absolute</li>
+        <li>Difficulty-derived flags — <code>godMode</code>, <code>canFly</code>, <code>hazardMul</code></li>
+        <li>Panel toggles — craft / bag / creative / chest</li>
+        <li><code>applyKidsNav</code> — tap targets become per-frame movement intent</li>
+        <li><code>updateSurvival</code> — hunger, energy, regen, death and respawn</li>
+        <li><code>updatePlayer</code> — physics, collision, mining and placing</li>
+        <li>Mining and placing results — drops, gravity, light, milestones</li>
+        <li>Drops, critters, hostiles</li>
+        <li>Weather → camera → liquids → autosave</li>
+      </ol>
+      <div class="note">
+        <span class="k">Invariant</span>
+        <p>When paused, latched one-shot input flags are cleared before the early return. Otherwise they accumulate while paused and all fire at once on resume — press Esc, mash keys, unpause, and the character does all of it at once.</p>
+      </div>
+    </section>
+
+    <section id="input">
+      <h2><span class="tile" style="background:var(--sky)"></span><span class="num">05</span> Input and the two control modes</h2>
+      <div class="tbl">
+      <table>
+        <thead><tr><th></th><th>Kids (default)</th><th>Classic</th></tr></thead>
+        <tbody>
+          <tr><td>Move</td><td>tap where to walk</td><td>stick / WASD</td></tr>
+          <tr><td>Mine</td><td>tap a block to queue digging</td><td>hold to dig</td></tr>
+          <tr><td>Place</td><td>select a block, tap to queue</td><td>tap to place</td></tr>
+          <tr><td>Camera</td><td>free pan by drag; soft box follow</td><td>lag-follow, player above centre</td></tr>
+          <tr><td>Keyboard</td><td>never required</td><td>supported</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p>Kids mode routes through <code>systems/nav.js</code>, turning a tap into steering intent plus a queue of mine/place/use jobs the character walks to and performs. The character does the work; a second tap cancels.</p>
+      <p>The kids camera is a <strong>box pull, never a re-centre</strong> — children jump and place a block under themselves, and a centring camera yanks the view out from under that. Its vertical dead zone is asymmetric: the downward edge derives from the real HUD height so the character can never settle behind the hotbar.</p>
+    </section>
+
+    <section id="render">
+      <h2><span class="tile" style="background:var(--sky)"></span><span class="num">06</span> Rendering</h2>
+      <p class="deck">Strict back-to-front: sky gradient → sun/moon/stars → clouds → parallax → cave backdrop → seamless terrain (offscreen) → light multiplied on → deferred non-terrain blocks → entities and player → HUD.</p>
+      <ul>
+        <li><strong>Every stage is wrapped in <code>try/catch</code> with a flat-colour fallback.</strong> On an iPad there is no console to read, and a thrown render error would leave a child staring at a blank screen. <code>main.js</code> installs a DOM error reporter for the same reason.</li>
+        <li><strong>Layout constants are shared, not duplicated.</strong> <code>hudLayout.js</code> and <code>chestLayout.js</code> export real pixel geometry so non-render code — the camera, hit-testing — can reason about where the UI actually is.</li>
+      </ul>
+    </section>
+
+    <section id="content">
+      <h2><span class="tile" style="background:var(--grass)"></span><span class="num">07</span> Content catalogs</h2>
+      <p class="deck">Adding content should mean editing data, not logic.</p>
+      <ul>
+        <li><code>blocks.js</code> — ids plus <code>BLOCK_META</code>. Flags drive behaviour generically: <code>solid</code>, <code>mine</code>, <code>drops</code>, <code>gravity</code>, <code>fluid</code>, <code>hazard</code>, <code>climb</code>, <code>platform</code>, <code>hang</code>, <code>light</code>, <code>alpha</code>, <code>interact</code>. A new block usually needs an id, a meta row and a texture.</li>
+        <li><code>tools.js</code> — <code>TOOLS</code>, <code>FOOD</code>, <code>ITEM_NAMES</code>. Note <code>canStack()</code> is <code>!isTool()</code>, so anything in <code>TOOLS</code> does not stack.</li>
+        <li><code>recipes.js</code>, <code>milestones.js</code>, <code>cheats.js</code>, <code>prefabs.js</code>.</li>
+      </ul>
+      <p>Difficulty is a single profile table, and most mode differences are multipliers rather than branches. Magma burn deliberately reuses <code>mobDamageMul</code> rather than introducing a parallel dial.</p>
+    </section>
+
+    <section id="save">
+      <h2><span class="tile" style="background:var(--dirt)"></span><span class="num">08</span> Persistence and updates</h2>
+      <p>Two tiers, because a single blob hits storage quota: a small <strong>library</strong> holding global prefs and world metadata, and a heavy <strong>per-world payload</strong> under <code>blockbound-w-&lt;id&gt;</code>.</p>
+      <p>There are two service workers on purpose. <code>sw-bb.js</code> is the real one; <code>sw.js</code> is a legacy bridge that exists only to rescue iPads stuck on an old shell.</p>
+      <div class="note">
+        <span class="k">Invariant</span>
+        <p><code>GAME_VERSION</code> appears in <strong>seven places</strong> that must move together: <code>core/constants.js</code>, the <code>sw-bb.js</code> cache name, the manifest <code>start_url</code>, two <code>index.html</code> query strings plus its <code>BUILD</code> var, and two in <code>update.html</code>. Bump them all, or the update path silently stops working.</p>
+      </div>
+    </section>
+
+    <section id="tests">
+      <h2><span class="tile" style="background:var(--stone)"></span><span class="num">09</span> Testing</h2>
+      <p><code>node tests/run.mjs</code> — a dependency-free runner with a single <code>ok(cond, msg)</code> helper, mixing structure checks, source assertions that pin a specific regression, and behavioural tests driving real modules with stub worlds.</p>
+      <p>Many tests are named for the bug they pin. When fixing a regression, add the test that fails before the fix and passes after — <strong>and verify that it actually fails</strong>, or it is decoration.</p>
+    </section>
+
+    <section id="edges">
+      <h2><span class="tile" style="background:var(--magma)"></span><span class="num">10</span> Where the sharp edges are</h2>
+      <div class="tbl">
+      <table>
+        <thead><tr><th>Area</th><th>Watch out for</th></tr></thead>
+        <tbody>
+          <tr><td><code>WORLD_W</code></td><td>mutable; never capture at import time</td></tr>
+          <tr><td>Horizontal maths</td><td>always <code>wrapX</code> / <code>wrapDeltaX</code></td></tr>
+          <tr><td>Lighting</td><td><code>LIGHT_RADIUS</code> ≥ brightest emitter</td></tr>
+          <tr><td>Liquids</td><td>keep levels sparse; a parallel array blows the save</td></tr>
+          <tr><td><code>GAME_VERSION</code></td><td>seven places, must move together</td></tr>
+          <tr><td>Global button CSS</td><td><code>button { width: 100% }</code> stretches any new chrome button unless it sets <code>width: auto</code></td></tr>
+          <tr><td>Storage quota</td><td>the reason for the two-tier save and the sparse liquid map</td></tr>
+          <tr><td>Paused input</td><td>latched one-shot flags must be cleared</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </section>
+
+    <hr class="div">
+
+    <section id="arch-work">
+      <h2><span class="tile" style="background:var(--stone)"></span><span class="num">11</span> Roadmap — architecture</h2>
+      <p class="deck">A menu, not a plan. Nothing here is committed.</p>
+      <h3>Split <code>render/index.js</code> <span class="pill next">first</span></h3>
+      <p>Three thousand lines holding sky, terrain, lighting, entities, HUD, panels and hit-testing. Natural seams already exist: <code>sky.js</code>, <code>terrain.js</code>, <code>blocks.js</code>, <code>entities.js</code>, <code>hud.js</code>, <code>panels/</code>. Low risk — it is drawing code with no state — and high payoff for every future visual change.</p>
+      <h3>Split <code>session/GameController.js</code></h3>
+      <p><code>gameUpdate</code> mixes frame orchestration with mining rules, placing rules and inventory click handling. Extract the pure rule blocks into <code>session/actions/</code>. Do this <em>after</em> the render split; it is the riskier of the two.</p>
+      <h3>Measure before optimising</h3>
+      <p>There is currently no way to know what a real iPad is doing. A small dev overlay — frame time, draw calls, active liquid cells, dirty light columns — turns performance work from guesswork into measurement. Chunked terrain caching is the standard fix for the per-tile <code>drawImage</code> cost, but it adds a whole invalidation bug class: <strong>do not do it speculatively.</strong></p>
+    </section>
+
+    <section id="correctness">
+      <h2><span class="tile" style="background:var(--magma)"></span><span class="num">12</span> Roadmap — correctness</h2>
+      <ul>
+        <li><strong>Item loss on a full inventory.</strong> <code>tryBucket</code> removes the bucket then adds the filled one; with all 32 slots full and two stacked buckets, the result is destroyed. A <code>swapItem</code> helper that verifies space first would close the whole class.</li>
+        <li><strong>Partial-success returns.</strong> <code>transferSlot</code> can move some items and still return <code>false</code>. Callers reading that as "nothing happened" will be wrong.</li>
+        <li><strong>Save integrity.</strong> No version field or checksum on the payload; a truncated write fails at parse time. A schema field plus a guarded load turns a crash into "that world could not be read".</li>
+        <li><strong><code>player.burning</code> decay</strong> sits in the hunger <code>else</code> branch, which is unrelated. No visible effect today — tidy it when that function is next touched, not before.</li>
+      </ul>
+    </section>
+
+    <section id="gameplay">
+      <h2><span class="tile" style="background:var(--grass)"></span><span class="num">13</span> Roadmap — gameplay</h2>
+      <ul>
+        <li><strong>Cheats system</strong> <span class="pill done">shipped</span> — master toggle plus per-cheat switches; icons appear only when both are on.</li>
+        <li><strong>Tree felling</strong> <span class="pill next">next</span> — walking into a tree stops the character dead, which reads as being stuck rather than as an obstacle. Chopping the base should fell trunk and canopy.</li>
+        <li><strong>Farming</strong> — seeds, tilled dirt, crops that grow over day cycles. Gives a child a reason to come back to a place they built.</li>
+        <li><strong>Animal husbandry</strong> — rabbits already wander; feeding, following, breeding and a fenced pen would make critters a project rather than scenery.</li>
+        <li><strong>Signs</strong> — one of the most-used blocks in this genre. Needs an on-screen keyboard path for iPad.</li>
+        <li><strong>More weather</strong> — snowfall in snow biomes, thunder, fog. Cheap, and adds a lot of atmosphere.</li>
+      </ul>
+    </section>
+
+    <section id="additions">
+      <h2><span class="tile" style="background:var(--sky)"></span><span class="num">14</span> Roadmap — blocks, items, mobs</h2>
+      <div class="cols">
+        <div>
+          <h3>Blocks</h3>
+          <ul>
+            <li>Coloured wool / clay — the single biggest win for creative building</li>
+            <li>Stone bricks, smooth stone</li>
+            <li>Fence and gate — pens, balconies</li>
+            <li>Stairs / slabs — needs sub-tile collision; big job, big payoff</li>
+            <li>Flowers, tall grass, cactus, vines</li>
+            <li>Ice, sandstone, gravel, obsidian</li>
+            <li>Glowstone — a bright emitter that is not a torch</li>
+            <li>Lever, pressure plate — door automation without full circuits</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Items</h3>
+          <ul>
+            <li>Shears — saplings, wool</li>
+            <li>Fishing rod — slow and calm, well suited to the audience</li>
+            <li>Compass — "which way is home" is a real child problem</li>
+            <li>Armour, bow, diamond tier</li>
+            <li>Paint bucket — recolour blocks in place</li>
+          </ul>
+          <h3>Mobs</h3>
+          <ul>
+            <li>Sheep, pig, chicken — fits the existing critter code</li>
+            <li>Fish — water is currently lifeless</li>
+            <li>Bees, cave bats, a rare deep creature</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="builds">
+      <h2><span class="tile" style="background:var(--dirt)"></span><span class="num">15</span> Instant builds <span class="pill done">shipped</span></h2>
+      <p class="deck">Pick a structure, tap the world, it appears — gated behind the cheats toggles so it never intrudes on ordinary play.</p>
+      <p>A prefab is <strong>data, not code</strong>: a character grid, a legend, and a bottom-centre anchor. A space leaves the existing tile alone; a dot forces air.</p>
+<pre><code>{
+  id: 'cosy-cottage',
+  name: 'Cosy Cottage',
+  group: 'Homes',
+  legend: { P: BLOCK.PLANKS, G: BLOCK.GLASS, D: BLOCK.DOOR, ... },
+  rows: [
+    '   PPP   ',
+    '  PPPPP  ',
+    ' PPPPPPP ',
+    'PPPPPPPPP',
+    'P.G...G.P',
+    'P...L...P',
+    'D......BP',
+    'PPPPPPPPP',
+  ],
+}</code></pre>
+      <p>Placement is pure logic in <code>world/prefab.js</code>: it wraps at the world seam, refuses to overwrite bedrock, respects the sky limit, and returns an undo record so a misplaced house can be taken back.</p>
+      <p><strong>Eight structures ship</strong> across Homes (Starter Hut, Cosy Cottage, Treehouse), Fun (Fountain, Swimming Pool, Campfire Circle) and Landmarks (Watchtower, Bridge). Two rules earned by getting them wrong the first time: a door belongs in a <em>side wall at floor level</em> — in a side-on cross-section a door in the middle of the floor reads as a hole — and every enclosed room carries its own light, or it renders as a black box and looks broken.</p>
+      <h3>Cheats worth adding next</h3>
+      <ul>
+        <li>Give items — a block palette outside Creative mode</li>
+        <li>Teleport home — the lost-child problem</li>
+        <li>Set time of day, no hostiles — a calm switch for a nervous player</li>
+        <li>Instant mine, fly outside Creative, reveal map</li>
+      </ul>
+    </section>
+
+    <section id="order">
+      <h2><span class="tile" style="background:var(--grass)"></span><span class="num">16</span> Suggested order</h2>
+      <ol class="body">
+        <li><s>Cheats system with instant builds</s> <span class="pill done">shipped</span></li>
+        <li>Tree felling — removes a real confusion</li>
+        <li>Render split — unblocks everything visual</li>
+        <li>Frame-rate overlay, then decide on chunk caching</li>
+        <li>Building blocks: wool, fences, stone bricks</li>
+        <li>Farming</li>
+        <li>GameController split</li>
+        <li>Passive farm animals</li>
+      </ol>
+    </section>
+
+  </main>
+
+  <footer>
+    Blockbound — not affiliated with Majic Jungle Software or <i>The Blockheads</i>. Source of record: <code>docs/ARCHITECTURE.md</code> and <code>docs/ROADMAP.md</code>.
+  </footer>
+
+</div>
+</body>
+</html>

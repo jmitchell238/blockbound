@@ -33,6 +33,14 @@ Or GitHub Pages / any static host.
 | Pause | Esc / P | — |
 | Hotbar | 1–8 | Tap slots |
 
+## Documentation
+
+| Doc | What it covers |
+|-----|----------------|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Layering, world model, frame order, render pipeline, save format, and the invariants that bite |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | Architecture cleanups, correctness items, and candidate features, blocks, items and mobs |
+| [docs/handbook.html](docs/handbook.html) | Both of the above as a single readable page — open it in a browser |
+
 ## Architecture (v1.6)
 
 Native **ES modules** with SOLID-oriented layering:
