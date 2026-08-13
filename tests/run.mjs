@@ -1359,6 +1359,71 @@ console.log('\nMagma');
   ok(items.length >= 13, `the list covers the current game (${items.length} items)`);
 }
 
+// ————— Cheats system —————
+{
+  console.log('\nCheats system');
+
+  // Check the cheats catalog
+  const cheatsUrl = pathToFileURL(path.join(root, 'js/content/cheats.js')).href;
+  const Cheats = await import(cheatsUrl);
+  ok(Array.isArray(Cheats.CHEATS) && Cheats.CHEATS.length > 0, 'cheats catalog exists and non-empty');
+
+  // Every cheat must have id, name, icon
+  Cheats.CHEATS.forEach((c, i) => {
+    ok(typeof c.id === 'string' && c.id.length > 0, `cheat ${i} has id`);
+    ok(typeof c.name === 'string' && c.name.length > 0, `cheat ${i} has name`);
+    ok(typeof c.icon === 'string' && c.icon.length > 0, `cheat ${i} has icon`);
+  });
+  ok(typeof Cheats.getCheat === 'function', 'cheats.js exports getCheat');
+
+  // Check save.js exports
+  const saveUrl = pathToFileURL(path.join(root, 'js/save/save.js')).href;
+
+  // Stub localStorage for testing
+  if (typeof globalThis.localStorage === 'undefined') {
+    const store = {};
+    globalThis.localStorage = {
+      getItem: (k) => store[k] || null,
+      setItem: (k, v) => { store[k] = v; },
+      removeItem: (k) => { delete store[k]; },
+    };
+  }
+
+  const Save = await import(saveUrl);
+  ok(typeof Save.getCheatsEnabled === 'function', 'save.js exports getCheatsEnabled');
+  ok(typeof Save.setCheatsEnabled === 'function', 'save.js exports setCheatsEnabled');
+  ok(typeof Save.getCheat === 'function', 'save.js exports getCheat');
+  ok(typeof Save.setCheat === 'function', 'save.js exports setCheat');
+  ok(typeof Save.isCheatActive === 'function', 'save.js exports isCheatActive');
+
+  // Gate logic: master OFF + cheat ON -> inactive
+  Save.setCheatsEnabled(false);
+  Save.setCheat('daytime', true);
+  ok(!Save.isCheatActive('daytime'), 'master OFF + cheat ON -> inactive');
+
+  // Gate logic: master ON + cheat OFF -> inactive
+  Save.setCheatsEnabled(true);
+  Save.setCheat('heal', false);
+  ok(!Save.isCheatActive('heal'), 'master ON + cheat OFF -> inactive');
+
+  // Gate logic: master ON + cheat ON -> active
+  Save.setCheatsEnabled(true);
+  Save.setCheat('daytime', true);
+  ok(Save.isCheatActive('daytime'), 'master ON + cheat ON -> active');
+
+  // Check save.js source for proper defaults
+  const saveSrc = fs.readFileSync(path.join(root, 'js/save/save.js'), 'utf8');
+  ok(/cheatsEnabled: false/.test(saveSrc), 'master defaults OFF in library');
+  ok(/cheats: \{/.test(saveSrc), 'cheats object exists in library');
+  ok(/getCheatsEnabled\(\) /, 'getCheatsEnabled uses the exported function');
+
+  // Check GameController exports the cheat functions
+  const gcUrl = pathToFileURL(path.join(root, 'js/session/GameController.js')).href;
+  const GC = await import(gcUrl);
+  ok(typeof GC.cheatSetDaytime === 'function', 'GameController exports cheatSetDaytime');
+  ok(typeof GC.cheatHealFeed === 'function', 'GameController exports cheatHealFeed');
+}
+
 if (failed) {
   console.error(`\n${failed} failed`);
   process.exit(1);

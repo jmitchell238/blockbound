@@ -26,6 +26,10 @@ function defaultLibrary() {
     showCoords: true,
     showMinimap: true,
     autoJump: true,
+    /** Cheats master switch (defaults OFF). Individual cheats default ON. */
+    cheatsEnabled: false,
+    /** Per-cheat state: { 'daytime': true, 'heal': true, 'build': true, ... } */
+    cheats: {},
     selectedWorldId: null,
     defaults: {
       difficultyId: 'normal',
@@ -108,6 +112,8 @@ function buildSaveFacade(payload) {
     showCoords: library.showCoords !== false,
     showMinimap: library.showMinimap !== false,
     autoJump: library.autoJump !== false,
+    cheatsEnabled: !!library.cheatsEnabled,
+    cheats: library.cheats || {},
     difficultyId: (meta && meta.difficultyId) || library.defaults.difficultyId || 'normal',
     worldSizeId: (meta && meta.worldSizeId) || library.defaults.worldSizeId || 'standard',
     worldSize: (meta && meta.worldSize) || 4096,
@@ -286,6 +292,8 @@ export function writeSave() {
   library.showCoords = save.showCoords !== false;
   library.showMinimap = save.showMinimap !== false;
   library.autoJump = save.autoJump !== false;
+  library.cheatsEnabled = !!save.cheatsEnabled;
+  library.cheats = save.cheats || {};
   if (save.difficultyId) library.defaults.difficultyId = save.difficultyId;
   if (save.worldSizeId) library.defaults.worldSizeId = save.worldSizeId;
   if (activeWorldId) library.selectedWorldId = activeWorldId;
@@ -322,6 +330,58 @@ export function setPlayToggle(key, value) {
   save[key] = next;
   writeLibrary();
   return next;
+}
+
+/**
+ * Cheats master switch (two-level gate). Master defaults OFF.
+ * Returns the current enabled state.
+ */
+export function getCheatsEnabled() {
+  return !!library.cheatsEnabled;
+}
+
+/**
+ * Toggle or set the master cheats switch. Returns the new state.
+ * @param {boolean} [value] omit to toggle
+ */
+export function setCheatsEnabled(value) {
+  const next = value === undefined ? !getCheatsEnabled() : !!value;
+  library.cheatsEnabled = next;
+  save.cheatsEnabled = next;
+  writeLibrary();
+  return next;
+}
+
+/**
+ * Get the enabled state of a specific cheat.
+ * Individual cheats default ON (so flipping master on immediately shows them).
+ * @param {string} id
+ */
+export function getCheat(id) {
+  const val = library.cheats && library.cheats[id];
+  return val !== false;
+}
+
+/**
+ * Toggle or set a specific cheat. Returns the new state.
+ * @param {string} id
+ * @param {boolean} [value] omit to toggle
+ */
+export function setCheat(id, value) {
+  if (!library.cheats) library.cheats = {};
+  const next = value === undefined ? !getCheat(id) : !!value;
+  library.cheats[id] = next;
+  save.cheats = library.cheats;
+  writeLibrary();
+  return next;
+}
+
+/**
+ * The complete cheat gate: true only when master is ON and individual cheat is ON.
+ * @param {string} id
+ */
+export function isCheatActive(id) {
+  return getCheatsEnabled() && getCheat(id);
 }
 
 export function getControlMode() {

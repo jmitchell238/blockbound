@@ -1663,6 +1663,31 @@ export function doPlayerAttack(s) {
   if (tool && tool.weapon) unlockMilestone(world.meta, stats, ui, 'first_sword');
 }
 
+/**
+ * Cheat: instantly set time to morning.
+ * (build cheat in a follow-up issue bb-bkv)
+ */
+export function cheatSetDaytime() {
+  if (!session) return;
+  // DAY_LEN is the full cycle in seconds; pick a clearly-daylight value.
+  // Time 0..1 spans full cycle, so 0.3 is morning.
+  session.timeOfDay = 0.3;
+  toast(session.ui, 'It\'s morning!');
+}
+
+/**
+ * Cheat: refill player hp, hunger, energy.
+ */
+export function cheatHealFeed() {
+  if (!session || !session.player) return;
+  session.player.hp = session.player.maxHp;
+  session.player.hunger = session.player.maxHunger;
+  session.player.energy = session.player.maxEnergy;
+  // burning is a countdown in seconds, not a flag — survival.js decays it.
+  session.player.burning = 0;
+  toast(session.ui, 'All better!');
+}
+
 export function getSession() {
   return session;
 }

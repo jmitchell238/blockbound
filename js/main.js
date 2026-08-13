@@ -9,17 +9,19 @@ import { WORLD_W, WORLD_SIZE_PRESETS, applyWorldSize, worldSizePreset } from './
 import { DIFFICULTIES, DIFFICULTY_IDS, getDifficulty } from './core/difficulty.js';
 import { randomSeed, parseSeed } from './core/seed.js';
 import { BLOCK } from './content/blocks.js';
+import { CHEATS } from './content/cheats.js';
 import { makeInput, bindInput } from './input/input.js';
 import { loadTextures } from './textures/textures.js';
 import {
   save, loadSave, writeSave, listWorlds, selectWorld, loadWorldData,
   createWorldEntry, renameWorld, deleteWorld, getWorldMeta, worldSummaryLine,
   formatSeedDisplay, persistSession, setControlMode, getControlMode, preferKidsOnTouch,
-  getPlayToggle, setPlayToggle,
+  getPlayToggle, setPlayToggle, getCheatsEnabled, setCheatsEnabled, getCheat, setCheat, isCheatActive,
 } from './save/save.js';
 import { audioSetMuted, ensureAudio } from './audio/audio.js';
 import {
   enterPlay, enterMenu, getSession, gameUpdate, gameRender, gameClickCraft, gameUiPointer,
+  cheatSetDaytime, cheatHealFeed,
 } from './session/index.js';
 import { skyColors, drawParallax, drawBlock } from './render/index.js';
 
@@ -163,6 +165,9 @@ function setScreen(name) {
   // creative chrome only when playing creative
   if (!isPlay) syncCreativeChrome(null);
   else syncCreativeChrome(getSession());
+  // cheat icons only when in play mode
+  if (!isPlay) syncCheatChrome(null);
+  else syncCheatChrome(getSession());
   // Deferred PWA update reload (never mid-game)
   if (!isPlay && window.__bbPendingReload) {
     window.__bbPendingReload = false;
@@ -238,6 +243,43 @@ function updateMuteButtons() {
   const muteBtn = document.getElementById('muteBtn');
   if (muteBtn) muteBtn.textContent = label;
   audioSetMuted(!!save.muted);
+}
+
+function updateCheatsMasterUi() {
+  const on = getCheatsEnabled();
+  const btn = document.getElementById('btnCheatsMaster');
+  if (btn) btn.textContent = `Cheats: ${on ? 'On' : 'Off'}`;
+  // Per-cheat buttons: when master is off, they're visibly inert (disabled).
+  const container = document.getElementById('cheatsContainer');
+  if (container) {
+    const buttons = container.querySelectorAll('button');
+    buttons.forEach(b => {
+      b.disabled = !on;
+    });
+  }
+}
+
+function renderCheatsMenu() {
+  const container = document.getElementById('cheatsContainer');
+  if (!container) return;
+  container.innerHTML = '';
+  CHEATS.forEach(cheat => {
+    // Skip rendering if cheat is marked as coming soon
+    if (cheat.comingSoon) return;
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'secondary';
+    const on = getCheat(cheat.id);
+    btn.textContent = `${cheat.name}: ${on ? 'On' : 'Off'}`;
+    btn.disabled = !getCheatsEnabled();
+    btn.addEventListener('click', () => {
+      setCheat(cheat.id);
+      renderCheatsMenu();
+      syncCheatChrome(getSession());
+    });
+    container.appendChild(btn);
+  });
 }
 
 function renderDiffChips() {
@@ -616,6 +658,12 @@ function showOptions() {
   setScreen('options');
 }
 
+function showCheats() {
+  updateCheatsMasterUi();
+  renderCheatsMenu();
+  setScreen('cheats');
+}
+
 function ensureListeners() {
   if (listenersReady) return;
   listenersReady = true;
@@ -717,6 +765,37 @@ function syncCreativeChrome(session) {
     flyBtn.textContent = flying ? '✈ Flying' : '✈ Fly';
     flyBtn.title = flying ? 'Fly ON — tap to walk' : 'Fly OFF — tap to fly (creative)';
   }
+}
+
+function syncCheatChrome(session) {
+  const container = document.getElementById('cheatsChrome');
+  if (!container) return;
+  container.innerHTML = '';
+
+  // Only render if we're in play mode
+  if (screenName !== 'play') return;
+
+  // Render active cheat icons dynamically from the catalog
+  CHEATS.forEach(cheat => {
+    // Skip if marked as coming soon or if the cheat is not active
+    if (cheat.comingSoon || !isCheatActive(cheat.id)) return;
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'icon-btn play-chrome cheat-icon';
+    btn.id = 'cheatBtn' + cheat.id;
+    btn.textContent = cheat.icon;
+    btn.title = cheat.name;
+
+    // Wire up the cheat action based on the id
+    if (cheat.id === 'daytime') {
+      btn.addEventListener('click', () => cheatSetDaytime());
+    } else if (cheat.id === 'heal') {
+      btn.addEventListener('click', () => cheatHealFeed());
+    }
+
+    container.appendChild(btn);
+  });
 }
 
 function resetInput() {
@@ -1003,6 +1082,16 @@ function wireUI() {
   });
   document.getElementById('btnOptions').addEventListener('click', showOptions);
   document.getElementById('btnOptionsBack').addEventListener('click', showTitle);
+
+  document.getElementById('btnCheats').addEventListener('click', showCheats);
+  document.getElementById('btnCheatsBack').addEventListener('click', showOptions);
+
+  document.getElementById('btnCheatsMaster').addEventListener('click', () => {
+    setCheatsEnabled();
+    updateCheatsMasterUi();
+    renderCheatsMenu();
+    syncCheatChrome(getSession());
+  });
 
   document.getElementById('muteBtn').addEventListener('click', () => {
     save.muted = !save.muted;

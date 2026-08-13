@@ -13,10 +13,10 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
-  <link rel="stylesheet" href="css/style.css?v=1.9.068" />
+  <link rel="stylesheet" href="css/style.css?v=1.9.069" />
   <script>
     (function () {
-      var BUILD = '1.9.068';
+      var BUILD = '1.9.069';
       window.__BB_BUILD = BUILD;
       // If still on a known-bad shell marker, bounce to the unstick page
       try {
@@ -163,12 +163,25 @@
           <button id="btnCoords" class="secondary" type="button">Coordinates: On</button>
           <button id="btnMinimap" class="secondary" type="button">Minimap: On</button>
           <button id="btnAutoJump" class="secondary" type="button">Auto-jump: On</button>
+          <button id="btnCheats" class="secondary" type="button">🎮 Cheats</button>
           <button id="btnForceUpdate" class="secondary" type="button">↻ Fix / update game</button>
           <p class="size-hint">Stuck on an old version, or menus not working? Tap Fix / update game.</p>
           <p class="size-hint">Rotate your phone or resize the window for landscape / portrait.</p>
           <button id="btnOptionsBack" class="ghost" type="button">← Back</button>
         </div>
         <p id="versionOptions" class="ver"></p>
+      </div>
+    </div>
+
+    <div class="screen menu-screen hidden" data-screen="cheats" id="screenCheats">
+      <div class="menu-card options-card">
+        <h2 class="menu-title">Cheats</h2>
+        <div class="menu-stack">
+          <button id="btnCheatsMaster" class="secondary" type="button">Cheats: Off</button>
+          <p class="size-hint">Cheats make the game easier and are meant for building and playing around.</p>
+          <div id="cheatsContainer"></div>
+          <button id="btnCheatsBack" class="ghost" type="button">← Back</button>
+        </div>
       </div>
     </div>
 
@@ -181,9 +194,10 @@
     <button id="btnBag" class="icon-btn play-chrome bag-btn hidden" type="button" title="Inventory">🎒</button>
     <button id="btnCreative" class="icon-btn play-chrome creative-btn hidden" type="button" title="Creative blocks">✦</button>
     <button id="btnFly" class="icon-btn play-chrome fly-btn hidden" type="button" title="Toggle fly">✈ Fly</button>
+    <div id="cheatsChrome"></div>
     <button id="btnTouchAct" class="touch-act-btn play-chrome hidden" type="button" title="Action">Use</button>
   </div>
 
-  <script type="module" src="js/main.js?v=1.9.068"></script>
+  <script type="module" src="js/main.js?v=1.9.069"></script>
 </body>
 </html>

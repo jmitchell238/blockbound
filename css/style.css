@@ -774,6 +774,29 @@ body.landscape .touch-act-btn {
   font-size: 0.95rem;
 }
 
+/* ——— Cheat icons ——— */
+#cheatsChrome {
+  position: fixed;
+  z-index: 205;
+  right: max(16px, env(safe-area-inset-right, 0px));
+  bottom: max(320px, calc(env(safe-area-inset-bottom, 0px) + 300px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.cheat-icon {
+  position: relative;
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 1.2rem;
+}
+
+body.landscape #cheatsChrome {
+  bottom: max(260px, calc(env(safe-area-inset-bottom, 0px) + 240px));
+}
+
 /* ——— Landscape / wide stage ——— */
 body.landscape .menu-screen {
   padding: 12px 20px;
