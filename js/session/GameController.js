@@ -47,6 +47,7 @@ import {
   queueMine, queuePlace, queueUse, kidsQueueMarkers,
 } from '../systems/nav.js';
 import { placePrefab, undoPrefab } from '../world/prefab.js';
+import { fellTree } from '../world/felling.js';
 import { getPrefab } from '../content/prefabs.js';
 
 /** Tile accessors handed to the liquid sim so it needs no world/index import. */
@@ -641,6 +642,21 @@ export function gameUpdate(dt) {
     }
     if (dropId != null) {
       spawnDrop(ents, result.mined.tx + 0.5, result.mined.ty + 0.5, dropId, dropN);
+    }
+
+    // Chop the base of a tree and the whole tree comes down. Anything left
+    // hanging in the air reads as the game ignoring the tap.
+    if (result.mined.id === BLOCK.WOOD) {
+      const felled = fellTree(world, result.mined.tx, result.mined.ty);
+      for (const t of felled) {
+        const fm = BLOCK_META[t.id];
+        spawnBurst(s.particles, t.tx + 0.5, t.ty + 0.5, (fm && fm.color) || '#c4a060', 4);
+        if (t.id === BLOCK.LEAVES && fm && fm.fruitChance && Math.random() < fm.fruitChance) {
+          spawnDrop(ents, t.tx + 0.5, t.ty + 0.5, 'apple', 1);
+        }
+        if (fm && fm.drops != null) spawnDrop(ents, t.tx + 0.5, t.ty + 0.5, fm.drops, 1);
+      }
+      if (felled.length) stats.blocksMined += felled.length;
     }
 
     if (inv.tool !== 'hand' && !player.godMode) {

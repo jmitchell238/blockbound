@@ -1529,6 +1529,88 @@ console.log('\nPrefab tests');
   ok(restored > 0, `undo restores some tiles (${restored} of ${before2.length})`);
 }
 
+// ── Tree felling ─────────────────────────────────────────────────────────────
+{
+  const { fellTree } = await import(pathToFileURL(path.join(root, 'js/world/felling.js')).href);
+  const { BLOCK } = await import(pathToFileURL(path.join(root, 'js/content/blocks.js')).href);
+  const { idx } = await import(pathToFileURL(path.join(root, 'js/world/index.js')).href);
+
+  BB.applyWorldSize(1024);
+
+  // Build a bare canvas: a world of air with a floor, then draw shapes into it.
+  const blank = () => {
+    const w = BB.generateWorld(4242);
+    for (let y = 0; y < BB.WORLD_H; y++) {
+      for (let x = 90; x < 130; x++) {
+        if (y < BB.WORLD_H - 1) w.tiles[idx(x, y)] = BLOCK.AIR;
+      }
+    }
+    return w;
+  };
+  const tree = (w, bx, by, h = 5) => {
+    for (let i = 0; i < h; i++) w.tiles[idx(bx, by - i)] = BLOCK.WOOD;
+    for (let dx = -2; dx <= 2; dx++) {
+      for (let dy = -2; dy <= 0; dy++) {
+        const lx = bx + dx; const ly = by - h - dy;
+        if (w.tiles[idx(lx, ly)] === BLOCK.AIR) w.tiles[idx(lx, ly)] = BLOCK.LEAVES;
+      }
+    }
+  };
+
+  // Chopping the base fells trunk + canopy.
+  let w = blank();
+  tree(w, 100, 60, 5);
+  w.tiles[idx(100, 60)] = BLOCK.AIR;           // simulate the mined base
+  let felled = fellTree(w, 100, 60);
+  ok(felled.length > 0, `felling removes tiles (${felled.length})`);
+  ok(felled.some(t => t.id === BLOCK.WOOD), 'felling returns wood');
+  ok(felled.some(t => t.id === BLOCK.LEAVES), 'felling returns leaves');
+  let leftovers = 0;
+  for (let y = 45; y <= 60; y++) {
+    for (let x = 96; x <= 104; x++) {
+      const t = BB.getTile(w, x, y);
+      if (t === BLOCK.WOOD || t === BLOCK.LEAVES) leftovers++;
+    }
+  }
+  ok(leftovers === 0, `no floating trunk or canopy left (${leftovers})`);
+
+  // Chopping halfway up leaves the stump below the cut standing.
+  w = blank();
+  tree(w, 100, 60, 6);
+  w.tiles[idx(100, 57)] = BLOCK.AIR;           // mined three up from the base
+  fellTree(w, 100, 57);
+  ok(BB.getTile(w, 100, 60) === BLOCK.WOOD && BB.getTile(w, 100, 58) === BLOCK.WOOD,
+    'stump below the cut survives');
+  ok(BB.getTile(w, 100, 56) === BLOCK.AIR, 'trunk above the cut falls');
+
+  // A wooden build with no leaves is never felled.
+  w = blank();
+  for (let y = 50; y <= 60; y++) {
+    for (let x = 100; x <= 108; x++) w.tiles[idx(x, y)] = BLOCK.WOOD;
+  }
+  w.tiles[idx(104, 60)] = BLOCK.AIR;
+  ok(fellTree(w, 104, 60).length === 0, 'wide wooden build is not felled');
+
+  // A narrow wooden pillar with no leaves is not felled either.
+  w = blank();
+  for (let i = 0; i < 8; i++) w.tiles[idx(100, 60 - i)] = BLOCK.WOOD;
+  w.tiles[idx(100, 60)] = BLOCK.AIR;
+  ok(fellTree(w, 100, 60).length === 0, 'leafless pillar is not felled');
+
+  // Mining a non-wood tile under nothing does nothing.
+  w = blank();
+  ok(fellTree(w, 100, 60).length === 0, 'no wood above the cut is a no-op');
+
+  // Felling works across the world seam.
+  w = BB.generateWorld(4242);
+  for (let y = 40; y < BB.WORLD_H - 1; y++) {
+    for (let x = -6; x <= 6; x++) w.tiles[idx(BB.wrapX(x), y)] = BLOCK.AIR;
+  }
+  tree(w, 0, 60, 5);
+  w.tiles[idx(0, 60)] = BLOCK.AIR;
+  ok(fellTree(w, 0, 60).length > 0, 'felling works at the world seam');
+}
+
 if (failed) {
   console.error(`\n${failed} failed`);
   process.exit(1);

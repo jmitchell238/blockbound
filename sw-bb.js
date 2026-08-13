@@ -1,6 +1,6 @@
 // Blockbound service worker v2 (new filename so stuck sw.js controllers are abandoned)
 // Keep CACHE in sync with GAME_VERSION in js/core/constants.js
-const CACHE = 'blockbound-1.9.070';
+const CACHE = 'blockbound-1.9.071';
 
 const ASSETS = [
   './',
@@ -22,6 +22,7 @@ const ASSETS = [
   './js/content/prefabs.js',
   './js/world/index.js',
   './js/world/prefab.js',
+  './js/world/felling.js',
   './js/world/shelter.js',
   './js/player/index.js',
   './js/inventory/inventory.js',

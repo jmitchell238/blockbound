@@ -104,11 +104,12 @@ Master toggle plus per-cheat switches in Options. In-game icons appear only when
 cheats are on **and** that individual cheat is on. Ships with Always Daytime,
 Heal & Feed, and Instant Builds (section 5).
 
-### ▲ 3.2 Tree felling
+### 3.2 Tree felling — **shipped v1.9.071**
 
-Walking into a tree currently stops the character dead, which reads as being
-stuck rather than as an obstacle. Chopping the base should fell the whole trunk
-and its canopy. Also fixes the "I held walk and nothing happened" confusion.
+Chopping a trunk brings down everything above the cut plus the canopy hanging
+on it (`world/felling.js`). A wooden *build* is protected by shape: the felled
+wood must be at most three columns wide, under 96 tiles, and wearing leaves —
+so a plank wall or a leafless pillar is never demolished by a stray tap.
 
 ### 3.3 Farming
 
@@ -261,7 +262,7 @@ with chests, Farm Plot, Animal Pen, Bridge-over-lava.
 ## 7. Suggested order
 
 1. ~~Cheats system with instant builds~~ — shipped
-2. Tree felling *(removes a real confusion)*
+2. ~~Tree felling~~ — shipped
 3. Render split *(unblocks everything visual)*
 4. Frame-rate overlay, then decide on chunk caching
 5. Building blocks: wool, fences, stone bricks
