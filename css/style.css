@@ -829,6 +829,34 @@ body.landscape .title-card .how {
   max-height: min(200px, 42vh);
   overflow-y: auto;
 }
+
+/* Landscape How-to used to be a 200px keyhole onto 447px of text: it cut item
+   4 mid-word and, with no scrollbar drawn, gave no hint the rest was there —
+   so the page simply looked like it ended at four instructions. Landscape has
+   plenty of unused width either side of a 520px card, so spend that instead of
+   height: widen the card while How-to is open and set the list in two columns.
+   The menu buttons stay capped at 360px above, so widening does not stretch
+   them. */
+body.landscape .title-card:has(.how:not(.hidden)) {
+  width: min(880px, 92vw, 96%);
+  max-width: 900px;
+}
+body.landscape .title-card:has(.how:not(.hidden)) .how {
+  max-height: min(420px, 58vh);
+}
+body.landscape .title-card:has(.how:not(.hidden)) .how ol {
+  columns: 2;
+  column-gap: 26px;
+}
+/* An instruction split across a column break is the same unreadable half-item
+   the clipping produced. */
+body.landscape .how li {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+body.landscape .how .inspired {
+  column-span: all;
+}
 body.landscape .worlds-card,
 body.landscape .mc-worlds-panel {
   width: min(720px, 96%);
@@ -928,6 +956,18 @@ body.landscape .touch-act-btn {
   body.landscape .title-card button {
     margin-top: 5px;
     padding: 9px 12px;
+  }
+  /* Phone landscape is only ~390px tall, and the logo plus tagline plus four
+     buttons leave the How-to a sliver at the bottom edge — the same half-item
+     clipping the two-column layout fixes everywhere else. While How-to is
+     open the decoration is the cheapest thing to drop. */
+  body.landscape .title-card:has(.how:not(.hidden)) .logo-icon,
+  body.landscape .title-card:has(.how:not(.hidden)) .tagline,
+  body.landscape .title-card:has(.how:not(.hidden)) h1 {
+    display: none;
+  }
+  body.landscape .title-card:has(.how:not(.hidden)) .how {
+    max-height: 62vh;
   }
 }
 

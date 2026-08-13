@@ -1293,6 +1293,34 @@ console.log('\nMagma');
     'the body bobs as it strokes');
 }
 
+// ————— How to Play —————
+{
+  console.log('\nHow to Play');
+  const css = fs.readFileSync(path.join(root, 'css/style.css'), 'utf8');
+  const htm = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+  const panel = htm.slice(htm.indexOf('id="howPanel"'), htm.indexOf('</ol>', htm.indexOf('id="howPanel"')));
+  const items = panel.match(/<li>/g) || [];
+
+  // The panel was a 200px window onto 447px of text, so item 4 was cut
+  // mid-word and nothing showed there was more. Landscape has spare width, so
+  // the fix spends width rather than height.
+  ok(/:has\(\.how:not\(\.hidden\)\)/.test(css), 'landscape reflows the card while How-to is open');
+  ok(/\.how ol \{[^}]*columns: 2/.test(css), 'the landscape list runs in two columns');
+  ok(/break-inside: avoid/.test(css), 'an instruction never splits across a column break');
+  ok(/column-span: all/.test(css), 'the footer line spans both columns');
+
+  // Features shipped in 1.9.056–1.9.063 that the instructions never mentioned.
+  const say = (re, what) => ok(re.test(panel), `How to Play explains ${what}`);
+  say(/Auto-jump|auto-jump/, 'auto-jump');
+  say(/one-block step/, 'what auto-jump actually does');
+  say(/<b>coordinates<\/b>/, 'the coordinates toggle');
+  say(/<b>minimap<\/b>/, 'the minimap toggle');
+  say(/you swim/, 'swimming');
+  say(/<b>Magma<\/b> crust caps the molten <b>Lava<\/b>/, 'magma vs lava');
+  say(/freeze it into <b>stone<\/b>/, 'quenching lava to reach bedrock');
+  ok(items.length >= 13, `the list covers the current game (${items.length} items)`);
+}
+
 if (failed) {
   console.error(`\n${failed} failed`);
   process.exit(1);
