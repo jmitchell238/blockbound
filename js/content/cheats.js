@@ -4,7 +4,7 @@
  */
 
 export const CHEATS = [
-  { id: 'daytime', name: 'Always Daytime', icon: '☀️', blurb: 'Jump straight to morning' },
+  { id: 'daytime', name: 'Time of Day', icon: '☀️', blurb: 'Tap to cycle morning, midday, evening, night' },
   { id: 'heal',    name: 'Heal & Feed',    icon: '❤️', blurb: 'Refill hearts and food' },
   { id: 'build',   name: 'Instant Builds', icon: '🏠', blurb: 'Place whole houses and fountains' },
 ];

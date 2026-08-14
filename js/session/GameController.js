@@ -1725,12 +1725,59 @@ export function doPlayerAttack(s) {
  * Cheat: instantly set time to morning.
  * (build cheat in a follow-up issue bb-bkv)
  */
+/**
+ * The times of day the clock cheat steps through.
+ *
+ * `t` runs 0..1 over a full cycle, with midnight at 0 and noon at 0.5 — the
+ * same phase the sky and the sun's height are derived from, so these land where
+ * they say they do.
+ */
+export const TIME_PHASES = [
+  { id: 'morning', name: 'Morning', icon: '🌅', t: 0.33 },
+  { id: 'midday', name: 'Midday', icon: '☀️', t: 0.5 },
+  { id: 'evening', name: 'Evening', icon: '🌇', t: 0.75 },
+  { id: 'night', name: 'Night', icon: '🌙', t: 0.0 },
+];
+
+/**
+ * Cheat: step the clock to the next time of day.
+ *
+ * It used to jump to morning and only ever morning, so there was no way to go
+ * and look at the dark. Tapping cycles morning → midday → evening → night,
+ * which needs no menu — the button is the picker.
+ *
+ * @returns {{id:string,name:string,icon:string,t:number}|null} the phase now set
+ */
+/** Index of the listed phase a clock value is nearest to. The clock wraps. */
+export function nearestTimePhase(t) {
+  const cur = ((t % 1) + 1) % 1;
+  let nearest = 0;
+  let best = Infinity;
+  for (let i = 0; i < TIME_PHASES.length; i++) {
+    const raw = Math.abs(TIME_PHASES[i].t - cur);
+    const d = Math.min(raw, 1 - raw);
+    if (d < best) {
+      best = d;
+      nearest = i;
+    }
+  }
+  return nearest;
+}
+
+/**
+ * The phase after whichever one the clock is nearest to, so a tap always moves
+ * time forward instead of sticking wherever it last landed.
+ */
+export function nextTimePhase(t) {
+  return TIME_PHASES[(nearestTimePhase(t) + 1) % TIME_PHASES.length];
+}
+
 export function cheatSetDaytime() {
-  if (!session) return;
-  // DAY_LEN is the full cycle in seconds; pick a clearly-daylight value.
-  // Time 0..1 spans full cycle, so 0.3 is morning.
-  session.timeOfDay = 0.3;
-  toast(session.ui, 'It\'s morning!');
+  if (!session) return null;
+  const next = nextTimePhase(session.timeOfDay);
+  session.timeOfDay = next.t;
+  toast(session.ui, next.icon + ' ' + next.name);
+  return next;
 }
 
 /**

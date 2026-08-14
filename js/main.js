@@ -22,7 +22,7 @@ import {
 import { audioSetMuted, ensureAudio } from './audio/audio.js';
 import {
   enterPlay, enterMenu, getSession, gameUpdate, gameRender, gameClickCraft, gameUiPointer,
-  cheatSetDaytime, cheatHealFeed, beginPrefabPlacement, cancelPrefabPlacement, undoLastPrefab,
+  cheatSetDaytime, TIME_PHASES, nearestTimePhase, cheatHealFeed, beginPrefabPlacement, cancelPrefabPlacement, undoLastPrefab,
 } from './session/index.js';
 import { skyColors, drawParallax, drawBlock } from './render/index.js';
 
@@ -846,7 +846,18 @@ function syncCheatChrome(session) {
 
     // Wire up the cheat action based on the id
     if (cheat.id === 'daytime') {
-      btn.addEventListener('click', () => cheatSetDaytime());
+      // The button doubles as the readout: it shows the time it just set, so a
+      // child can see that tapping again moves on rather than repeating.
+      const s = getSession();
+      const now = s ? TIME_PHASES[nearestTimePhase(s.timeOfDay)] : null;
+      if (now) btn.textContent = now.icon;
+      btn.addEventListener('click', () => {
+        const phase = cheatSetDaytime();
+        if (phase) {
+          btn.textContent = phase.icon;
+          btn.title = phase.name;
+        }
+      });
     } else if (cheat.id === 'heal') {
       btn.addEventListener('click', () => cheatHealFeed());
     } else if (cheat.id === 'build') {

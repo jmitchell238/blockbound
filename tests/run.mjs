@@ -2437,6 +2437,54 @@ console.log('\nPrefab tests');
   }
 }
 
+// ── Time of day is selectable, not just "morning" ────────────────────────────
+{
+  const GC = await import(pathToFileURL(path.join(root, 'js/session/GameController.js')).href);
+  const R = await import(pathToFileURL(path.join(root, 'js/render/index.js')).href);
+  const { TIME_PHASES, nextTimePhase, nearestTimePhase } = GC;
+
+  // The cheat used to hard-code morning, so there was no way to go look at the
+  // dark and test anything nocturnal.
+  const ids = TIME_PHASES.map(p => p.id);
+  for (const want of ['morning', 'midday', 'evening', 'night']) {
+    ok(ids.includes(want), `you can pick ${want}`);
+  }
+
+  // Tapping always moves time on, and cycles back round.
+  let t = TIME_PHASES[0].t;
+  const seen = [];
+  for (let i = 0; i < TIME_PHASES.length; i++) {
+    const next = nextTimePhase(t);
+    seen.push(next.id);
+    t = next.t;
+  }
+  ok(new Set(seen).size === TIME_PHASES.length,
+    `tapping through visits every phase exactly once (${seen.join(' → ')})`);
+  ok(nextTimePhase(t).id === seen[0], 'and then wraps back to the start');
+
+  // Nearest-phase must handle the clock wrapping past midnight.
+  ok(TIME_PHASES[nearestTimePhase(0.99)].id === 'night', 'just before midnight reads as night');
+  ok(TIME_PHASES[nearestTimePhase(0.01)].id === 'night', 'just after midnight reads as night');
+
+  // The phases must actually look like what they claim, using the same sky the
+  // renderer draws — a "night" that renders bright would be useless for testing.
+  const dayAt = (id) => R.skyColors(TIME_PHASES.find(p => p.id === id).t, 0).day;
+  ok(dayAt('night') < 0.1, `night is dark (sky.day ${dayAt('night').toFixed(2)})`);
+  ok(dayAt('midday') > 0.9, `midday is bright (sky.day ${dayAt('midday').toFixed(2)})`);
+  ok(dayAt('morning') > 0.5 && dayAt('morning') < dayAt('midday'),
+    'morning is daylight but not as bright as midday');
+  ok(dayAt('evening') < dayAt('midday'), 'evening is dimmer than midday');
+
+  // The moon should be up at night and the sun down — the two are opposite.
+  const sunAlt = (id) => Math.sin(TIME_PHASES.find(p => p.id === id).t * Math.PI * 2 - Math.PI / 2);
+  ok(R.celestialAlpha(sunAlt('night')) === 0, 'the sun is down at night');
+  ok(R.celestialAlpha(-sunAlt('night')) > 0, 'the moon is up at night');
+  ok(R.celestialAlpha(sunAlt('midday')) > 0, 'the sun is up at midday');
+
+  const cheats = fs.readFileSync(path.join(root, 'js/content/cheats.js'), 'utf8');
+  ok(!/Always Daytime/.test(cheats), 'the cheat is no longer described as always-daytime');
+}
+
 if (failed) {
   console.error(`\n${failed} failed`);
   process.exit(1);
