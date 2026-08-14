@@ -2485,6 +2485,97 @@ console.log('\nPrefab tests');
   ok(!/Always Daytime/.test(cheats), 'the cheat is no longer described as always-daytime');
 }
 
+// ── Walk past furniture, still use it ────────────────────────────────────────
+{
+  const P = await import(pathToFileURL(path.join(root, 'js/player/index.js')).href);
+  const { BLOCK, isWalkThrough } = await import(pathToFileURL(path.join(root, 'js/content/blocks.js')).href);
+  const Wld = await import(pathToFileURL(path.join(root, 'js/world/index.js')).href);
+  const M = await import(pathToFileURL(path.join(root, 'js/interact/meta.js')).href);
+  const U = await import(pathToFileURL(path.join(root, 'js/interact/use.js')).href);
+
+  for (const id of [BLOCK.BED, BLOCK.CHEST, BLOCK.WORKBENCH, BLOCK.FURNACE]) {
+    ok(isWalkThrough(id), `furniture ${id} can be walked through`);
+  }
+  ok(!isWalkThrough(BLOCK.STONE), 'stone is still a wall');
+  ok(!isWalkThrough(BLOCK.PLANKS), 'planks are still a wall');
+
+  BB.applyWorldSize(1024);
+  const px = 500;
+  const floorY = 60;
+  const build = (furniture) => {
+    const w = Wld.generateWorld(999);
+    w.meta = M.makeWorldMeta();
+    for (let y = floorY - 6; y < floorY; y++) {
+      for (let d = -8; d <= 8; d++) w.tiles[Wld.idx(px + d, y)] = BLOCK.AIR;
+    }
+    for (let d = -8; d <= 8; d++) w.tiles[Wld.idx(px + d, floorY)] = BLOCK.STONE;
+    if (furniture != null) w.tiles[Wld.idx(px + 2, floorY - 1)] = furniture;
+    return w;
+  };
+  const mk = () => ({
+    x: px - 3.5, y: floorY, vx: 0, vy: 0, w: 0.55, h: 1.55, onGround: true, flying: false,
+    hp: 20, maxHp: 20, hunger: 20, maxHunger: 20, godMode: true, autoJump: true,
+    jumpBuf: 0, coyote: 0, facing: 1, invuln: 0, placeCooldown: 0, anim: 0,
+    fallVy: 0, fallDist: 0,
+  });
+  const walkRight = (w) => {
+    const p = mk();
+    const inp = { left: false, right: true, jump: false, up: false, down: false, stickY: 0 };
+    for (let i = 0; i < 180; i++) P.updatePlayer(p, w, { ...inp }, 1 / 60, 1);
+    return p;
+  };
+
+  // A bed one tile from a doorway used to wall the doorway off completely.
+  for (const [name, id] of [['a bed', BLOCK.BED], ['a chest', BLOCK.CHEST]]) {
+    const p = walkRight(build(id));
+    ok(p.x > px + 3, `you can walk past ${name} (reached x ${p.x.toFixed(1)}, furniture at ${px + 2})`);
+  }
+  // A wall still stops you, or we have just deleted collision.
+  {
+    const w = build(null);
+    w.tiles[Wld.idx(px + 2, floorY - 1)] = BLOCK.STONE;
+    w.tiles[Wld.idx(px + 2, floorY - 2)] = BLOCK.STONE;
+    const p = walkRight(w);
+    ok(p.x < px + 2, `a real wall still blocks (stopped at x ${p.x.toFixed(1)})`);
+  }
+
+  // You can still stand on top of furniture.
+  {
+    const w = build(BLOCK.BED);
+    const p = mk();
+    p.x = px + 2.5;
+    p.y = floorY - 4;
+    p.onGround = false;
+    const idle = { left: false, right: false, jump: false, up: false, down: false, stickY: 0 };
+    for (let i = 0; i < 120; i++) P.updatePlayer(p, w, { ...idle }, 1 / 60, 1);
+    ok(p.onGround && Math.abs(p.y - (floorY - 1)) < 0.01,
+      `you land on top of a bed rather than through it (y ${p.y.toFixed(2)})`);
+  }
+
+  // And it is still usable — walking through must not cost interaction.
+  {
+    const w = build(BLOCK.BED);
+    w.tiles[Wld.idx(px + 3, floorY - 1)] = BLOCK.CHEST;
+    const bed = U.nearInteract(w, w.meta, px + 2.5, floorY);
+    ok(bed && bed.kind === 'bed', 'a bed you can walk through is still a bed you can sleep in');
+    const chest = U.nearInteract(w, w.meta, px + 3.5, floorY);
+    ok(chest && chest.kind === 'chest', 'a chest you can walk through still opens');
+  }
+
+  // Auto-jump must not fire at furniture, or you would hop over every chest.
+  {
+    const w = build(BLOCK.CHEST);
+    const p = mk();
+    p.x = px + 1.5;
+    ok(P.autoJumpStep(w, p, 1) === false, 'auto-jump does not try to climb furniture');
+    const w2 = build(null);
+    w2.tiles[Wld.idx(px + 2, floorY - 1)] = BLOCK.STONE;
+    const p2 = mk();
+    p2.x = px + 1.5;
+    ok(P.autoJumpStep(w2, p2, 1) === true, 'auto-jump still climbs a real one-block step');
+  }
+}
+
 if (failed) {
   console.error(`\n${failed} failed`);
   process.exit(1);

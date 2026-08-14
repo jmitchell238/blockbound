@@ -3,7 +3,7 @@ import {
   COYOTE, JUMP_BUFFER, REACH, TILE,
 } from '../core/constants.js';
 import { WORLD_W } from '../core/worldSize.js';
-import { BLOCK, BLOCK_META, isPlatform, isBlockItem } from '../content/blocks.js';
+import { BLOCK, BLOCK_META, isPlatform, isWalkThrough, isBlockItem } from '../content/blocks.js';
 import {
   getTile, setTile, isSolid, isClimbable, wrapX, wrapDeltaX,
 } from '../world/index.js';
@@ -75,6 +75,9 @@ export function autoJumpStep(world, p, ix) {
   const ax = Math.floor(p.x + dir * 0.55);
   // p.y is the feet; the tile the body stands in is one above the ground.
   const footY = Math.floor(p.y - 0.02);
+  // Furniture is walked through, not climbed — hopping onto every chest you
+  // pass would be a twitchy mess.
+  if (isWalkThrough(getTile(world, ax, footY))) return false;
   return isSolid(world, ax, footY)          // a step, exactly one tall...
     && !isSolid(world, ax, footY - 1)       // ...with room to stand on it...
     && !isSolid(world, ax, footY - 2);      // ...and room for their head.
@@ -439,7 +442,10 @@ export function resolveAxis(p, world, axis) {
     for (let txi = minTX; txi <= maxTX; txi++) {
       const tx = txi;
       const tid = getTile(world, tx, ty);
-      const isPlat = isPlatform(tid);
+      // Furniture collides the same way a platform does: you land on top of it,
+      // but it never stops you walking past. A bed beside a doorway should not
+      // be a wall.
+      const isPlat = isPlatform(tid) || isWalkThrough(tid);
       if (!isSolid(world, tx, ty) && !isPlat) continue;
 
       const rel = nearestTileX(p.x, tx);

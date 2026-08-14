@@ -64,7 +64,7 @@ export const BLOCK_META = {
   [BLOCK.CLAY]:      { name: 'Clay', solid: true, mine: 0.4, drops: BLOCK.CLAY, color: '#a07868', top: '#b08878' },
   [BLOCK.LADDER]:    { name: 'Ladder', solid: false, mine: 0.2, drops: BLOCK.LADDER, color: '#c4a060', climb: true },
   [BLOCK.TORCH]:     { name: 'Torch', solid: false, mine: 0.1, drops: BLOCK.TORCH, color: '#ffcc44', light: 13 },
-  [BLOCK.WORKBENCH]: { name: 'Workbench', solid: true, mine: 0.5, drops: BLOCK.WORKBENCH, color: '#a07040', top: '#c09050', interact: 'craft' },
+  [BLOCK.WORKBENCH]: { name: 'Workbench', solid: true, walkThrough: true, mine: 0.5, drops: BLOCK.WORKBENCH, color: '#a07040', top: '#c09050', interact: 'craft' },
   [BLOCK.PLANKS]:    { name: 'Planks', solid: true, mine: 0.4, drops: BLOCK.PLANKS, color: '#c49a5a', top: '#d4aa6a' },
   [BLOCK.GLASS]:     { name: 'Glass', solid: true, mine: 0.25, drops: BLOCK.GLASS, color: '#a8d8ff', alpha: 0.45 },
   [BLOCK.BRICK]:     { name: 'Brick', solid: true, mine: 0.8, drops: BLOCK.BRICK, color: '#b05040', top: '#c06050' },
@@ -73,9 +73,13 @@ export const BLOCK_META = {
   // The top half carries no drop of its own — the pair yields one door, and the
   // bottom half is the one that owns the open/closed state.
   [BLOCK.DOOR_TOP]:  { name: 'Door', solid: true, mine: 0.45, drops: null, color: '#a07840', top: '#c09858', interact: 'door' },
-  [BLOCK.BED]:       { name: 'Bed', solid: true, mine: 0.4, drops: BLOCK.BED, color: '#c45a6a', top: '#e87890', interact: 'bed' },
-  [BLOCK.CHEST]:     { name: 'Chest', solid: true, mine: 0.5, drops: BLOCK.CHEST, color: '#b8863a', top: '#d4a04a', interact: 'chest' },
-  [BLOCK.FURNACE]:   { name: 'Furnace', solid: true, mine: 0.7, drops: BLOCK.FURNACE, color: '#5a5a62', top: '#6e6e78', interact: 'furnace', light: 4 },
+  // Floor furniture is `walkThrough`: you can walk past it and stand on top of
+  // it, but it never blocks a doorway. A bed one tile from a gap used to wall
+  // the gap off completely, and a chest in a corridor was a locked door you
+  // could open but not pass.
+  [BLOCK.BED]:       { name: 'Bed', solid: true, walkThrough: true, mine: 0.4, drops: BLOCK.BED, color: '#c45a6a', top: '#e87890', interact: 'bed' },
+  [BLOCK.CHEST]:     { name: 'Chest', solid: true, walkThrough: true, mine: 0.5, drops: BLOCK.CHEST, color: '#b8863a', top: '#d4a04a', interact: 'chest' },
+  [BLOCK.FURNACE]:   { name: 'Furnace', solid: true, walkThrough: true, mine: 0.7, drops: BLOCK.FURNACE, color: '#5a5a62', top: '#6e6e78', interact: 'furnace', light: 4 },
   [BLOCK.PLATFORM]:  { name: 'Platform', solid: true, mine: 0.25, drops: BLOCK.PLATFORM, color: '#c4a060', top: '#d4b070', platform: true },
   [BLOCK.CAMPFIRE]:  { name: 'Campfire', solid: false, mine: 0.3, drops: BLOCK.CAMPFIRE, color: '#8b4513', light: 10, interact: 'campfire' },
   /** Hangs from ceilings / platforms, or sits on the floor — brighter/farther than torch. */
@@ -86,6 +90,16 @@ export const BIOME_NAMES = ['Forest', 'Desert', 'Snow', 'Plains'];
 
 export function isPlatform(id) {
   return id === BLOCK.PLATFORM || !!(BLOCK_META[id] && BLOCK_META[id].platform);
+}
+
+/**
+ * Blocks you can walk straight through but still land on from above.
+ *
+ * Kept separate from `platform` on purpose: platforms skip the "needs support"
+ * rule when placing, and furniture should still have to sit on something.
+ */
+export function isWalkThrough(id) {
+  return !!(BLOCK_META[id] && BLOCK_META[id].walkThrough);
 }
 
 export function isGravityBlock(id) {
