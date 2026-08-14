@@ -797,6 +797,26 @@ body.landscape #cheatsChrome {
   bottom: max(260px, calc(env(safe-area-inset-bottom, 0px) + 240px));
 }
 
+/*
+ * Undo for instant builds. Sits directly under the cheat icons on the right and
+ * only exists while there is a build to take back — a misplaced castle is 1200
+ * tiles of damage, and the moment you want to undo it is the moment you are
+ * looking at it, not after reopening the builds menu.
+ */
+.undo-build-btn {
+  right: max(16px, env(safe-area-inset-right, 0px));
+  left: auto;
+  bottom: max(268px, calc(env(safe-area-inset-bottom, 0px) + 248px));
+  font-size: 0.85rem;
+  padding: 10px 12px;
+  background: rgba(96, 52, 16, 0.95);
+  color: #ffd9a0;
+  border-color: rgba(255, 190, 110, 0.55);
+}
+body.landscape .undo-build-btn {
+  bottom: max(208px, calc(env(safe-area-inset-bottom, 0px) + 188px));
+}
+
 /* ——— Landscape / wide stage ——— */
 body.landscape .menu-screen {
   padding: 12px 20px;

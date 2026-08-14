@@ -2301,6 +2301,46 @@ console.log('\nPrefab tests');
   }
 }
 
+// ── Undo the last instant build ──────────────────────────────────────────────
+{
+  const Prefabs = await import(pathToFileURL(path.join(root, 'js/content/prefabs.js')).href);
+  const Wld = await import(pathToFileURL(path.join(root, 'js/world/index.js')).href);
+  const M = await import(pathToFileURL(path.join(root, 'js/interact/meta.js')).href);
+  const PL = await import(pathToFileURL(path.join(root, 'js/world/prefab.js')).href);
+
+  // A misplaced castle is over a thousand tiles of damage, so undo has to put
+  // back every single one — including the grown door tops and the dirt packed
+  // in underneath, which are written after the main pattern.
+  BB.applyWorldSize(1024);
+  for (const id of ['starter-hut', 'treehouse', 'manor', 'castle', 'swimming-pool']) {
+    const w = Wld.generateWorld(2468);
+    w.meta = M.makeWorldMeta();
+    const before = Uint8Array.from(w.tiles);
+    const res = PL.placePrefab(w, Prefabs.getPrefab(id), 400, w.surface[400] - 1);
+    ok(res.ok, `${id} places for the undo test`);
+    ok(res.undo.length === res.placed.length,
+      `${id} records one undo entry per placed tile (${res.undo.length}/${res.placed.length})`);
+    PL.undoPrefab(w, res.undo);
+    let diff = 0;
+    for (let i = 0; i < w.tiles.length; i++) if (w.tiles[i] !== before[i]) diff++;
+    ok(diff === 0, `undoing ${id} restores the world exactly (${diff} tiles left changed)`);
+  }
+
+  // The button has to be reachable while looking at the mistake, not buried in
+  // the builds menu.
+  const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+  const mainJs = fs.readFileSync(path.join(root, 'js/main.js'), 'utf8');
+  ok(html.includes('id="btnUndoLastBuild"'), 'there is an in-game undo button');
+  ok(/btnUndoLastBuild'\)\.addEventListener/.test(mainJs), 'the in-game undo button is wired up');
+  ok(mainJs.includes('syncUndoBuildButton'), 'the undo button is shown and hidden with the session');
+  ok(/lastPrefabUndo/.test(mainJs), 'the button keys off whether there is a build to undo');
+
+  // Cache-busters must move with the version, or a CSS/JS change never lands.
+  const ver = constants.match(/GAME_VERSION\s*=\s*['"]([^'"]+)['"]/)[1];
+  ok(html.includes('css/style.css?v=' + ver), 'the stylesheet cache-buster matches the version');
+  ok(html.includes('js/main.js?v=' + ver), 'the main.js cache-buster matches the version');
+}
+
 if (failed) {
   console.error(`\n${failed} failed`);
   process.exit(1);

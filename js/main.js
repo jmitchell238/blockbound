@@ -193,6 +193,20 @@ function syncTouchActButton(session) {
   else btn.classList.add('act-use');
 }
 
+/**
+ * The undo button only exists while there is a build to take back.
+ *
+ * The one in the builds panel meant reopening "Choose a Build" to undo the
+ * thing you had just placed — the moment you want it is the moment you are
+ * looking at the mistake, not three taps away.
+ */
+function syncUndoBuildButton(session) {
+  const btn = document.getElementById('btnUndoLastBuild');
+  if (!btn) return;
+  const show = screenName === 'play' && !!(session && session.ui && session.ui.lastPrefabUndo);
+  btn.classList.toggle('hidden', !show);
+}
+
 function pickSplash() {
   const el = document.getElementById('splashLine');
   if (!el) return;
@@ -1029,6 +1043,7 @@ function frameBody(now) {
       }
     }
     syncTouchActButton(s);
+    syncUndoBuildButton(s);
     syncChromeForPanels(s);
     if (ctx) {
       // Always paint a base fill first — clearRect alone leaves body green through a failed frame
@@ -1061,6 +1076,7 @@ function frameBody(now) {
   } else if (ctx) {
     drawMenuBackdrop(ctx, now);
     syncTouchActButton(null);
+    syncUndoBuildButton(null);
   }
 }
 
@@ -1151,6 +1167,12 @@ function wireUI() {
 
   document.getElementById('btnUndoBuild').addEventListener('click', () => {
     undoLastPrefab();
+    closePrefabsPanel();
+  });
+
+  document.getElementById('btnUndoLastBuild').addEventListener('click', () => {
+    undoLastPrefab();
+    syncUndoBuildButton(getSession());
   });
 
   document.getElementById('muteBtn').addEventListener('click', () => {
