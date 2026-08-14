@@ -21,6 +21,7 @@ export {
   wrapX, wrapDeltaX, generateWorld, generateWorldAsync, getTile, setTile, getLight,
   getRenderLight, lightToBrightness, isSolid, serializeWorld, deserializeWorld,
   markLightDirty, flushLight, recomputeSkyLight, tickGravityNear, sampleLight, emitLight,
+  scheduleGravity, scheduleGravityNear, tickGravity,
 } from '../world/index.js';
 export {
   isRoofSolidId, isCaveOpenTile, isShelteredAir, caveAirColor,

@@ -102,8 +102,84 @@ export function blocksFromAbove(world, x, y) {
 }
 
 /**
- * Local sand/snow gravity near a column (and player neighborhood).
+ * Sand and snow fall only where something disturbed them.
+ *
+ * Gravity used to be swept in a radius around the player every quarter second,
+ * which meant naturally-generated sand lying over a cave collapsed the moment a
+ * player came near — nobody touched it, and simply flying past rearranged the
+ * landscape. Disturbances are queued instead, so untouched terrain stays exactly
+ * as the world generator left it.
+ */
+export function scheduleGravity(world, x, y) {
+  if (y < 0 || y >= WORLD_H) return;
+  if (!world.gravityCells) world.gravityCells = new Set();
+  world.gravityCells.add(idx(wrapX(x), Math.floor(y)));
+}
+
+/**
+ * Queue every gravity block around a change. Called where a tile was mined,
+ * placed, or blown out — the radius covers the loose column above the hole.
+ */
+export function scheduleGravityNear(world, cx, cy, radius) {
+  radius = radius == null ? 8 : radius;
+  const y0 = Math.max(1, Math.floor(cy) - radius);
+  const y1 = Math.min(WORLD_H - 2, Math.floor(cy) + radius);
+  for (let y = y0; y <= y1; y++) {
+    for (let dx = -radius; dx <= radius; dx++) {
+      const x = wrapX(Math.floor(cx) + dx);
+      if (isGravityBlock(getTile(world, x, y))) scheduleGravity(world, x, y);
+    }
+  }
+}
+
+/**
+ * Step every queued gravity block down by one. A block that moves re-queues
+ * itself and the cell above it, so a column keeps falling across ticks and the
+ * queue drains to empty once everything has settled.
+ *
+ * Returns the number of blocks that fell.
+ */
+export function tickGravity(world) {
+  const q = world.gravityCells;
+  if (!q || !q.size) return 0;
+  // Bottom-up: the lowest block moves first, so a stacked column collapses
+  // without a block trying to enter a cell its neighbour has not yet left.
+  const cells = Array.from(q).sort((a, b) => b - a);
+  q.clear();
+
+  let moved = 0;
+  for (const c of cells) {
+    const x = c % WORLD_W;
+    const y = Math.floor(c / WORLD_W);
+    const id = getTile(world, x, y);
+    if (!isGravityBlock(id)) continue;
+    const below = getTile(world, x, y + 1);
+    if (below !== BLOCK.AIR && below !== BLOCK.WATER) continue;
+
+    world.tiles[idx(x, y)] = below === BLOCK.WATER ? BLOCK.WATER : BLOCK.AIR;
+    world.tiles[idx(x, y + 1)] = id;
+    markLightDirty(world, x, y);
+    markLightDirty(world, x, y + 1);
+    // Gravity writes tiles directly rather than through setTile, so it has to
+    // wake the liquid sim itself — otherwise sand dropping through a puddle
+    // leaves a hole the water never fills.
+    scheduleCell(world, x, y);
+    scheduleCell(world, x, y + 1);
+    moved++;
+
+    // Keep falling next tick, and let whatever sat on top follow it down.
+    scheduleGravity(world, x, y + 1);
+    scheduleGravity(world, x, y - 1);
+  }
+  return moved;
+}
+
+/**
+ * Local sand/snow gravity near a column, applied immediately.
  * Returns number of blocks that fell.
+ *
+ * Prefer `scheduleGravityNear` — this runs a whole radius in one pass and is
+ * kept for callers that need an instant settle (world gen, prefabs, tests).
  */
 export function tickGravityNear(world, cx, cy, radius) {
   radius = radius == null ? 10 : radius;

@@ -1689,6 +1689,61 @@ console.log('\nPrefab tests');
   ok(celestialAlpha(1) === 1, 'a body overhead is fully drawn');
 }
 
+// ── Sand gravity is disturbance-driven, not proximity-driven ─────────────────
+{
+  const Wld = await import(pathToFileURL(path.join(root, 'js/world/index.js')).href);
+  const { BLOCK } = await import(pathToFileURL(path.join(root, 'js/content/blocks.js')).href);
+  const auto = fs.readFileSync(path.join(root, 'js/systems/autosave.js'), 'utf8');
+
+  // The bug: the periodic sweep used the player's position, so flying past
+  // untouched terrain collapsed naturally-generated sand over a cave.
+  ok(!/tickGravityNear\(\s*world,\s*player/.test(auto),
+    'the periodic gravity tick no longer keys off the player position');
+  ok(auto.includes('tickGravity(world)'), 'the periodic tick drains the disturbance queue');
+
+  BB.applyWorldSize(1024);
+  const w = Wld.generateWorld(1234);
+  // Sand resting on the roof of a cave, exactly as world gen might leave it.
+  const sx = 200;
+  const sy = 50;
+  for (let y = 45; y <= 60; y++) w.tiles[Wld.idx(sx, y)] = BLOCK.AIR;
+  w.tiles[Wld.idx(sx, sy)] = BLOCK.SAND;
+
+  // Nobody touched it: many ticks must leave it exactly where it is.
+  for (let i = 0; i < 20; i++) Wld.tickGravity(w);
+  ok(Wld.getTile(w, sx, sy) === BLOCK.SAND, 'untouched sand over a cave does not fall');
+
+  // Once disturbed, it falls and keeps falling until it lands.
+  Wld.scheduleGravityNear(w, sx, sy, 4);
+  let ticks = 0;
+  while (Wld.tickGravity(w) > 0 && ticks < 100) ticks++;
+  ok(Wld.getTile(w, sx, sy) === BLOCK.AIR, 'disturbed sand leaves its old cell');
+  // It should come to rest on the first solid thing beneath it, wherever the
+  // generated terrain put that.
+  let restY = -1;
+  for (let y = sy; y < BB.WORLD_H; y++) if (Wld.getTile(w, sx, y) === BLOCK.SAND) { restY = y; break; }
+  ok(restY > sy, `disturbed sand fell (rests at y=${restY}, started ${sy})`);
+  ok(restY >= 0 && Wld.getTile(w, sx, restY + 1) !== BLOCK.AIR,
+    'sand comes to rest on something solid, not mid-air');
+  ok(ticks > 1, `falling takes more than one tick (${ticks}) — the queue keeps it moving`);
+
+  // The queue drains, so idle worlds do no gravity work at all.
+  ok(Wld.tickGravity(w) === 0, 'a settled world does no further gravity work');
+
+  // A stacked column collapses without losing or duplicating blocks.
+  const cx = 300;
+  for (let y = 40; y <= 60; y++) w.tiles[Wld.idx(cx, y)] = BLOCK.AIR;
+  for (let y = 44; y <= 46; y++) w.tiles[Wld.idx(cx, y)] = BLOCK.SAND;
+  Wld.scheduleGravityNear(w, cx, 45, 4);
+  ticks = 0;
+  while (Wld.tickGravity(w) > 0 && ticks < 200) ticks++;
+  let sand = 0;
+  for (let y = 40; y <= 60; y++) if (Wld.getTile(w, cx, y) === BLOCK.SAND) sand++;
+  ok(sand === 3, `a falling column keeps all its blocks (${sand} of 3)`);
+  ok(Wld.getTile(w, cx, 60) === BLOCK.SAND && Wld.getTile(w, cx, 58) === BLOCK.SAND,
+    'the column lands stacked on the floor');
+}
+
 if (failed) {
   console.error(`\n${failed} failed`);
   process.exit(1);

@@ -1,5 +1,5 @@
 import { DAY_LEN } from '../core/constants.js';
-import { flushLight, tickGravityNear } from '../world/index.js';
+import { flushLight, tickGravity } from '../world/index.js';
 import { persistSession } from '../save/save.js';
 import { toast } from '../ui/toast.js';
 import { updateParticles } from '../particles/particles.js';
@@ -10,10 +10,12 @@ export function updateWorldServices(s, dt) {
   updateParticles(s.particles, dt);
   s.timeOfDay = (s.timeOfDay + dt / DAY_LEN) % 1;
 
+  // Only disturbed blocks fall, and only until they land. Nothing here depends
+  // on where the player is standing.
   s.gravTimer = (s.gravTimer || 0) + dt;
   if (s.gravTimer > 0.25) {
     s.gravTimer = 0;
-    tickGravityNear(world, player.x, player.y, 12);
+    tickGravity(world);
   }
 
   s.lightTimer += dt;

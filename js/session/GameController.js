@@ -7,7 +7,7 @@ import { BLOCK, BLOCK_META } from '../content/blocks.js';
 import { TOOLS, isTool, isFood, isWeapon } from '../content/tools.js';
 import { isBlockItem, tileKey, itemName } from '../content/items.js';
 import {
-  generateWorldAsync, deserializeWorld, getTile, setTile, flushLight, tickGravityNear,
+  generateWorldAsync, deserializeWorld, getTile, setTile, flushLight, scheduleGravityNear,
   wrapDeltaX, wrapX, isSolid,
 } from '../world/index.js';
 import {
@@ -581,7 +581,7 @@ export function gameUpdate(dt) {
         if (placeId === BLOCK.FURNACE) unlockMilestone(world.meta, stats, ui, 'first_furnace');
         if (placeId === BLOCK.CAMPFIRE) unlockMilestone(world.meta, stats, ui, 'first_campfire');
         if (placeId === BLOCK.PLATFORM) unlockMilestone(world.meta, stats, ui, 'first_platform');
-        tickGravityNear(world, placed.tx, placed.ty, 6);
+        scheduleGravityNear(world, placed.tx, placed.ty, 6);
       } else {
         toast(ui, 'Can’t build there');
       }
@@ -750,7 +750,7 @@ export function gameUpdate(dt) {
               setLanternMode(world.meta, placed.tx, placed.ty, placed.attach || 'hang');
             }
             if (slot.id === BLOCK.CHEST) getChest(world.meta, placed.tx, placed.ty);
-            tickGravityNear(world, placed.tx, placed.ty, 6);
+            scheduleGravityNear(world, placed.tx, placed.ty, 6);
           } else {
             const r = queuePlace(input, ptx, pty, slot.id);
             toast(ui, r === 'cancel' ? 'Canceled build' : r === 'full' ? 'Too many jobs' : 'Will build there');
@@ -827,7 +827,7 @@ export function gameUpdate(dt) {
         if (slot.id === BLOCK.CAMPFIRE) unlockMilestone(world.meta, stats, ui, 'first_campfire');
         if (slot.id === BLOCK.PLATFORM) unlockMilestone(world.meta, stats, ui, 'first_platform');
         if (slot.id === BLOCK.CHEST) getChest(world.meta, bx, by);
-        tickGravityNear(world, bx, by, 6);
+        scheduleGravityNear(world, bx, by, 6);
       }
     } else if (slot && isFood(slot.id) && tid !== BLOCK.AIR && tid !== BLOCK.WATER) {
       // ignore
@@ -851,7 +851,7 @@ export function gameUpdate(dt) {
 
   // Gravity after mine
   if (result.mined) {
-    tickGravityNear(world, result.mined.tx, result.mined.ty, 8);
+    scheduleGravityNear(world, result.mined.tx, result.mined.ty, 8);
   }
 
   // Entities
