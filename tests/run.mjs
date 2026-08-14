@@ -1984,6 +1984,53 @@ console.log('\nPrefab tests');
   ok(P.ejectFromSolid(standing, w) === false, 'a player standing on the ground is not teleported');
 }
 
+// ── Getting out of water ─────────────────────────────────────────────────────
+{
+  const P = await import(pathToFileURL(path.join(root, 'js/player/index.js')).href);
+  const { BLOCK } = await import(pathToFileURL(path.join(root, 'js/content/blocks.js')).href);
+  const Wld = await import(pathToFileURL(path.join(root, 'js/world/index.js')).href);
+  const M = await import(pathToFileURL(path.join(root, 'js/interact/meta.js')).href);
+  const psrc = fs.readFileSync(path.join(root, 'js/player/index.js'), 'utf8');
+
+  // Magma already handled this; water did not. Bobbing at the surface puts the
+  // feet level with an adjacent ledge — too low to step onto, too high to still
+  // count as being in the water — so the stroke cut out exactly where it was
+  // needed and the pool became a trap.
+  ok(/underfoot === BLOCK\.WATER/.test(psrc),
+    'the water stroke still applies at the surface, so you can climb out');
+
+  BB.applyWorldSize(1024);
+  const w = Wld.generateWorld(999);
+  w.meta = M.makeWorldMeta();
+
+  const px = 700;
+  const waterTop = 60;
+  const floorY = 64;
+  for (let y = 50; y <= floorY; y++) {
+    for (let d = -6; d <= 6; d++) w.tiles[Wld.idx(px + d, y)] = BLOCK.AIR;
+  }
+  for (let d = -6; d <= 6; d++) w.tiles[Wld.idx(px + d, floorY)] = BLOCK.STONE;
+  // Water on the right, a bank on the left whose top is level with the surface.
+  for (let y = waterTop; y < floorY; y++) {
+    for (let d = 0; d <= 6; d++) w.tiles[Wld.idx(px + d, y)] = BLOCK.WATER;
+  }
+  for (let y = waterTop; y <= floorY; y++) {
+    for (let d = -6; d <= -1; d++) w.tiles[Wld.idx(px + d, y)] = BLOCK.STONE;
+  }
+
+  const p = {
+    x: px + 0.5, y: waterTop + 0.5, vx: 0, vy: 0, w: 0.55, h: 1.55,
+    onGround: false, flying: false, hp: 200, maxHp: 200, hunger: 20, maxHunger: 20,
+    godMode: true, autoJump: true, jumpBuf: 0, coyote: 0, facing: -1,
+    invuln: 0, placeCooldown: 0, anim: 0, fallVy: 0, fallDist: 0,
+  };
+  const swimOut = { left: true, right: false, jump: true, up: true, down: false, stickY: 0 };
+  for (let i = 0; i < 180; i++) P.updatePlayer(p, w, { ...swimOut }, 1 / 60, 1);
+
+  ok(p.x < px - 1, `swimming at the surface carries the player onto the bank (x moved ${(px + 0.5 - p.x).toFixed(2)})`);
+  ok(p.y <= waterTop + 0.05, `the player ends at or above the bank top (y=${p.y.toFixed(2)}, bank ${waterTop})`);
+}
+
 if (failed) {
   console.error(`\n${failed} failed`);
   process.exit(1);

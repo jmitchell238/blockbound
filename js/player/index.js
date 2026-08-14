@@ -322,7 +322,11 @@ export function updatePlayer(p, world, input, dt, toolPower) {
       if (p.onGround) p.inBoat = false; // leave boat on shore — recovered in game loop
     }
     if (input.jump || input.up) p.vy = -2.5;
-  } else if (feet === BLOCK.WATER || body === BLOCK.WATER) {
+  } else if (feet === BLOCK.WATER || body === BLOCK.WATER || underfoot === BLOCK.WATER) {
+    // `underfoot` matters for the same reason it does in magma: bobbing at the
+    // surface puts your feet level with an adjacent ledge — a hair too low to
+    // step onto, and too high to still count as being in the water. Without it
+    // the stroke cuts out exactly where you need it and you can never get out.
     p.vx *= 0.92;
     if (p.vy > 1.5) p.vy *= 0.85;
     if (input.jump || input.up) p.vy = Math.min(p.vy, -2.2);
