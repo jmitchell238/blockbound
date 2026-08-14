@@ -703,7 +703,12 @@ export function gameUpdate(dt) {
       const prefab = getPrefab(ui.pendingPrefab);
       ui.pendingPrefab = null;
       if (prefab) {
-        const result = placePrefab(world, prefab, Math.floor(ptx), Math.floor(pty));
+        // Build away from the player, starting at the tapped column. The tap
+        // has to be within reach, so a centred build always lands on top of
+        // whoever placed it — a castle is 45 wide and would swallow them.
+        const away = wrapDeltaX(player.x, Math.floor(ptx) + 0.5);
+        const growDir = Math.abs(away) < 0.5 ? (player.facing || 1) : Math.sign(away);
+        const result = placePrefab(world, prefab, Math.floor(ptx), Math.floor(pty), { growDir });
         if (result.ok) {
           sfxPlace();
           // Store undo for a single undo action

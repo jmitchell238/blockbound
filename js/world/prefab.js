@@ -24,11 +24,20 @@ export const BACKFILL_DEPTH = 6;
  * @param {number} ty - anchor y (bottom)
  * @returns { x0, y0, w, h } - bounds in world coords
  */
-export function prefabBounds(prefab, tx, ty) {
+export function prefabBounds(prefab, tx, ty, growDir) {
   const rows = prefab.rows || [];
   const w = rows[0] ? rows[0].length : 0;
   const h = rows.length;
-  const x0 = tx - Math.floor(w / 2);
+  // Where the build sits relative to the tapped column.
+  //
+  // Centred looks right for a 7-wide hut but is unusable for a 45-wide castle:
+  // the tap has to be within arm's reach, so a centred build always lands on
+  // top of the player. With a direction it starts at the tap and grows away,
+  // which is what "put it over there" means.
+  let x0;
+  if (growDir > 0) x0 = tx;
+  else if (growDir < 0) x0 = tx - (w - 1);
+  else x0 = tx - Math.floor(w / 2);
   // Which row lands on the tapped tile. Bottom row by default, so ordinary
   // builds sit on the ground exactly as before. A build with a basement sets
   // this to its ground-floor slab, and everything after that row is dug in
@@ -69,22 +78,22 @@ export function groundLevelUnder(world, x0, w) {
   return heights[heights.length >> 1];
 }
 
-export function placePrefab(world, prefab, tx, ty) {
+export function placePrefab(world, prefab, tx, ty, opts) {
   if (!prefab || !prefab.rows || !prefab.legend) {
     return { ok: false, reason: 'Invalid prefab' };
   }
+  const growDir = opts && opts.growDir;
 
   // Settle the build onto the ground under it unless it opts out (a bridge is
   // meant to span a gap, not sit in one). Tapping high in the sky is still
   // honoured — that is a deliberate choice, not a mis-tap.
   if (prefab.snapToGround !== false) {
-    const rows0 = prefab.rows || [];
-    const wGuess = rows0[0] ? rows0[0].length : 0;
-    const ground = groundLevelUnder(world, tx - Math.floor(wGuess / 2), wGuess);
+    const probe = prefabBounds(prefab, tx, ty, growDir);
+    const ground = groundLevelUnder(world, probe.x0, probe.w);
     if (ground != null && Math.abs(ty - ground) <= SNAP_RANGE) ty = ground - 1;
   }
 
-  const bounds = prefabBounds(prefab, tx, ty);
+  const bounds = prefabBounds(prefab, tx, ty, growDir);
   const { x0, y0, w, h } = bounds;
 
   // Validate vertical bounds: never write above SKY_LIMIT or at/below bedrock

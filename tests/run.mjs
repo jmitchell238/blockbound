@@ -2341,6 +2341,46 @@ console.log('\nPrefab tests');
   ok(html.includes('js/main.js?v=' + ver), 'the main.js cache-buster matches the version');
 }
 
+// ── Builds grow away from the player, not on top of them ─────────────────────
+{
+  const Prefabs = await import(pathToFileURL(path.join(root, 'js/content/prefabs.js')).href);
+  const Wld = await import(pathToFileURL(path.join(root, 'js/world/index.js')).href);
+  const M = await import(pathToFileURL(path.join(root, 'js/interact/meta.js')).href);
+  const PL = await import(pathToFileURL(path.join(root, 'js/world/prefab.js')).href);
+
+  BB.applyWorldSize(1024);
+  const castle = Prefabs.getPrefab('castle');
+
+  // A tap must be within arm's reach, so a build centred on the tap always
+  // lands on top of whoever placed it — a 45-wide castle swallows them whole.
+  const wide = castle.rows[0].length;
+  const bR = PL.prefabBounds(castle, 403, 40, 1);
+  ok(bR.x0 === 403, 'growing right starts the build at the tapped column');
+  const bL = PL.prefabBounds(castle, 397, 40, -1);
+  ok(bL.x0 + bL.w - 1 === 397, 'growing left ends the build at the tapped column');
+  const bC = PL.prefabBounds(castle, 400, 40);
+  ok(bC.x0 === 400 - Math.floor(wide / 2), 'with no direction it still centres, as before');
+
+  const playerX = 400;
+  for (const [label, tapX, dir] of [['right', 403, 1], ['left', 397, -1]]) {
+    const w = Wld.generateWorld(777);
+    w.meta = M.makeWorldMeta();
+    const res = PL.placePrefab(w, castle, tapX, w.surface[tapX] - 1, { growDir: dir });
+    ok(res.ok, `a castle placed to the ${label} succeeds`);
+    const b = res.bounds;
+    const inside = playerX >= b.x0 && playerX <= b.x0 + b.w - 1;
+    ok(!inside,
+      `building to the ${label} leaves the player outside it (footprint ${b.x0}..${b.x0 + b.w - 1}, player ${playerX})`);
+  }
+
+  // And the caller has to actually pass a direction, or none of this matters.
+  const gc = fs.readFileSync(path.join(root, 'js/session/GameController.js'), 'utf8');
+  ok(/growDir/.test(gc), 'the placement call passes a grow direction');
+  const handler = gc.slice(gc.indexOf('Prefab placement cheat'));
+  ok(/growDir[\s\S]{0,200}player\.facing/.test(handler),
+    'a tap on the player falls back to the direction they are facing');
+}
+
 if (failed) {
   console.error(`\n${failed} failed`);
   process.exit(1);
