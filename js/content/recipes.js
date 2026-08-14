@@ -20,6 +20,7 @@ export const RECIPES = [
   { id: 'workbench', name: 'Workbench', station: 'hand', in: [[BLOCK.PLANKS, 4]], out: [BLOCK.WORKBENCH, 1] },
   { id: 'chest', name: 'Chest', station: 'hand', in: [[BLOCK.PLANKS, 6]], out: [BLOCK.CHEST, 1] },
   { id: 'door', name: 'Door', station: 'hand', in: [[BLOCK.PLANKS, 6]], out: [BLOCK.DOOR, 1] },
+  { id: 'sign', name: 'Sign ×2', station: 'hand', in: [[BLOCK.PLANKS, 4], ['stick', 1]], out: [BLOCK.SIGN, 2] },
   { id: 'campfire', name: 'Campfire', station: 'hand', in: [['stick', 4], [BLOCK.COAL, 1]], out: [BLOCK.CAMPFIRE, 1] },
   { id: 'bed', name: 'Bed', station: 'workbench', in: [[BLOCK.PLANKS, 3], [BLOCK.LEAVES, 3]], out: [BLOCK.BED, 1] },
   { id: 'furnace', name: 'Furnace', station: 'workbench', in: [[BLOCK.STONE, 8]], out: [BLOCK.FURNACE, 1] },

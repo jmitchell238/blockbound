@@ -2576,6 +2576,87 @@ console.log('\nPrefab tests');
   }
 }
 
+// ── Signs you can write on ───────────────────────────────────────────────────
+{
+  const { BLOCK, BLOCK_META } = await import(pathToFileURL(path.join(root, 'js/content/blocks.js')).href);
+  const Wld = await import(pathToFileURL(path.join(root, 'js/world/index.js')).href);
+  const M = await import(pathToFileURL(path.join(root, 'js/interact/meta.js')).href);
+  const U = await import(pathToFileURL(path.join(root, 'js/interact/use.js')).href);
+  const P = await import(pathToFileURL(path.join(root, 'js/player/index.js')).href);
+  const { RECIPES } = await import(pathToFileURL(path.join(root, 'js/content/recipes.js')).href);
+  const R = await import(pathToFileURL(path.join(root, 'js/render/index.js')).href);
+
+  ok(BLOCK.SIGN != null, 'there is a sign block');
+  ok(BLOCK_META[BLOCK.SIGN].solid === false, 'a sign is never a wall — you walk through it');
+  ok(BLOCK_META[BLOCK.SIGN].interact === 'sign', 'tapping a sign interacts with it');
+  ok(RECIPES.some(r => r.out && r.out[0] === BLOCK.SIGN), 'signs can be crafted');
+
+  // Text: trimmed, collapsed, length-capped, and removable.
+  const meta = M.makeWorldMeta();
+  ok(M.setSignText(meta, 5, 5, '  Welcome   Home  ') === 'Welcome Home',
+    'sign text is tidied up before it is stored');
+  ok(M.getSignText(meta, 5, 5) === 'Welcome Home', 'sign text reads back');
+  ok(M.setSignText(meta, 6, 5, 'x'.repeat(500)).length === M.SIGN_MAX,
+    `sign text is capped at ${M.SIGN_MAX} characters`);
+  M.setSignText(meta, 5, 5, '   ');
+  ok(M.getSignText(meta, 5, 5) === '', 'writing nothing rubs the sign out');
+  ok(M.getSignText(meta, 99, 99) === '', 'a tile with no sign has no text');
+
+  // Writing must survive a save and load, or the labels vanish overnight.
+  M.setSignText(meta, 5, 5, 'Bedroom');
+  const round = M.deserializeMeta(JSON.parse(JSON.stringify(M.serializeMeta(meta))));
+  ok(M.getSignText(round, 5, 5) === 'Bedroom', 'sign text survives saving and loading');
+
+  // Mounting: on the ground, on a wall face, and above a door.
+  BB.applyWorldSize(1024);
+  const px = 300;
+  const floorY = 60;
+  const w = Wld.generateWorld(1234);
+  w.meta = M.makeWorldMeta();
+  for (let y = floorY - 6; y < floorY; y++) {
+    for (let d = -6; d <= 6; d++) w.tiles[Wld.idx(px + d, y)] = BLOCK.AIR;
+  }
+  for (let d = -6; d <= 6; d++) w.tiles[Wld.idx(px + d, floorY)] = BLOCK.STONE;
+  for (let y = floorY - 3; y < floorY; y++) w.tiles[Wld.idx(px + 3, y)] = BLOCK.STONE;
+  w.tiles[Wld.idx(px - 2, floorY - 1)] = BLOCK.DOOR;
+  w.tiles[Wld.idx(px - 2, floorY - 2)] = BLOCK.DOOR_TOP;
+
+  const player = { x: px + 0.5, y: floorY, w: 0.55, h: 1.55, placeCooldown: 0, godMode: true, facing: 1 };
+  const place = (tx, ty) => { player.placeCooldown = 0; return P.tryPlace(player, w, tx, ty, BLOCK.SIGN); };
+  ok(!!place(px + 1, floorY - 1), 'a sign goes on the ground');
+  ok(!!place(px + 3, floorY - 2), 'tapping a wall mounts a sign on the face toward you');
+  ok(!!place(px - 2, floorY - 3), 'a sign goes above a door');
+
+  // Reading one back through the normal tap path.
+  M.setSignText(w.meta, px + 1, floorY - 1, 'This way');
+  const hit = U.nearInteract(w, w.meta, px + 1.5, floorY);
+  ok(hit && hit.kind === 'sign', 'walking up and tapping opens the sign');
+
+  // The words are drawn in their own pass, after the terrain.
+  ok(typeof R.drawSignText === 'function', 'sign words have their own draw pass');
+  const rsrc = fs.readFileSync(path.join(root, 'js/render/index.js'), 'utf8');
+  ok(rsrc.indexOf('drawSignText(ctx') < rsrc.indexOf('drawEntities(ctx'),
+    'sign words are drawn over the world, not buried under the next tile');
+
+  // The editor is a real DOM field so an iPad raises its keyboard.
+  const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+  const mainJs = fs.readFileSync(path.join(root, 'js/main.js'), 'utf8');
+  ok(/<input[^>]*id="signInput"/.test(html), 'there is a real text field for writing signs');
+  ok(html.includes('id="btnSignSave"') && html.includes('id="btnSignClear"'),
+    'the sign editor can write and rub out');
+  ok(/signInput'\)\.focus\(\)|input\.focus\(\)/.test(mainJs),
+    'the field is focused so the on-screen keyboard appears');
+  ok(mainJs.includes('commitSignText'), 'what you type is committed back to the world');
+
+  // Creative should offer the sign, but never a lone door top — that is written
+  // by the door's lower half and is half a door nobody can open.
+  const D = await import(pathToFileURL(path.join(root, 'js/core/difficulty.js')).href);
+  const cat = D.creativeCatalog();
+  ok(cat.includes(BLOCK.SIGN), 'creative offers signs');
+  ok(!cat.includes(BLOCK.DOOR_TOP), 'creative never offers a lone door top half');
+  ok(cat.includes(BLOCK.DOOR), 'creative still offers doors');
+}
+
 if (failed) {
   console.error(`\n${failed} failed`);
   process.exit(1);

@@ -21,6 +21,7 @@ import {
 } from '../inventory/inventory.js';
 import {
   makeWorldMeta, getChest, removeChest, nearInteract, isDoorOpen, toggleDoor,
+  getSignText, setSignText, clearSignText,
   tryEat, trySleep, tryBucket, tryMountBoat, tryDismountBoat,
   unlockMilestone, recipesInTab, stationAvailable, missingMaterials, stationHint,
   setTorchFacing, clearTorchFacing, setLanternMode, clearLanternMode,
@@ -110,6 +111,7 @@ export function _finishSession(world, player, inv, timeOfDay, seed, ents, shared
     moveMarker: null,
     kidsQueue: [],
     pendingPrefab: null, // prefab id waiting for placement
+    signEdit: null, // { x, y, text } while the sign keyboard is open
     lastPrefabUndo: null, // undo array for last prefab placement
   };
   const stats = {
@@ -649,6 +651,9 @@ export function gameUpdate(dt) {
         spawnDrop(ents, mx + 0.5, my + 0.5, BLOCK.DOOR, 1);
       }
     }
+    if (result.mined.id === BLOCK.SIGN) {
+      clearSignText(world.meta, result.mined.tx, result.mined.ty);
+    }
     if (result.mined.id === BLOCK.TORCH) {
       clearTorchFacing(world.meta, result.mined.tx, result.mined.ty);
     }
@@ -986,6 +991,12 @@ export function handleUse(s) {
     const open = toggleDoor(world.meta, hit.x, hit.y);
     sfxDoor();
     toast(ui, open ? 'Door opened' : 'Door closed');
+    return;
+  }
+  if (hit && hit.kind === 'sign') {
+    // The editor is DOM, not canvas: a child needs the device's own keyboard,
+    // and there is no on-canvas one to give them.
+    ui.signEdit = { x: hit.x, y: hit.y, text: getSignText(world.meta, hit.x, hit.y) };
     return;
   }
   if (hit && hit.kind === 'chest') {
@@ -1823,6 +1834,24 @@ export function undoLastPrefab() {
   undoPrefab(world, ui.lastPrefabUndo);
   ui.lastPrefabUndo = null;
   toast(session.ui, 'Build undone');
+}
+
+/**
+ * Commit what a child typed onto the sign that is currently open.
+ * Passing null just closes the editor without changing anything.
+ */
+export function commitSignText(text) {
+  if (!session || !session.ui.signEdit) return;
+  const { x, y } = session.ui.signEdit;
+  session.ui.signEdit = null;
+  if (text == null) return;
+  const written = setSignText(session.world.meta, x, y, text);
+  toast(session.ui, written ? 'Sign written' : 'Sign cleared');
+}
+
+/** The sign waiting on the keyboard, or null. */
+export function pendingSignEdit() {
+  return (session && session.ui.signEdit) || null;
 }
 
 export function getSession() {

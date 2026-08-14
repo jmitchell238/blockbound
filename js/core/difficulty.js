@@ -140,6 +140,9 @@ export function creativeCatalog() {
     BLOCK.LAVA,
     BLOCK.BEDROCK,
     BLOCK.WATER, // use bucket instead
+    // The upper half of a door is written by the lower half, never carried.
+    // Handing it out on its own gives you half a door that cannot be opened.
+    BLOCK.DOOR_TOP,
   ]);
   /** @type {Array<number|string>} */
   const out = [];

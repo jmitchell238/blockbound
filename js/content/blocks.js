@@ -38,6 +38,8 @@ export const BLOCK = {
    * one-tile doorway is a wall with a handle on it.
    */
   DOOR_TOP: 30,
+  /** Writable label. Text lives in world meta, keyed by tile. */
+  SIGN: 31,
 };
 
 export const BLOCK_META = {
@@ -82,6 +84,9 @@ export const BLOCK_META = {
   [BLOCK.FURNACE]:   { name: 'Furnace', solid: true, walkThrough: true, mine: 0.7, drops: BLOCK.FURNACE, color: '#5a5a62', top: '#6e6e78', interact: 'furnace', light: 4 },
   [BLOCK.PLATFORM]:  { name: 'Platform', solid: true, mine: 0.25, drops: BLOCK.PLATFORM, color: '#c4a060', top: '#d4b070', platform: true },
   [BLOCK.CAMPFIRE]:  { name: 'Campfire', solid: false, mine: 0.3, drops: BLOCK.CAMPFIRE, color: '#8b4513', light: 10, interact: 'campfire' },
+  // Never solid: a sign is a label, not a wall. Hangs on a wall, stands on the
+  // ground, or sits above a door, and you walk straight through it.
+  [BLOCK.SIGN]:      { name: 'Sign', solid: false, mine: 0.2, drops: BLOCK.SIGN, color: '#c9a063', top: '#dcb478', interact: 'sign' },
   /** Hangs from ceilings / platforms, or sits on the floor — brighter/farther than torch. */
   [BLOCK.LANTERN]:   { name: 'Lantern', solid: false, mine: 0.2, drops: BLOCK.LANTERN, color: '#ffc866', light: 14, hang: true },
 };

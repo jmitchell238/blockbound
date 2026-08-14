@@ -23,6 +23,7 @@ import { audioSetMuted, ensureAudio } from './audio/audio.js';
 import {
   enterPlay, enterMenu, getSession, gameUpdate, gameRender, gameClickCraft, gameUiPointer,
   cheatSetDaytime, TIME_PHASES, nearestTimePhase, cheatHealFeed, beginPrefabPlacement, cancelPrefabPlacement, undoLastPrefab,
+  commitSignText, pendingSignEdit,
 } from './session/index.js';
 import { skyColors, drawParallax, drawBlock } from './render/index.js';
 
@@ -200,6 +201,41 @@ function syncTouchActButton(session) {
  * thing you had just placed — the moment you want it is the moment you are
  * looking at the mistake, not three taps away.
  */
+/**
+ * Show the sign keyboard when the game asks for one.
+ *
+ * This is a DOM input on purpose: tapping a real text field is what makes an
+ * iPad raise its keyboard, and the game has no on-canvas one to offer.
+ */
+let _signPanelOpenFor = null;
+function syncSignPanel() {
+  const panel = document.getElementById('signPanel');
+  const input = document.getElementById('signInput');
+  if (!panel || !input) return;
+  const edit = screenName === 'play' ? pendingSignEdit() : null;
+  const key = edit ? edit.x + ',' + edit.y : null;
+  if (key === _signPanelOpenFor) return;
+  _signPanelOpenFor = key;
+  if (!edit) {
+    panel.classList.add('hidden');
+    input.blur();
+    return;
+  }
+  input.value = edit.text || '';
+  panel.classList.remove('hidden');
+  // Focus after the panel is visible or iOS ignores it and no keyboard appears.
+  setTimeout(() => { input.focus(); input.select(); }, 30);
+}
+
+function closeSignPanel(text) {
+  commitSignText(text);
+  _signPanelOpenFor = null;
+  const panel = document.getElementById('signPanel');
+  const input = document.getElementById('signInput');
+  if (panel) panel.classList.add('hidden');
+  if (input) input.blur();
+}
+
 function syncUndoBuildButton(session) {
   const btn = document.getElementById('btnUndoLastBuild');
   if (!btn) return;
@@ -1055,6 +1091,7 @@ function frameBody(now) {
     }
     syncTouchActButton(s);
     syncUndoBuildButton(s);
+    syncSignPanel();
     syncChromeForPanels(s);
     if (ctx) {
       // Always paint a base fill first — clearRect alone leaves body green through a failed frame
@@ -1179,6 +1216,16 @@ function wireUI() {
   document.getElementById('btnUndoBuild').addEventListener('click', () => {
     undoLastPrefab();
     closePrefabsPanel();
+  });
+
+  document.getElementById('btnSignSave').addEventListener('click', () => {
+    closeSignPanel(document.getElementById('signInput').value);
+  });
+  document.getElementById('btnSignClear').addEventListener('click', () => closeSignPanel(''));
+  document.getElementById('btnSignCancel').addEventListener('click', () => closeSignPanel(null));
+  document.getElementById('signInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') closeSignPanel(e.target.value);
+    else if (e.key === 'Escape') closeSignPanel(null);
   });
 
   document.getElementById('btnUndoLastBuild').addEventListener('click', () => {

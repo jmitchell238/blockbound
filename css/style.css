@@ -797,6 +797,16 @@ body.landscape #cheatsChrome {
   bottom: max(260px, calc(env(safe-area-inset-bottom, 0px) + 240px));
 }
 
+/* The sign keyboard: a real text field, so the device raises its own keyboard. */
+.sign-card {
+  width: min(340px, 100%);
+}
+.sign-card .field-input {
+  margin-top: 6px;
+  font-size: 1.05rem;
+  text-align: center;
+}
+
 /*
  * Undo for instant builds. Sits directly under the cheat icons on the right and
  * only exists while there is a build to take back — a misplaced castle is 1200

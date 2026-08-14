@@ -25,7 +25,7 @@ import { drawParticles } from '../particles/particles.js';
 import { HOTBAR_SIZE, BAG_SIZE, canCraft, bagUsed, countItem } from '../inventory/inventory.js';
 import {
   CRAFT_TABS, recipesInTab, missingMaterials, stationHint,
-  stationAvailable, getChest, getTorchFacing, getLanternMode, isDoorOpen,
+  stationAvailable, getChest, getTorchFacing, getLanternMode, isDoorOpen, getSignText,
 } from '../interact/index.js';
 import { chestPanelLayout } from './chestLayout.js';
 
@@ -246,6 +246,10 @@ export function renderWorld(ctx, world, player, inv, cam, timeOfDay, ui, particl
       drawCrack(ctx, sx, sy, ts, p);
     }
   } catch (_) {}
+
+  // Sign words go on after the terrain: a sign is a label, and a label that
+  // half a block covers up is no label at all.
+  try { drawSignText(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY); } catch (_) {}
 
   try { if (ents) drawEntities(ctx, ents, cam, ts); } catch (_) {}
   try { if (particles) drawParticles(ctx, particles, cam, ts); } catch (_) {}
@@ -1486,7 +1490,8 @@ export function drawBlock(ctx, sx, sy, ts, id, lightMul, wx, ty, ao, world) {
   }
   // Procedural furniture / specials
   if (id === BLOCK.DOOR || id === BLOCK.DOOR_TOP || id === BLOCK.BED || id === BLOCK.CHEST
-      || id === BLOCK.FURNACE || id === BLOCK.PLATFORM || id === BLOCK.CAMPFIRE) {
+      || id === BLOCK.FURNACE || id === BLOCK.PLATFORM || id === BLOCK.CAMPFIRE
+      || id === BLOCK.SIGN) {
     ctx.globalAlpha = 1;
     ctx.filter = 'brightness(' + shade.toFixed(3) + ')';
     // Open state lives on the bottom half, so the top half asks about the tile
@@ -1495,7 +1500,7 @@ export function drawBlock(ctx, sx, sy, ts, id, lightMul, wx, ty, ao, world) {
       && isDoorOpen(world.meta, wx, id === BLOCK.DOOR_TOP ? ty + 1 : ty);
     // Always draw doors procedurally so open/closed is visible
     if (face && id !== BLOCK.PLATFORM && id !== BLOCK.CAMPFIRE
-        && id !== BLOCK.DOOR && id !== BLOCK.DOOR_TOP) {
+        && id !== BLOCK.DOOR && id !== BLOCK.DOOR_TOP && id !== BLOCK.SIGN) {
       ctx.drawImage(face, sx, sy, ts, ts);
     } else {
       drawFurniture(ctx, sx, sy, ts, id, lightMul, doorOpen);
@@ -1621,6 +1626,16 @@ export function drawFurniture(ctx, sx, sy, ts, id, lightMul, doorOpen) {
         ctx.fill();
       }
     }
+  } else if (id === BLOCK.SIGN) {
+    // Board on a short post. Text is drawn separately, after the world, so it
+    // is never covered by the tiles drawn after this one.
+    ctx.fillStyle = shadeHex('#6a4820', L);
+    ctx.fillRect(sx + ts * 0.46, sy + ts * 0.55, ts * 0.08, ts * 0.45);
+    ctx.fillStyle = shadeHex('#c9a063', L);
+    ctx.fillRect(sx + ts * 0.08, sy + ts * 0.12, ts * 0.84, ts * 0.5);
+    ctx.fillStyle = shadeHex('#8a6a3a', L);
+    ctx.fillRect(sx + ts * 0.08, sy + ts * 0.12, ts * 0.84, 2);
+    ctx.fillRect(sx + ts * 0.08, sy + ts * 0.60, ts * 0.84, 2);
   } else if (id === BLOCK.BED) {
     ctx.fillStyle = shadeHex('#8b5a2b', L);
     ctx.fillRect(sx + 2, sy + ts * 0.55, ts - 4, ts * 0.4);
@@ -1746,6 +1761,39 @@ function getMiningAim(p) {
   const ang = Math.atan2(ly, lx);
   const len = Math.hypot(dx, dy) || 1;
   return { dx, dy, lx, ly, ang, len };
+}
+
+/**
+ * Draw what each visible sign says, above its board.
+ *
+ * Zoom-aware and clamped: at a distant zoom the tile is a few pixels across and
+ * unscaled text would be a smear, so the label shrinks with the world but never
+ * below something a child could read.
+ */
+export function drawSignText(ctx, world, cam, ts, startTX, startTY, tilesX, tilesY) {
+  if (!world || !world.meta || !world.meta.signText) return;
+  const size = Math.max(7, Math.min(13, Math.round(ts * 0.34)));
+  ctx.save();
+  ctx.font = '700 ' + size + 'px system-ui, -apple-system, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  for (let ty = startTY; ty < startTY + tilesY; ty++) {
+    for (let txi = startTX; txi < startTX + tilesX; txi++) {
+      const wx = wrapX(txi);
+      if (getTile(world, wx, ty) !== BLOCK.SIGN) continue;
+      const text = getSignText(world.meta, wx, ty);
+      if (!text) continue;
+      const sx = (txi - cam.x) * ts + W / 2 + ts / 2;
+      const sy = (ty - cam.y) * ts + H / 2 + ts * 0.37;
+      // A dark plate behind the words keeps them legible against any wall.
+      const tw = ctx.measureText(text).width;
+      ctx.fillStyle = 'rgba(18, 12, 6, 0.82)';
+      ctx.fillRect(sx - tw / 2 - 4, sy - size * 0.75, tw + 8, size * 1.5);
+      ctx.fillStyle = '#ffe9c2';
+      ctx.fillText(text, sx, sy);
+    }
+  }
+  ctx.restore();
 }
 
 export function drawPlayer(ctx, p, cam, ts, inv) {

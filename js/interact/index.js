@@ -2,6 +2,7 @@ export {
   makeWorldMeta, isDoorOpen, toggleDoor, getChest, removeChest,
   setTorchFacing, getTorchFacing, clearTorchFacing,
   setLanternMode, getLanternMode, clearLanternMode,
+  setSignText, getSignText, clearSignText, SIGN_MAX,
   serializeMeta, deserializeMeta,
 } from './meta.js';
 export {

@@ -624,7 +624,10 @@ export function resolveLanternMode(world, placeTx, placeTy, solidTx, solidTy) {
 export function isAttachableBlock(blockId) {
   const meta = BLOCK_META[blockId];
   if (!meta || meta.solid) return false;
-  return !!(meta.light || meta.climb || blockId === BLOCK.CAMPFIRE);
+  // Signs mount like a torch does: tap the wall you want it on and it goes on
+  // the face toward you, so "above the door" and "on this wall" both work.
+  return !!(meta.light || meta.climb
+    || blockId === BLOCK.CAMPFIRE || blockId === BLOCK.SIGN);
 }
 
 /**

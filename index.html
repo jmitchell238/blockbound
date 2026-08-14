@@ -13,10 +13,10 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
-  <link rel="stylesheet" href="css/style.css?v=1.9.084" />
+  <link rel="stylesheet" href="css/style.css?v=1.9.085" />
   <script>
     (function () {
-      var BUILD = '1.9.084';
+      var BUILD = '1.9.085';
       window.__BB_BUILD = BUILD;
       // If still on a known-bad shell marker, bounce to the unstick page
       try {
@@ -185,6 +185,20 @@
       </div>
     </div>
 
+    <!-- SIGN TEXT EDITOR (overlay) -->
+    <div class="screen menu-screen hidden" id="signPanel">
+      <div class="menu-card sign-card">
+        <h2 class="menu-title">What does this sign say?</h2>
+        <input id="signInput" class="field-input" type="text" maxlength="48"
+               placeholder="Home · Danger · Bedroom…" autocomplete="off" spellcheck="false" />
+        <div class="menu-actions">
+          <button id="btnSignSave" class="primary" type="button">Write it</button>
+          <button id="btnSignClear" class="secondary" type="button">Rub it out</button>
+          <button id="btnSignCancel" class="ghost" type="button">← Cancel</button>
+        </div>
+      </div>
+    </div>
+
     <!-- BUILD CHEAT PREFABS PANEL (overlay) -->
     <div class="screen prefabs-panel hidden" id="prefabsPanel">
       <div class="menu-card prefabs-card">
@@ -211,6 +225,6 @@
     <button id="btnTouchAct" class="touch-act-btn play-chrome hidden" type="button" title="Action">Use</button>
   </div>
 
-  <script type="module" src="js/main.js?v=1.9.084"></script>
+  <script type="module" src="js/main.js?v=1.9.085"></script>
 </body>
 </html>

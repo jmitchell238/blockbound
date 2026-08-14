@@ -12,6 +12,8 @@ export function makeWorldMeta() {
     /** 'x,y' → 1..7 flow level. Sources have no entry, so a settled world
         stores almost nothing here. See js/world/liquid.js. */
     liquid: Object.create(null),
+    /** tileKey → the words written on a sign. */
+    signText: Object.create(null),
   };
 }
 
@@ -81,6 +83,26 @@ export function clearLanternMode(meta, x, y) {
   if (meta && meta.lanternMode) delete meta.lanternMode[tileKey(x, y)];
 }
 
+/** Longest text a sign holds. Long enough for a name, short enough to read. */
+export const SIGN_MAX = 48;
+
+export function setSignText(meta, x, y, text) {
+  if (!meta.signText) meta.signText = Object.create(null);
+  const clean = String(text == null ? '' : text).replace(/\s+/g, ' ').trim().slice(0, SIGN_MAX);
+  if (!clean) delete meta.signText[tileKey(x, y)];
+  else meta.signText[tileKey(x, y)] = clean;
+  return clean;
+}
+
+export function getSignText(meta, x, y) {
+  if (!meta || !meta.signText) return '';
+  return meta.signText[tileKey(x, y)] || '';
+}
+
+export function clearSignText(meta, x, y) {
+  if (meta && meta.signText) delete meta.signText[tileKey(x, y)];
+}
+
 export function serializeMeta(meta) {
   return {
     openDoors: Object.assign({}, meta.openDoors),
@@ -89,6 +111,7 @@ export function serializeMeta(meta) {
     torchFacing: Object.assign({}, meta.torchFacing || {}),
     lanternMode: Object.assign({}, meta.lanternMode || {}),
     liquid: Object.assign({}, meta.liquid || {}),
+    signText: Object.assign({}, meta.signText || {}),
   };
 }
 
@@ -101,5 +124,6 @@ export function deserializeMeta(data) {
   if (data.torchFacing) meta.torchFacing = Object.assign(Object.create(null), data.torchFacing);
   if (data.lanternMode) meta.lanternMode = Object.assign(Object.create(null), data.lanternMode);
   if (data.liquid) meta.liquid = Object.assign(Object.create(null), data.liquid);
+  if (data.signText) meta.signText = Object.assign(Object.create(null), data.signText);
   return meta;
 }
