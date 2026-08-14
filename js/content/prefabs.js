@@ -288,6 +288,9 @@ export const PREFABS = [
     name: 'Bridge',
     icon: '🌉',
     group: 'Landmarks',
+    // A bridge spans a gap on purpose — settling it onto the ground under it
+    // would drop it into the very hole it is meant to cross.
+    snapToGround: false,
     legend: {
       P: BLOCK.PLANKS,
       W: BLOCK.WOOD,

@@ -2228,8 +2228,9 @@ console.log('\nPrefab tests');
   ok(lads[0] < groundY - 10 && lads[lads.length - 1] > groundY,
     'the ladder spans from the upper storeys down past ground level');
 
-  // A window must not punch a hole in the room's enclosure.
-  const b = PL.prefabBounds(castle, x0, groundY);
+  // A window must not punch a hole in the room's enclosure. Use the bounds the
+  // placement actually resolved to — it snaps to the ground under the footprint.
+  const b = res.bounds;
   let openInside = 0;
   for (let y = b.y0 + 2; y < b.y0 + b.h - 1; y++) {
     for (let x = b.x0 + 1; x < b.x0 + b.w - 1; x++) {
@@ -2238,6 +2239,66 @@ console.log('\nPrefab tests');
     }
   }
   ok(openInside === 0, `every room inside the castle reads as enclosed (${openInside} leaks)`);
+}
+
+// ── Builds land where you put them ───────────────────────────────────────────
+{
+  const Prefabs = await import(pathToFileURL(path.join(root, 'js/content/prefabs.js')).href);
+  const { BLOCK } = await import(pathToFileURL(path.join(root, 'js/content/blocks.js')).href);
+  const Wld = await import(pathToFileURL(path.join(root, 'js/world/index.js')).href);
+  const M = await import(pathToFileURL(path.join(root, 'js/interact/meta.js')).href);
+  const PL = await import(pathToFileURL(path.join(root, 'js/world/prefab.js')).href);
+
+  BB.applyWorldSize(1024);
+  const castle = Prefabs.getPrefab('castle');
+  const x0 = 400;
+
+  // A 45-wide build dropped on the exact tapped tile buries one end and leaves
+  // the other on stilts as soon as the ground is not flat. Taps near the ground
+  // settle onto it, so where you tapped and where it appeared agree.
+  const fresh = () => {
+    const w = Wld.generateWorld(777);
+    w.meta = M.makeWorldMeta();
+    return w;
+  };
+  const ground = PL.groundLevelUnder(fresh(), x0 - 22, castle.rows[0].length);
+  ok(ground != null, 'the ground level under a footprint can be measured');
+
+  for (const dy of [-6, -3, -1, 0, 2, 5]) {
+    const w = fresh();
+    const res = PL.placePrefab(w, castle, x0, ground - 1 + dy);
+    ok(res.ok, `a castle tapped ${dy} from ground places`);
+    const slab = res.bounds.y0 + castle.anchorRow;
+    ok(slab === ground - 1,
+      `tapping ${dy} off the ground still lands the castle on it (slab ${slab}, ground ${ground - 1})`);
+  }
+
+  // A deliberate tap far from the ground is still honoured — that is a choice.
+  {
+    const w = fresh();
+    const highY = ground - 1 + 20;
+    const res = PL.placePrefab(w, castle, x0, highY);
+    ok(res.ok && res.bounds.y0 + castle.anchorRow === highY,
+      'a tap well away from the ground is left exactly where it was put');
+  }
+
+  // A bridge must not settle into the gap it is meant to cross.
+  const bridge = Prefabs.getPrefab('bridge');
+  ok(bridge.snapToGround === false, 'the bridge opts out of settling onto the ground');
+
+  // Nothing should end up standing on stilts.
+  {
+    const w = fresh();
+    const res = PL.placePrefab(w, castle, x0, ground - 1);
+    const b = res.bounds;
+    let floating = 0;
+    for (let i = 0; i < b.w; i++) {
+      const wx = Wld.wrapX(b.x0 + i);
+      const under = Wld.getTile(w, wx, b.y0 + b.h);
+      if (under === BLOCK.AIR) floating++;
+    }
+    ok(floating === 0, `the castle is packed underneath, not on stilts (${floating} gaps)`);
+  }
 }
 
 if (failed) {
