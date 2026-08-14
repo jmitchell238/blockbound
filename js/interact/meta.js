@@ -15,6 +15,19 @@ export function makeWorldMeta() {
   };
 }
 
+/**
+ * A door occupies two tiles and the bottom one owns the open/closed state, so
+ * both halves always agree. Given either half, this returns the bottom.
+ *
+ * `getTileAt` is passed in rather than imported to keep this module free of a
+ * dependency on the world — it is only ever asked about two cells.
+ */
+export function doorRoot(getTileAt, x, y, DOOR, DOOR_TOP) {
+  if (getTileAt(x, y) === DOOR_TOP) return { x, y: y + 1 };
+  if (getTileAt(x, y) === DOOR) return { x, y };
+  return null;
+}
+
 export function isDoorOpen(meta, x, y) {
   return !!meta.openDoors[tileKey(x, y)];
 }

@@ -1744,6 +1744,246 @@ console.log('\nPrefab tests');
     'the column lands stacked on the floor');
 }
 
+// ── Doors are two tiles tall ─────────────────────────────────────────────────
+{
+  const Wld = await import(pathToFileURL(path.join(root, 'js/world/index.js')).href);
+  const { BLOCK } = await import(pathToFileURL(path.join(root, 'js/content/blocks.js')).href);
+  const P = await import(pathToFileURL(path.join(root, 'js/player/index.js')).href);
+  const M = await import(pathToFileURL(path.join(root, 'js/interact/meta.js')).href);
+  const U = await import(pathToFileURL(path.join(root, 'js/interact/use.js')).href);
+
+  // The player is 1.55 tiles tall, so a one-tile doorway cannot be walked through.
+  ok(BLOCK.DOOR_TOP != null, 'a door top-half block exists');
+
+  BB.applyWorldSize(1024);
+  const w = Wld.generateWorld(555);
+  w.meta = M.makeWorldMeta();
+
+  const dx = 400;
+  const dy = 60;
+  for (let y = dy - 4; y <= dy; y++) w.tiles[Wld.idx(dx, y)] = BLOCK.AIR;
+  w.tiles[Wld.idx(dx - 1, dy)] = BLOCK.STONE; // something to build against
+
+  const player = { x: dx + 3.5, y: dy + 1, w: 0.55, h: 1.55, placeCooldown: 0, godMode: true };
+  const placed = P.tryPlace(player, w, dx, dy, BLOCK.DOOR);
+  ok(!!placed, 'a door can be placed');
+  ok(Wld.getTile(w, dx, dy) === BLOCK.DOOR, 'the bottom half is a door');
+  ok(Wld.getTile(w, dx, dy - 1) === BLOCK.DOOR_TOP, 'the top half is written too');
+
+  // Closed: both halves block. Open: both halves let the player through.
+  ok(Wld.isSolid(w, dx, dy) && Wld.isSolid(w, dx, dy - 1), 'a closed door blocks both tiles');
+  M.toggleDoor(w.meta, dx, dy);
+  ok(!Wld.isSolid(w, dx, dy), 'an open door lets the feet through');
+  ok(!Wld.isSolid(w, dx, dy - 1), 'an open door lets the head through — the whole point');
+  ok(!U.isSolidWorld(w, w.meta, dx, dy - 1), 'isSolidWorld agrees about the top half');
+  M.toggleDoor(w.meta, dx, dy);
+
+  // Reaching for the top half works the same handle as the bottom.
+  const hitTop = U.nearInteract(w, w.meta, dx + 0.5, dy - 0.5);
+  ok(hitTop && hitTop.kind === 'door' && hitTop.y === dy,
+    'interacting with the top half reports the bottom cell');
+
+  // No headroom, no door.
+  const dx2 = 410;
+  for (let y = dy - 4; y <= dy; y++) w.tiles[Wld.idx(dx2, y)] = BLOCK.AIR;
+  w.tiles[Wld.idx(dx2, dy - 1)] = BLOCK.STONE;
+  w.tiles[Wld.idx(dx2 - 1, dy)] = BLOCK.STONE;
+  const p2 = { x: dx2 + 3.5, y: dy + 1, w: 0.55, h: 1.55, placeCooldown: 0, godMode: true };
+  ok(P.tryPlace(p2, w, dx2, dy, BLOCK.DOOR) === false, 'a door needs headroom to be placed');
+
+  // Prefab doors are grown to full height too.
+  const Prefabs = await import(pathToFileURL(path.join(root, 'js/content/prefabs.js')).href);
+  const PL = await import(pathToFileURL(path.join(root, 'js/world/prefab.js')).href);
+  const w2 = Wld.generateWorld(556);
+  w2.meta = M.makeWorldMeta();
+  const withDoor = Prefabs.PREFABS.find(pf =>
+    pf.rows.some(r => [...r].some(c => pf.legend[c] === BLOCK.DOOR)));
+  if (withDoor) {
+    const res = PL.placePrefab(w2, withDoor, 200, 50);
+    ok(res.ok, `prefab ${withDoor.id} places`);
+    let bottoms = 0;
+    let capped = 0;
+    for (const t of res.placed) {
+      if (t.id !== BLOCK.DOOR) continue;
+      bottoms++;
+      if (Wld.getTile(w2, t.x, t.y - 1) === BLOCK.DOOR_TOP) capped++;
+    }
+    ok(bottoms > 0 && capped === bottoms,
+      `every prefab door is two tiles tall (${capped}/${bottoms})`);
+  }
+}
+
+// ── Prefabs you can actually get into ────────────────────────────────────────
+{
+  const Prefabs = await import(pathToFileURL(path.join(root, 'js/content/prefabs.js')).href);
+  const { BLOCK } = await import(pathToFileURL(path.join(root, 'js/content/blocks.js')).href);
+
+  // A ladder with a gap in it is a ladder you fall off. The treehouse ladder
+  // used to stop below the floor hatch, which sealed the house.
+  for (const pf of Prefabs.PREFABS) {
+    const cols = pf.rows[0].length;
+    for (let c = 0; c < cols; c++) {
+      const rowsWithLadder = [];
+      for (let r = 0; r < pf.rows.length; r++) {
+        if (pf.legend[pf.rows[r][c]] === BLOCK.LADDER) rowsWithLadder.push(r);
+      }
+      if (rowsWithLadder.length < 2) continue;
+      const contiguous = rowsWithLadder[rowsWithLadder.length - 1] - rowsWithLadder[0] + 1
+        === rowsWithLadder.length;
+      ok(contiguous, `prefab ${pf.id} column ${c} ladder has no gaps`);
+    }
+  }
+
+  // The treehouse floor must have the ladder passing through it, not a bare hole.
+  const th = Prefabs.getPrefab('treehouse');
+  if (th) {
+    const ladderCols = new Set();
+    for (const row of th.rows) {
+      for (let c = 0; c < row.length; c++) {
+        if (th.legend[row[c]] === BLOCK.LADDER) ladderCols.add(c);
+      }
+    }
+    ok(ladderCols.size === 1, 'the treehouse has exactly one ladder shaft');
+    const col = [...ladderCols][0];
+    let topLadderRow = th.rows.length;
+    for (let r = 0; r < th.rows.length; r++) {
+      if (th.legend[th.rows[r][col]] === BLOCK.LADDER) { topLadderRow = r; break; }
+    }
+    // Above the ladder's top there must be open interior, not planks.
+    const above = th.rows[topLadderRow - 1];
+    ok(above && (above[col] === '.' || th.legend[above[col]] === BLOCK.LADDER),
+      'the treehouse ladder emerges into open room, not into the floor');
+  }
+
+  // The pool needs a way over its wall, and the wall must stay watertight.
+  const pool = Prefabs.getPrefab('swimming-pool');
+  if (pool) {
+    const hasLadder = pool.rows.some(r => [...r].some(c => pool.legend[c] === BLOCK.LADDER));
+    ok(hasLadder, 'the swimming pool has a ladder to climb');
+    // No ladder may sit directly beside water — it is not solid and would drain it.
+    let leak = 0;
+    for (let r = 0; r < pool.rows.length; r++) {
+      for (let c = 0; c < pool.rows[r].length; c++) {
+        if (pool.legend[pool.rows[r][c]] !== BLOCK.LADDER) continue;
+        for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const rr = r + dr;
+          const cc = c + dc;
+          if (rr < 0 || rr >= pool.rows.length || cc < 0 || cc >= pool.rows[rr].length) continue;
+          if (pool.legend[pool.rows[rr][cc]] === BLOCK.WATER) leak++;
+        }
+      }
+    }
+    ok(leak === 0, `the pool ladder never touches water (${leak} leaks)`);
+  }
+}
+
+// ── Swimming up ──────────────────────────────────────────────────────────────
+{
+  const nav = fs.readFileSync(path.join(root, 'js/systems/nav.js'), 'utf8');
+  // A floating player is never onGround, so gating the jump stroke on onGround
+  // meant tap-to-move could paddle sideways in a pool but never rise — which
+  // turns any water deeper than one block into a trap.
+  ok(/player\.swimming\s*&&\s*dy\s*<\s*-0\.25/.test(nav),
+    'tap-to-move issues a swim stroke when the target is above and the player is in water');
+
+  const P = await import(pathToFileURL(path.join(root, 'js/player/index.js')).href);
+  const { BLOCK } = await import(pathToFileURL(path.join(root, 'js/content/blocks.js')).href);
+  const Wld = await import(pathToFileURL(path.join(root, 'js/world/index.js')).href);
+  const M = await import(pathToFileURL(path.join(root, 'js/interact/meta.js')).href);
+
+  BB.applyWorldSize(1024);
+  const w = Wld.generateWorld(777);
+  w.meta = M.makeWorldMeta();
+
+  // A shaft of water four deep, walled in stone.
+  const px = 500;
+  const floorY = 60;
+  for (let y = floorY - 8; y <= floorY; y++) {
+    for (let d = -1; d <= 1; d++) {
+      w.tiles[Wld.idx(px + d, y)] = d === 0 ? BLOCK.AIR : BLOCK.STONE;
+    }
+  }
+  w.tiles[Wld.idx(px, floorY)] = BLOCK.STONE;
+  for (let y = floorY - 7; y < floorY; y++) w.tiles[Wld.idx(px, y)] = BLOCK.WATER;
+
+  const mk = () => ({
+    x: px + 0.5, y: floorY - 0.5, vx: 0, vy: 0, w: 0.55, h: 1.55, onGround: false,
+    hp: 20, maxHp: 20, hunger: 20, maxHunger: 20, godMode: true, autoJump: true,
+    jumpBuf: 0, coyote: 0, facing: 1, invuln: 0, placeCooldown: 0, anim: 0,
+  });
+  const noInput = { left: false, right: false, jump: false, up: false, down: false, stickY: 0 };
+
+  // Sinking with no input.
+  let p = mk();
+  let startY = p.y;
+  for (let i = 0; i < 60; i++) P.updatePlayer(p, w, { ...noInput }, 1 / 60, 1);
+  ok(p.y >= startY - 0.05, 'a player who does nothing does not rise');
+
+  // Holding "up" must lift the player through the water.
+  p = mk();
+  startY = p.y;
+  for (let i = 0; i < 60; i++) {
+    P.updatePlayer(p, w, { ...noInput, jump: true, up: true }, 1 / 60, 1);
+  }
+  const rose = startY - p.y;
+  ok(rose > 1, `holding up swims the player upward (rose ${rose.toFixed(2)} tiles)`);
+  ok(p.swimming === 1, 'the player is flagged as swimming in water');
+}
+
+// ── Buried in rock: never sink through the world ─────────────────────────────
+{
+  const P = await import(pathToFileURL(path.join(root, 'js/player/index.js')).href);
+  const { BLOCK } = await import(pathToFileURL(path.join(root, 'js/content/blocks.js')).href);
+  const Wld = await import(pathToFileURL(path.join(root, 'js/world/index.js')).href);
+  const M = await import(pathToFileURL(path.join(root, 'js/interact/meta.js')).href);
+
+  // Overlap resolution picks the smaller push. Once the player is more than
+  // halfway into a tile that means "down", so a player buried in terrain sank a
+  // little further every frame until they hit the magma at the bottom.
+  BB.applyWorldSize(1024);
+  const w = Wld.generateWorld(4321);
+  w.meta = M.makeWorldMeta();
+
+  const px = 600;
+  const surfaceY = 90;
+  for (let y = 10; y < BB.WORLD_H - 1; y++) {
+    for (let d = -2; d <= 2; d++) {
+      w.tiles[Wld.idx(px + d, y)] = y < surfaceY ? BLOCK.AIR : BLOCK.STONE;
+    }
+  }
+
+  const mk = (y, flying) => ({
+    x: px + 0.5, y, vx: 0, vy: 0, w: 0.55, h: 1.55, onGround: false, flying,
+    hp: 200, maxHp: 200, hunger: 20, maxHunger: 20, godMode: true,
+    autoJump: false, jumpBuf: 0, coyote: 0, facing: 1, invuln: 0,
+    placeCooldown: 0, anim: 0, fallVy: 0, fallDist: 0,
+  });
+  const noInput = { left: false, right: false, jump: false, up: false, down: false, stickY: 0 };
+  const run = (p, n) => {
+    for (let i = 0; i < n; i++) P.updatePlayer(p, w, { ...noInput }, 1 / 60, 1);
+    return p;
+  };
+
+  // Buried a tile deep, as if they had flown into the ground and stopped.
+  let p = run(mk(surfaceY + 1.5, false), 30);
+  ok(p.y <= surfaceY + 0.01, `a buried player is lifted out, not sunk (y=${p.y.toFixed(2)})`);
+  ok(p.y > surfaceY - 2, 'the lift puts them on the surface, not far above it');
+
+  // Buried deep in the middle of the rock — still comes up, never goes down.
+  p = run(mk(surfaceY + 12, false), 60);
+  ok(p.y < surfaceY + 12, `a deeply buried player moves up, not down (y=${p.y.toFixed(2)})`);
+  ok(p.y < BB.WORLD_H - 5, 'a buried player never reaches the bottom of the world');
+
+  // The ordinary case is untouched: a normal fall still lands on the surface.
+  p = run(mk(40, false), 400);
+  ok(p.onGround && Math.abs(p.y - surfaceY) < 0.01,
+    `an ordinary fall still lands on the ground (y=${p.y.toFixed(2)})`);
+
+  // ejectFromSolid must not fire for a player standing in the open.
+  const standing = mk(surfaceY, false);
+  ok(P.ejectFromSolid(standing, w) === false, 'a player standing on the ground is not teleported');
+}
+
 if (failed) {
   console.error(`\n${failed} failed`);
   process.exit(1);

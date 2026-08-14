@@ -406,6 +406,14 @@ function steerClimbAndJump(player, world, input, dx, dy, approach) {
     input.jump = true;
   }
 
+  // Swimming up is the same stroke as a jump, but a floating player is never
+  // onGround — so tap-to-move could paddle left and right in a pool and never
+  // rise, which makes any water deeper than one block a trap.
+  if (player.swimming && dy < -0.25) {
+    input.jump = true;
+    input.up = true;
+  }
+
   if (wantHigher && !onLadder) {
     for (let dyL = -2; dyL <= 1; dyL++) {
       for (let dxL = -1; dxL <= 1; dxL++) {

@@ -102,6 +102,21 @@ export function placePrefab(world, prefab, tx, ty) {
     }
   }
 
+  // A prefab legend marks a door with a single cell, but a door is two tiles
+  // tall. Grow each one upward so structures ship with doorways you can
+  // actually walk through — unless the prefab already drew the upper half.
+  for (const p of placed.slice()) {
+    if (p.id !== BLOCK.DOOR) continue;
+    if (getTile(world, p.x, p.y - 1) === BLOCK.DOOR_TOP) continue;
+    // Record the previous tile first — an undo that misses this cell would
+    // leave a door top floating with nothing under it.
+    const wasAbove = getTile(world, p.x, p.y - 1);
+    if (setTile(world, p.x, p.y - 1, BLOCK.DOOR_TOP)) {
+      undoArray.push({ x: p.x, y: p.y - 1, id: wasAbove });
+      placed.push({ x: p.x, y: p.y - 1, id: BLOCK.DOOR_TOP });
+    }
+  }
+
   if (placed.length === 0) {
     return { ok: false, reason: 'Could not place structure' };
   }

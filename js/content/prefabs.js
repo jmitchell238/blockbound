@@ -73,13 +73,16 @@ export const PREFABS = [
       L: BLOCK.LADDER,
       T: BLOCK.TORCH,
     },
+    // The ladder runs unbroken from the ground, through the floor hatch, and
+    // into the room. Stopping it under the hatch left the climb with nothing to
+    // grab at the top, so there was no way in.
     rows: [
       '  EEEEE  ',
       ' EEPPPEE ',
       ' PPPPPPP ',
-      ' P..T..P ',
-      ' P.....P ',
-      ' PPP.PPP ',
+      ' PT....P ',
+      ' P..L..P ',
+      ' PPPLPPP ',
       '   WLW   ',
       '   WLW   ',
       '   WLW   ',
@@ -112,14 +115,19 @@ export const PREFABS = [
     legend: {
       S: BLOCK.STONE,
       W: BLOCK.WATER,
+      L: BLOCK.LADDER,
     },
+    // The pool sits on the ground, so its rim stands four blocks up — with
+    // sheer walls there was no way in or out. The ladder goes on the *outside*
+    // of the wall: a ladder tile is not solid, so putting one in the wall
+    // itself would drain the pool through it.
     rows: [
-      '...........',
-      'S.........S',
-      'SWWWWWWWWWS',
-      'SWWWWWWWWWS',
-      'SWWWWWWWWWS',
-      'SSSSSSSSSSS',
+      '.............',
+      'L.S.........S',
+      'L.SWWWWWWWWWS',
+      'L.SWWWWWWWWWS',
+      'L.SWWWWWWWWWS',
+      'LSSSSSSSSSSSS',
     ],
   },
   {

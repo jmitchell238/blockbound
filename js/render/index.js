@@ -1485,13 +1485,17 @@ export function drawBlock(ctx, sx, sy, ts, id, lightMul, wx, ty, ao, world) {
     ctx.filter = 'none';
   }
   // Procedural furniture / specials
-  if (id === BLOCK.DOOR || id === BLOCK.BED || id === BLOCK.CHEST || id === BLOCK.FURNACE
-      || id === BLOCK.PLATFORM || id === BLOCK.CAMPFIRE) {
+  if (id === BLOCK.DOOR || id === BLOCK.DOOR_TOP || id === BLOCK.BED || id === BLOCK.CHEST
+      || id === BLOCK.FURNACE || id === BLOCK.PLATFORM || id === BLOCK.CAMPFIRE) {
     ctx.globalAlpha = 1;
     ctx.filter = 'brightness(' + shade.toFixed(3) + ')';
-    const doorOpen = id === BLOCK.DOOR && world && world.meta && isDoorOpen(world.meta, wx, ty);
+    // Open state lives on the bottom half, so the top half asks about the tile
+    // beneath it.
+    const doorOpen = (id === BLOCK.DOOR || id === BLOCK.DOOR_TOP) && world && world.meta
+      && isDoorOpen(world.meta, wx, id === BLOCK.DOOR_TOP ? ty + 1 : ty);
     // Always draw doors procedurally so open/closed is visible
-    if (face && id !== BLOCK.PLATFORM && id !== BLOCK.CAMPFIRE && id !== BLOCK.DOOR) {
+    if (face && id !== BLOCK.PLATFORM && id !== BLOCK.CAMPFIRE
+        && id !== BLOCK.DOOR && id !== BLOCK.DOOR_TOP) {
       ctx.drawImage(face, sx, sy, ts, ts);
     } else {
       drawFurniture(ctx, sx, sy, ts, id, lightMul, doorOpen);
@@ -1581,28 +1585,41 @@ export function drawFurniture(ctx, sx, sy, ts, id, lightMul, doorOpen) {
     ctx.fill();
     return;
   }
-  if (id === BLOCK.DOOR) {
+  if (id === BLOCK.DOOR || id === BLOCK.DOOR_TOP) {
+    // A door spans two tiles. Each half insets only its outer edge so the two
+    // meet with no seam, and the handle is drawn once, on the lower half.
+    const isTop = id === BLOCK.DOOR_TOP;
+    const yTop = sy + (isTop ? 2 : 0);
+    const hh = ts - (isTop ? 2 : 2);
     if (doorOpen) {
       // Open: thin leaf on the hinge side + visible doorway gap
       ctx.fillStyle = shadeHex('#3a2a18', L * 0.7);
-      ctx.fillRect(sx + ts * 0.12, sy + 2, ts * 0.76, ts - 4);
+      ctx.fillRect(sx + ts * 0.12, yTop, ts * 0.76, hh);
       ctx.fillStyle = shadeHex('#a07840', L);
-      ctx.fillRect(sx + ts * 0.12, sy + 2, ts * 0.22, ts - 4);
+      ctx.fillRect(sx + ts * 0.12, yTop, ts * 0.22, hh);
       ctx.fillStyle = shadeHex('#6a4820', L);
-      ctx.fillRect(sx + ts * 0.12, sy + 2, 3, ts - 4);
-      ctx.fillStyle = '#ddd';
-      ctx.beginPath();
-      ctx.arc(sx + ts * 0.28, sy + ts * 0.55, 2, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.fillRect(sx + ts * 0.12, yTop, 3, hh);
+      if (!isTop) {
+        ctx.fillStyle = '#ddd';
+        ctx.beginPath();
+        ctx.arc(sx + ts * 0.28, sy + ts * 0.35, 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
     } else {
       ctx.fillStyle = shadeHex('#a07840', L);
-      ctx.fillRect(sx + ts * 0.15, sy + 2, ts * 0.7, ts - 4);
+      ctx.fillRect(sx + ts * 0.15, yTop, ts * 0.7, hh);
       ctx.fillStyle = shadeHex('#6a4820', L);
-      ctx.fillRect(sx + ts * 0.15, sy + 2, 3, ts - 4);
-      ctx.fillStyle = '#ddd';
-      ctx.beginPath();
-      ctx.arc(sx + ts * 0.7, sy + ts * 0.55, 2.5, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.fillRect(sx + ts * 0.15, yTop, 3, hh);
+      // Panel groove across the join reads as one tall door rather than two
+      // stacked blocks.
+      ctx.fillStyle = shadeHex('#8a6430', L);
+      ctx.fillRect(sx + ts * 0.2, yTop + (isTop ? hh * 0.35 : hh * 0.25), ts * 0.6, 2);
+      if (!isTop) {
+        ctx.fillStyle = '#ddd';
+        ctx.beginPath();
+        ctx.arc(sx + ts * 0.7, sy + ts * 0.35, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
   } else if (id === BLOCK.BED) {
     ctx.fillStyle = shadeHex('#8b5a2b', L);

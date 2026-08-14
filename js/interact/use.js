@@ -8,7 +8,9 @@ import { isDoorOpen } from './meta.js';
 
 export function isSolidWorld(world, meta, x, y) {
   const t = getTile(world, x, y);
+  // Either half of an open door is walk-through; the bottom half holds the state.
   if (t === BLOCK.DOOR && meta && isDoorOpen(meta, x, y)) return false;
+  if (t === BLOCK.DOOR_TOP && meta && isDoorOpen(meta, x, y + 1)) return false;
   return isSolid(world, x, y);
 }
 
@@ -42,7 +44,10 @@ export function nearInteract(world, meta, px, py) {
       const d = Math.hypot(wrapDeltaX(px, tx + 0.5), (py - 0.8) - (ty + 0.5));
       if (d < bestD && d <= 2.6) {
         bestD = d;
-        best = { x: wrapX(tx), y: ty, id: t, kind: m.interact };
+        // Reaching for either half of a door works the handle. State lives on
+        // the bottom half, so always report that cell.
+        const isTop = t === BLOCK.DOOR_TOP;
+        best = { x: wrapX(tx), y: isTop ? ty + 1 : ty, id: t, kind: m.interact };
       }
     }
   }

@@ -84,10 +84,28 @@ export function markLightDirty(world, x, y) {
   }
 }
 
+/**
+ * The bottom tile of the door at (x, y), given either half, or null.
+ * The bottom half owns the open/closed state so both halves always agree.
+ */
+export function doorBase(world, x, y) {
+  const t = getTile(world, x, y);
+  if (t === BLOCK.DOOR) return { x: wrapX(x), y };
+  if (t === BLOCK.DOOR_TOP) return { x: wrapX(x), y: y + 1 };
+  return null;
+}
+
+export function isDoorTileOpen(world, x, y) {
+  const base = doorBase(world, x, y);
+  if (!base) return false;
+  const meta = world.meta;
+  return !!(meta && meta.openDoors && meta.openDoors[tileKey(base.x, base.y)]);
+}
+
 export function isSolid(world, x, y) {
   const t = getTile(world, x, y);
-  // Open doors are walkable
-  if (t === BLOCK.DOOR && world.meta && world.meta.openDoors && world.meta.openDoors[tileKey(x, y)]) {
+  // Open doors are walkable — both halves, or the player's head clips the top.
+  if ((t === BLOCK.DOOR || t === BLOCK.DOOR_TOP) && isDoorTileOpen(world, x, y)) {
     return false;
   }
   const m = BLOCK_META[t];

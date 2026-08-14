@@ -32,6 +32,12 @@ export const BLOCK = {
   LANTERN: 28,
   /** Hardened crust capping the molten LAVA below it. */
   MAGMA: 29,
+  /**
+   * Upper half of a door. Never placed or carried directly — DOOR writes it,
+   * and breaking either half removes both. The player is 1.55 tiles tall, so a
+   * one-tile doorway is a wall with a handle on it.
+   */
+  DOOR_TOP: 30,
 };
 
 export const BLOCK_META = {
@@ -64,6 +70,9 @@ export const BLOCK_META = {
   [BLOCK.BRICK]:     { name: 'Brick', solid: true, mine: 0.8, drops: BLOCK.BRICK, color: '#b05040', top: '#c06050' },
   [BLOCK.COPPER]:    { name: 'Copper Ore', solid: true, mine: 1.2, drops: BLOCK.COPPER, color: '#8a6a50', spark: '#e07a40' },
   [BLOCK.DOOR]:      { name: 'Door', solid: true, mine: 0.45, drops: BLOCK.DOOR, color: '#a07840', top: '#c09858', interact: 'door' },
+  // The top half carries no drop of its own — the pair yields one door, and the
+  // bottom half is the one that owns the open/closed state.
+  [BLOCK.DOOR_TOP]:  { name: 'Door', solid: true, mine: 0.45, drops: null, color: '#a07840', top: '#c09858', interact: 'door' },
   [BLOCK.BED]:       { name: 'Bed', solid: true, mine: 0.4, drops: BLOCK.BED, color: '#c45a6a', top: '#e87890', interact: 'bed' },
   [BLOCK.CHEST]:     { name: 'Chest', solid: true, mine: 0.5, drops: BLOCK.CHEST, color: '#b8863a', top: '#d4a04a', interact: 'chest' },
   [BLOCK.FURNACE]:   { name: 'Furnace', solid: true, mine: 0.7, drops: BLOCK.FURNACE, color: '#5a5a62', top: '#6e6e78', interact: 'furnace', light: 4 },

@@ -631,8 +631,23 @@ export function gameUpdate(dt) {
       }
       removeChest(world.meta, result.mined.tx, result.mined.ty);
     }
-    if (result.mined.id === BLOCK.DOOR) {
-      delete world.meta.openDoors[tileKey(result.mined.tx, result.mined.ty)];
+    // Break either half of a door and the whole door goes, leaving one item.
+    // A lone half is unusable and cannot be mined into anything sensible.
+    if (result.mined.id === BLOCK.DOOR || result.mined.id === BLOCK.DOOR_TOP) {
+      const mx = result.mined.tx;
+      const my = result.mined.ty;
+      const otherY = result.mined.id === BLOCK.DOOR ? my - 1 : my + 1;
+      const otherWanted = result.mined.id === BLOCK.DOOR ? BLOCK.DOOR_TOP : BLOCK.DOOR;
+      if (getTile(world, mx, otherY) === otherWanted) {
+        setTile(world, mx, otherY, BLOCK.AIR);
+      }
+      const baseY = result.mined.id === BLOCK.DOOR ? my : otherY;
+      delete world.meta.openDoors[tileKey(mx, baseY)];
+      // The top half has no drop of its own, so breaking it still hands back
+      // the door the player built.
+      if (result.mined.id === BLOCK.DOOR_TOP) {
+        spawnDrop(ents, mx + 0.5, my + 0.5, BLOCK.DOOR, 1);
+      }
     }
     if (result.mined.id === BLOCK.TORCH) {
       clearTorchFacing(world.meta, result.mined.tx, result.mined.ty);

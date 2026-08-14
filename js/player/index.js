@@ -187,7 +187,12 @@ export function updatePlayer(p, world, input, dt, toolPower) {
       p.onGround = false;
     }
   } else {
-    p.vy += (GRAVITY / TILE) * dt;
+    // Buoyancy. The swim stroke is applied at the end of a frame, so full
+    // gravity at the start of the next one ate most of it before the player
+    // actually moved — rising was under a tile per second and felt like the
+    // stroke did nothing at all.
+    const grav = p.swimming ? GRAVITY * 0.25 : GRAVITY;
+    p.vy += (grav / TILE) * dt;
     if (p.vy > MAX_FALL / TILE) p.vy = MAX_FALL / TILE;
 
     if (p.onGround) p.coyote = COYOTE;
@@ -217,6 +222,16 @@ export function updatePlayer(p, world, input, dt, toolPower) {
   const wasGround = p.onGround;
   if (!p.flying) p.onGround = false;
   resolveAxis(p, world, 'y');
+
+  // A player buried in solid rock cannot be resolved by overlap: every side is
+  // blocked, and the smaller number happens to point down, so the collision
+  // step pushed them a little deeper every frame until they reached the magma
+  // at the bottom of the world. Flying into the ground is how you get buried;
+  // stopping the flight is when the sinking starts. Lift them out instead.
+  if (!p.flying && ejectFromSolid(p, world)) {
+    p.fallDist = 0;
+    p.fallVy = 0;
+  }
   // Landing while flying: stay flying (hover) unless they toggled off
   if (p.flying) {
     p.onGround = false;
@@ -381,6 +396,32 @@ export function updatePlayer(p, world, input, dt, toolPower) {
     p.anim += dt * 2;
   }
   return result;
+}
+
+/**
+ * Lift a player who is completely inside solid tiles up to the nearest space
+ * tall enough to stand in. Returns true if they were moved.
+ *
+ * This is the case overlap resolution cannot answer. It is only reachable by
+ * getting inside terrain in the first place — flying down through the ground —
+ * so it should be rare, and doing nothing is not an option: the alternative is
+ * sinking through the world.
+ */
+export function ejectFromSolid(p, world) {
+  const cx = Math.floor(p.x);
+  const feetY = Math.floor(p.y - 0.05);
+  const headY = Math.floor(p.y - p.h + 0.05);
+  if (!isSolid(world, cx, feetY) || !isSolid(world, cx, headY)) return false;
+
+  // Scan up for two clear tiles — one to stand in, one for the head.
+  for (let y = headY; y >= 1; y--) {
+    if (isSolid(world, cx, y) || isSolid(world, cx, y - 1)) continue;
+    p.y = y + 1;
+    p.vy = 0;
+    p.onGround = false;
+    return true;
+  }
+  return false;
 }
 
 export function resolveAxis(p, world, axis) {
@@ -642,6 +683,23 @@ export function tryPlace(p, world, tx, ty, blockId) {
       hasSupport = true;
     }
     if (!hasSupport) return false;
+  }
+
+  // A door is two tiles tall, so it needs headroom and writes both halves. The
+  // tap always lands on the bottom half — that is where a child aims.
+  if (blockId === BLOCK.DOOR) {
+    const above = getTile(world, placeTx, placeTy - 1);
+    if (above !== BLOCK.AIR && above !== BLOCK.WATER) return false;
+    if (placeTy - 1 < SKY_LIMIT) return false;
+    // Don't place the upper half inside the player either.
+    const relD = nearestTileX(p.x, placeTx);
+    const boxD = playerAABB(p);
+    if (boxD.right > relD && boxD.left < relD + 1
+        && boxD.bottom > placeTy - 1 && boxD.top < placeTy) return false;
+    setTile(world, placeTx, placeTy, BLOCK.DOOR);
+    setTile(world, placeTx, placeTy - 1, BLOCK.DOOR_TOP);
+    p.placeCooldown = 0.12;
+    return { tx: wrapX(placeTx), ty: placeTy };
   }
 
   setTile(world, placeTx, placeTy, blockId);
