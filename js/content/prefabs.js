@@ -33,7 +33,8 @@ export const PREFABS = [
       ' PPPPP ',
       'PPPPPPP',
       'P..T..P',
-      'P.....P',
+      // '.' at the door column leaves room for the door's grown top half.
+      '......P',
       'D.....P',
       'PPPPPPP',
     ],
@@ -56,7 +57,7 @@ export const PREFABS = [
       ' PPPPPPP ',
       'PPPPPPPPP',
       'P.G...G.P',
-      'P...L...P',
+      '....L...P',
       'D......BP',
       'PPPPPPPPP',
     ],
@@ -93,6 +94,109 @@ export const PREFABS = [
       // '.' leaves room for the door's top half, which placePrefab grows into.
       '   .LW   ',
       '   DLW   ',
+    ],
+  },
+  {
+    id: 'manor',
+    name: 'Manor House',
+    icon: '🏡',
+    group: 'Homes',
+    legend: {
+      P: BLOCK.PLANKS,
+      G: BLOCK.GLASS,
+      D: BLOCK.DOOR,
+      L: BLOCK.LADDER,
+      N: BLOCK.LANTERN,
+      T: BLOCK.TORCH,
+      B: BLOCK.BED,
+      C: BLOCK.CHEST,
+      K: BLOCK.WORKBENCH,
+      F: BLOCK.FURNACE,
+    },
+    // Two storeys, two rooms each. Every interior is 4 blocks tall so a child
+    // can jump indoors, and the dividing walls stop two rows short so the
+    // doorway between rooms is tall enough to walk through.
+    //
+    // The ladder runs in one unbroken column from the ground floor to the top,
+    // passing through the middle floor — a ladder that stops at a ceiling is a
+    // ladder to nowhere.
+    rows: [
+      '     PPPPPPP     ',
+      '   PPPPPPPPPPP   ',
+      ' PPPPPPPPPPPPPPP ',
+      'PPPPPPPPPPPPPPPPP',
+      'P...N...P....N.LP',
+      'PG......P.....GLP',
+      'P..............LP',
+      'PB...C.....C...LP',
+      'PPPPPPPPPPPPPPPLP',
+      'P...T...P....T.LP',
+      'PG......P.....GLP',
+      '...............LP',
+      'D....K...F.....LP',
+      'PPPPPPPPPPPPPPPPP',
+    ],
+  },
+  {
+    id: 'castle',
+    name: 'Castle',
+    icon: '🏰',
+    group: 'Landmarks',
+    legend: {
+      S: BLOCK.STONE,
+      G: BLOCK.GLASS,
+      D: BLOCK.DOOR,
+      L: BLOCK.LADDER,
+      N: BLOCK.LANTERN,
+      T: BLOCK.TORCH,
+      B: BLOCK.BED,
+      C: BLOCK.CHEST,
+      K: BLOCK.WORKBENCH,
+      F: BLOCK.FURNACE,
+    },
+    // Four storeys over a dungeon, 45 wide.
+    //
+    // Ground floor, left to right: a GREAT ROOM that runs two storeys tall with
+    // a hearth, then a dining room, then a kitchen. The two storeys above are
+    // bedrooms, four to a floor. Below the slab is a dungeon of four cells.
+    //
+    // `anchorRow` is the ground-floor slab rather than the bottom row, so the
+    // tap lands at ground level and the dungeon is dug in underneath. Without
+    // it the whole castle would stand on top of its own basement.
+    //
+    // Every room is 4 blocks tall inside (the great room is 9), carries its own
+    // light, and opens onto its neighbour through a two-block doorway. One
+    // ladder at column 39 runs unbroken from the dungeon floor to the top
+    // storey — it is the only way between floors, so it must never be cut.
+    anchorRow: 21,
+    rows: [
+      'S.S.S.S.S.S.S.S.S.S.S.S.S.S.S.S.S.S.S.S.S.S.S',
+      'SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS',
+      'S....N.....S....N.....S....N.....S....NL....S',
+      'G..........S..........S..........S.....L....G',
+      'S......................................L....S',
+      'SB.......C..B.......C..B.......C..B....L..C.S',
+      'SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSLSSSSS',
+      'S....N.....S....N.....S....N.....S....NL....S',
+      'G..........S..........S..........S.....L....G',
+      'S......................................L....S',
+      'SB.......C..B.......C..B.......C..B....L..C.S',
+      'SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSLSSSSS',
+      'S..........N..........S....N.....S....NL....S',
+      'G.....................S..........S.....L....G',
+      'S......................................L....S',
+      'S.......................C......C.......L....S',
+      'S.....................SSSSSSSSSSSSSSSSSLSSSSS',
+      'S..........N..........S....N.....S....NL....S',
+      'G.....................S..........S.....L....G',
+      '.......................................L....S',
+      'D........C.F.C...........K.C.K.....F.C.L....S',
+      'SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSLSSSSS',
+      'S....T.....S....T.....S....T.....S....TL....S',
+      'G..........S..........S..........S.....L....G',
+      'S......................................L....S',
+      'S........C..........C..........C.......L..C.S',
+      'SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS',
     ],
   },
   {

@@ -43,14 +43,27 @@ export function hasRoofAbove(world, wx, fromY) {
 }
 
 /**
+ * Cells you could actually walk through when looking for a way outside.
+ *
+ * Glass is the exception that matters: it needs a wall drawn behind it like any
+ * other open cell, but it is a window, not a doorway. Letting the search pass
+ * through it made a walled room with a window read as outdoors along the window
+ * row and as a cave everywhere else — stripes of sky through the middle of a
+ * castle wall.
+ */
+function isEscapeOpen(id) {
+  return isCaveOpenTile(id) && id !== BLOCK.GLASS;
+}
+
+/**
  * Walk sideways along one row looking for a way out to daylight. Stops at the
- * first solid tile — a wall is a wall — and succeeds at the first column that
- * has nothing but sky overhead.
+ * first tile you could not walk through — a wall is a wall — and succeeds at
+ * the first column that has nothing but sky overhead.
  */
 function canReachOpenSky(world, wx, y, dir) {
   for (let i = 1; i <= MAX_ESCAPE; i++) {
     const x = wrapX(wx + dir * i);
-    if (!isCaveOpenTile(getTile(world, x, y))) return false;
+    if (!isEscapeOpen(getTile(world, x, y))) return false;
     if (!hasRoofAbove(world, x, y)) return true;
   }
   return false;

@@ -20,7 +20,14 @@ export function prefabBounds(prefab, tx, ty) {
   const w = rows[0] ? rows[0].length : 0;
   const h = rows.length;
   const x0 = tx - Math.floor(w / 2);
-  const y0 = ty - (h - 1);
+  // Which row lands on the tapped tile. Bottom row by default, so ordinary
+  // builds sit on the ground exactly as before. A build with a basement sets
+  // this to its ground-floor slab, and everything after that row is dug in
+  // below — otherwise a dungeon would push the whole castle into the sky.
+  const anchorRow = (prefab.anchorRow != null && prefab.anchorRow >= 0 && prefab.anchorRow < h)
+    ? prefab.anchorRow
+    : h - 1;
+  const y0 = ty - anchorRow;
   return { x0, y0, w, h };
 }
 

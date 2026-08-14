@@ -2072,6 +2072,174 @@ console.log('\nPrefab tests');
     'the tile above the door is left open for the door top half');
 }
 
+// ── Big builds: castle and manor ─────────────────────────────────────────────
+{
+  const Prefabs = await import(pathToFileURL(path.join(root, 'js/content/prefabs.js')).href);
+  const { BLOCK, BLOCK_META } = await import(pathToFileURL(path.join(root, 'js/content/blocks.js')).href);
+  const Wld = await import(pathToFileURL(path.join(root, 'js/world/index.js')).href);
+  const M = await import(pathToFileURL(path.join(root, 'js/interact/meta.js')).href);
+  const PL = await import(pathToFileURL(path.join(root, 'js/world/prefab.js')).href);
+
+  const solidAt = (pf, ch) => {
+    if (ch === ' ' || ch === '.') return false;
+    const id = pf.legend[ch];
+    if (id === BLOCK.LADDER) return false; // you can walk through a ladder
+    return !!(BLOCK_META[id] && BLOCK_META[id].solid);
+  };
+  // A floor/ceiling row: nothing open in it at all.
+  const isFloorRow = (pf, row) => [...row].every(ch => ch !== '.' && ch !== ' ');
+
+  // Every door in every prefab needs the cell above it free for the top half.
+  for (const pf of Prefabs.PREFABS) {
+    for (let r = 0; r < pf.rows.length; r++) {
+      for (let c = 0; c < pf.rows[r].length; c++) {
+        if (pf.legend[pf.rows[r][c]] !== BLOCK.DOOR) continue;
+        ok(r > 0 && pf.rows[r - 1][c] === '.',
+          `prefab ${pf.id} door at ${r},${c} has an open cell above for its top half`);
+      }
+    }
+  }
+
+  const castle = Prefabs.getPrefab('castle');
+  ok(!!castle, 'a castle exists');
+
+  // Storeys are the gaps between full floor rows.
+  const floorRows = [];
+  for (let r = 0; r < castle.rows.length; r++) {
+    if (isFloorRow(castle, castle.rows[r])) floorRows.push(r);
+  }
+  const storeys = [];
+  for (let i = 0; i < floorRows.length - 1; i++) {
+    const height = floorRows[i + 1] - floorRows[i] - 1;
+    if (height > 0) storeys.push({ top: floorRows[i] + 1, height });
+  }
+  ok(storeys.length >= 4, `the castle has at least four storeys (${storeys.length})`);
+  for (const st of storeys) {
+    ok(st.height >= 3, `every storey is at least 3 blocks tall inside (got ${st.height})`);
+  }
+  ok(storeys.every(st => st.height >= 4), 'every storey is a comfortable 4 blocks tall');
+
+  // Rooms = the wall-separated bays on each storey.
+  let rooms = 0;
+  for (const st of storeys) {
+    const row = castle.rows[st.top];
+    let run = 0;
+    for (let c = 0; c < row.length; c++) {
+      if (solidAt(castle, row[c])) {
+        if (run > 0) rooms++;
+        run = 0;
+      } else run++;
+    }
+    if (run > 0) rooms++;
+  }
+  ok(rooms >= 10, `the castle has about ten rooms (${rooms})`);
+
+  // Every bay must carry its own light, or it renders as a black box.
+  for (const st of storeys) {
+    const row = castle.rows[st.top];
+    let bay = [];
+    const bays = [];
+    for (let c = 0; c < row.length; c++) {
+      if (solidAt(castle, row[c])) { if (bay.length) bays.push(bay); bay = []; }
+      else bay.push(row[c]);
+    }
+    if (bay.length) bays.push(bay);
+    for (const b of bays) {
+      const lit = b.some(ch => {
+        const m = BLOCK_META[castle.legend[ch]];
+        return !!(m && m.light);
+      });
+      ok(lit, `every castle bay on the storey at row ${st.top} has a light`);
+    }
+  }
+
+  // Usable, not just decorative.
+  const chars = castle.rows.join('');
+  for (const [name, id] of [['a door', BLOCK.DOOR], ['a ladder', BLOCK.LADDER],
+    ['a bed', BLOCK.BED], ['a chest', BLOCK.CHEST], ['a workbench', BLOCK.WORKBENCH],
+    ['a furnace', BLOCK.FURNACE], ['windows', BLOCK.GLASS]]) {
+    ok([...chars].some(ch => castle.legend[ch] === id), `the castle has ${name}`);
+  }
+
+  // Both big builds must actually place, with their doors grown to full height.
+  BB.applyWorldSize(1024);
+  for (const id of ['manor', 'castle']) {
+    const pf = Prefabs.getPrefab(id);
+    ok(!!pf, `${id} exists`);
+    const w = Wld.generateWorld(31337);
+    w.meta = M.makeWorldMeta();
+    const x0 = 400;
+    const res = PL.placePrefab(w, pf, x0, w.surface[x0] - 1);
+    ok(res.ok, `${id} places (${res.reason || 'ok'})`);
+    let doors = 0;
+    let capped = 0;
+    for (const t of res.placed) {
+      if (t.id !== BLOCK.DOOR) continue;
+      doors++;
+      if (Wld.getTile(w, t.x, t.y - 1) === BLOCK.DOOR_TOP) capped++;
+    }
+    ok(doors > 0 && capped === doors, `${id} doors are all two tiles tall (${capped}/${doors})`);
+  }
+}
+
+// ── Castle dungeon and anchoring ─────────────────────────────────────────────
+{
+  const Prefabs = await import(pathToFileURL(path.join(root, 'js/content/prefabs.js')).href);
+  const { BLOCK } = await import(pathToFileURL(path.join(root, 'js/content/blocks.js')).href);
+  const Wld = await import(pathToFileURL(path.join(root, 'js/world/index.js')).href);
+  const M = await import(pathToFileURL(path.join(root, 'js/interact/meta.js')).href);
+  const PL = await import(pathToFileURL(path.join(root, 'js/world/prefab.js')).href);
+  const Sh = await import(pathToFileURL(path.join(root, 'js/world/shelter.js')).href);
+
+  const castle = Prefabs.getPrefab('castle');
+  ok(castle.rows[0].length >= 40, `the castle is wide (${castle.rows[0].length} blocks)`);
+
+  // anchorRow lets a build sink part of itself below the tap. Without it the
+  // dungeon would push the whole castle into the sky.
+  ok(castle.anchorRow != null && castle.anchorRow < castle.rows.length - 1,
+    'the castle anchors on its ground slab, not its lowest row');
+  const hut = Prefabs.getPrefab('starter-hut');
+  const hb = PL.prefabBounds(hut, 10, 20);
+  ok(hb.y0 === 20 - (hut.rows.length - 1), 'a build without anchorRow still sits on the ground');
+  const cb = PL.prefabBounds(castle, 10, 20);
+  ok(cb.y0 === 20 - castle.anchorRow, 'anchorRow decides which row lands on the tap');
+  ok(cb.y0 + cb.h - 1 > 20, 'the castle extends below the tapped tile — that is the dungeon');
+
+  BB.applyWorldSize(1024);
+  const w = Wld.generateWorld(777);
+  w.meta = M.makeWorldMeta();
+  const x0 = 400;
+  const groundY = w.surface[x0] - 1;
+  const res = PL.placePrefab(w, castle, x0, groundY);
+  ok(res.ok, `the castle places (${res.reason || 'ok'})`);
+
+  // The dungeon must end up underground, and be reachable by the ladder.
+  const below = res.placed.filter(t => t.y > groundY);
+  ok(below.length > 0, `the castle has tiles below ground level (${below.length})`);
+  ok(below.some(t => t.id === BLOCK.LADDER), 'the ladder reaches down into the dungeon');
+  ok(below.some(t => t.id === BLOCK.TORCH), 'the dungeon is lit');
+  ok(below.some(t => t.id === BLOCK.CHEST), 'the dungeon has something in it');
+
+  // One unbroken ladder from the dungeon floor to the top storey.
+  const lads = res.placed.filter(t => t.id === BLOCK.LADDER).map(t => t.y).sort((a, b) => a - b);
+  ok(lads.length > 0, 'the castle has a ladder');
+  ok(lads[lads.length - 1] - lads[0] + 1 === lads.length,
+    `the ladder is unbroken from top to dungeon (${lads.length} rungs)`);
+  ok(lads[0] < groundY - 10 && lads[lads.length - 1] > groundY,
+    'the ladder spans from the upper storeys down past ground level');
+
+  // A window must not punch a hole in the room's enclosure.
+  const b = PL.prefabBounds(castle, x0, groundY);
+  let openInside = 0;
+  for (let y = b.y0 + 2; y < b.y0 + b.h - 1; y++) {
+    for (let x = b.x0 + 1; x < b.x0 + b.w - 1; x++) {
+      if (Wld.getTile(w, x, y) !== BLOCK.AIR) continue;
+      if (!Sh.isShelteredAir(w, Wld.wrapX(x), y)) openInside++;
+    }
+  }
+  ok(openInside === 0, `every room inside the castle reads as enclosed (${openInside} leaks)`);
+}
+
 if (failed) {
   console.error(`\n${failed} failed`);
   process.exit(1);
