@@ -4,7 +4,7 @@
  */
 import { BLOCK, BLOCK_META } from '../content/blocks.js';
 import { SKY_LIMIT, SURFACE_Y } from '../core/constants.js';
-import { getTile } from './index.js';
+import { getTile, wrapX } from './index.js';
 
 /**
  * Terrain roof material. Trees/leaves do NOT count — treating them as roofs
@@ -29,8 +29,41 @@ export function isCaveOpenTile(id) {
 }
 
 /**
- * This column/y is cave/dug-out if below the natural surface line,
- * or any terrain roof sits between it and the sky.
+ * How far sideways to look for daylight before calling a space enclosed.
+ * Wide enough to cross a room, short enough that a real cave stays dark.
+ */
+export const MAX_ESCAPE = 12;
+
+/** Any terrain roof between this cell and the sky. */
+export function hasRoofAbove(world, wx, fromY) {
+  for (let y = fromY - 1; y >= SKY_LIMIT; y--) {
+    if (isRoofSolidId(getTile(world, wx, y))) return true;
+  }
+  return false;
+}
+
+/**
+ * Walk sideways along one row looking for a way out to daylight. Stops at the
+ * first solid tile — a wall is a wall — and succeeds at the first column that
+ * has nothing but sky overhead.
+ */
+function canReachOpenSky(world, wx, y, dir) {
+  for (let i = 1; i <= MAX_ESCAPE; i++) {
+    const x = wrapX(wx + dir * i);
+    if (!isCaveOpenTile(getTile(world, x, y))) return false;
+    if (!hasRoofAbove(world, x, y)) return true;
+  }
+  return false;
+}
+
+/**
+ * This column/y is cave/dug-out if below the natural surface line, or a terrain
+ * roof sits between it and the sky *and* it is genuinely enclosed.
+ *
+ * A roof overhead is not the same as being indoors. The floor of a treehouse,
+ * a bridge, or any overhang would otherwise paint a cave backdrop over open air
+ * that is one step from daylight — you should see sky behind you when you are
+ * standing under a tree, not rock.
  */
 export function isShelteredAir(world, wx, fromY) {
   fromY = Math.floor(fromY);
@@ -39,10 +72,11 @@ export function isShelteredAir(world, wx, fromY) {
   // Below natural ground surface → underground
   if (fromY > surf) return true;
   // Terrain roof overhead (dirt/stone/etc., not trees)
-  for (let y = fromY - 1; y >= SKY_LIMIT; y--) {
-    if (isRoofSolidId(getTile(world, wx, y))) return true;
-  }
-  return false;
+  if (!hasRoofAbove(world, wx, fromY)) return false;
+  // Roofed, but open to the side within a few steps → an overhang, not a room.
+  if (canReachOpenSky(world, wx, fromY, -1)) return false;
+  if (canReachOpenSky(world, wx, fromY, 1)) return false;
+  return true;
 }
 
 /**

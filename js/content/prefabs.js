@@ -72,10 +72,15 @@ export const PREFABS = [
       E: BLOCK.LEAVES,
       L: BLOCK.LADDER,
       T: BLOCK.TORCH,
+      D: BLOCK.DOOR,
     },
     // The ladder runs unbroken from the ground, through the floor hatch, and
     // into the room. Stopping it under the hatch left the climb with nothing to
     // grab at the top, so there was no way in.
+    //
+    // The door belongs at the *base* of the trunk, beside the foot of the
+    // ladder — you walk in at ground level and climb up. A door in the room
+    // wall five blocks up is one nobody can reach.
     rows: [
       '  EEEEE  ',
       ' EEPPPEE ',
@@ -85,8 +90,9 @@ export const PREFABS = [
       ' PPPLPPP ',
       '   WLW   ',
       '   WLW   ',
-      '   WLW   ',
-      '   WLW   ',
+      // '.' leaves room for the door's top half, which placePrefab grows into.
+      '   .LW   ',
+      '   DLW   ',
     ],
   },
   {

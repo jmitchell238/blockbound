@@ -280,7 +280,22 @@ BB.setTile(caveWorld, ledgeX, underRoofY, BB.BLOCK.AIR);
 // clear between roof and underRoof so only roof blocks sky
 for (let y = roofY + 1; y < underRoofY; y++) BB.setTile(caveWorld, ledgeX, y, BB.BLOCK.AIR);
 for (let y = 0; y < roofY; y++) BB.setTile(caveWorld, ledgeX, y, BB.BLOCK.AIR);
-ok(BB.isShelteredAir(caveWorld, ledgeX, underRoofY), 'air under dirt roof is sheltered');
+// A lone block overhead is an overhang, not a room. This assertion used to
+// require the opposite, and that is what painted a cave backdrop under a
+// treehouse floor and under any bridge or ledge — one step from daylight.
+ok(!BB.isShelteredAir(caveWorld, ledgeX, underRoofY),
+  'a bare roof with open sides is an overhang, not a cave');
+
+// Wall it in on both sides and it becomes a room, which should be sheltered.
+for (let dx = -1; dx <= 1; dx++) {
+  BB.setTile(caveWorld, ledgeX + dx, roofY, BB.BLOCK.DIRT);
+}
+for (let y = roofY + 1; y <= underRoofY + 1; y++) {
+  BB.setTile(caveWorld, ledgeX - 1, y, BB.BLOCK.DIRT);
+  BB.setTile(caveWorld, ledgeX + 1, y, BB.BLOCK.DIRT);
+}
+ok(BB.isShelteredAir(caveWorld, ledgeX, underRoofY),
+  'a roofed space walled on both sides is sheltered');
 
 // Tree overhead alone must NOT shelter (outdoors under canopy)
 const treeX = 140;
@@ -2029,6 +2044,32 @@ console.log('\nPrefab tests');
 
   ok(p.x < px - 1, `swimming at the surface carries the player onto the bank (x moved ${(px + 0.5 - p.x).toFixed(2)})`);
   ok(p.y <= waterTop + 0.05, `the player ends at or above the bank top (y=${p.y.toFixed(2)}, bank ${waterTop})`);
+}
+
+// ── Treehouse entrance ───────────────────────────────────────────────────────
+{
+  const Prefabs = await import(pathToFileURL(path.join(root, 'js/content/prefabs.js')).href);
+  const { BLOCK } = await import(pathToFileURL(path.join(root, 'js/content/blocks.js')).href);
+
+  const th = Prefabs.getPrefab('treehouse');
+  ok(!!th, 'treehouse exists');
+  // A door has to be somewhere a child can walk to. In a side-on cross-section
+  // that means the bottom row of the build, not a wall five blocks up a tree.
+  let doorRow = -1;
+  for (let r = 0; r < th.rows.length; r++) {
+    if ([...th.rows[r]].some(c => th.legend[c] === BLOCK.DOOR)) doorRow = r;
+  }
+  ok(doorRow === th.rows.length - 1,
+    `the treehouse door is on the ground row (row ${doorRow} of ${th.rows.length - 1})`);
+
+  // And it must sit beside the ladder, so walking in puts you at the climb.
+  const dcol = [...th.rows[doorRow]].findIndex(c => th.legend[c] === BLOCK.DOOR);
+  const lcol = [...th.rows[doorRow]].findIndex(c => th.legend[c] === BLOCK.LADDER);
+  ok(lcol >= 0 && Math.abs(dcol - lcol) === 1, 'the door opens right next to the ladder');
+
+  // The cell above the door must be free for the grown top half.
+  ok(th.rows[doorRow - 1][dcol] === '.',
+    'the tile above the door is left open for the door top half');
 }
 
 if (failed) {
