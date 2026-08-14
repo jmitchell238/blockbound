@@ -4,7 +4,7 @@
  */
 
 import { WORLD_H, SKY_LIMIT } from '../core/constants.js';
-import { BLOCK } from '../content/blocks.js';
+import { BLOCK, BLOCK_META } from '../content/blocks.js';
 import { getTile, setTile, wrapX, flushLight } from './index.js';
 
 /**
@@ -58,24 +58,30 @@ export function prefabBounds(prefab, tx, ty, growDir) {
  * - reason: child-readable error message (only if !ok)
  */
 /**
- * The ground level a build should stand on, taken across its whole footprint
- * rather than at the single tapped column.
+ * The ground row at one column — the topmost solid tile near the tap.
  *
- * A 45-wide castle dropped on the exact tile you touched will bury one end and
- * leave the other in the air the moment the land is not perfectly flat. The
- * median of the terrain under the footprint puts it on the ground instead, so
- * "where I tapped" and "where it appeared" agree.
+ * Deliberately local, not an average over the footprint. A median across 45
+ * columns of hillside can sit nine blocks above the spot the player is actually
+ * standing on, which puts the front door out of reach up a sheer wall. The
+ * ground under the player's feet is the one that has to line up, because that
+ * is the ground they will walk in from.
  */
-export function groundLevelUnder(world, x0, w) {
-  if (!world.surface) return null;
-  const heights = [];
-  for (let i = 0; i < w; i++) {
-    const s = world.surface[wrapX(x0 + i)];
-    if (s != null) heights.push(s);
+export function groundAtColumn(world, x, nearY) {
+  const wx = wrapX(x);
+  const start = Math.max(0, Math.floor(nearY) - SNAP_RANGE);
+  const end = Math.min(WORLD_H - 1, Math.floor(nearY) + SNAP_RANGE);
+  for (let y = start; y <= end; y++) {
+    const m = BLOCK_META[getTile(world, wx, y)];
+    if (!(m && m.solid)) continue;
+    // Ground means a surface you could stand on, so it needs open air above it.
+    // Solid overhead means the tap is inside rock — someone digging out a
+    // basement, not placing a house on a hillside — and there is nothing to
+    // settle onto. Leave that tap exactly where it was made.
+    const above = BLOCK_META[getTile(world, wx, y - 1)];
+    if (above && above.solid) return null;
+    return y;
   }
-  if (!heights.length) return null;
-  heights.sort((a, b) => a - b);
-  return heights[heights.length >> 1];
+  return null;
 }
 
 export function placePrefab(world, prefab, tx, ty, opts) {
@@ -88,9 +94,10 @@ export function placePrefab(world, prefab, tx, ty, opts) {
   // meant to span a gap, not sit in one). Tapping high in the sky is still
   // honoured — that is a deliberate choice, not a mis-tap.
   if (prefab.snapToGround !== false) {
-    const probe = prefabBounds(prefab, tx, ty, growDir);
-    const ground = groundLevelUnder(world, probe.x0, probe.w);
-    if (ground != null && Math.abs(ty - ground) <= SNAP_RANGE) ty = ground - 1;
+    const ground = groundAtColumn(world, tx, ty);
+    // The anchor row *replaces* the ground tile, which puts the row above it —
+    // where the door sits — level with the ground the player walks on.
+    if (ground != null && Math.abs(ty - ground) <= SNAP_RANGE) ty = ground;
   }
 
   const bounds = prefabBounds(prefab, tx, ty, growDir);

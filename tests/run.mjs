@@ -2261,22 +2261,22 @@ console.log('\nPrefab tests');
     w.meta = M.makeWorldMeta();
     return w;
   };
-  const ground = PL.groundLevelUnder(fresh(), x0 - 22, castle.rows[0].length);
-  ok(ground != null, 'the ground level under a footprint can be measured');
+  const ground = PL.groundAtColumn(fresh(), x0, 40);
+  ok(ground != null, 'the ground row at the tapped column can be measured');
 
   for (const dy of [-6, -3, -1, 0, 2, 5]) {
     const w = fresh();
-    const res = PL.placePrefab(w, castle, x0, ground - 1 + dy);
+    const res = PL.placePrefab(w, castle, x0, ground + dy);
     ok(res.ok, `a castle tapped ${dy} from ground places`);
     const slab = res.bounds.y0 + castle.anchorRow;
-    ok(slab === ground - 1,
-      `tapping ${dy} off the ground still lands the castle on it (slab ${slab}, ground ${ground - 1})`);
+    ok(slab === ground,
+      `tapping ${dy} off the ground still lands the castle on it (slab ${slab}, ground ${ground})`);
   }
 
   // A deliberate tap far from the ground is still honoured — that is a choice.
   {
     const w = fresh();
-    const highY = ground - 1 + 20;
+    const highY = ground + 20;
     const res = PL.placePrefab(w, castle, x0, highY);
     ok(res.ok && res.bounds.y0 + castle.anchorRow === highY,
       'a tap well away from the ground is left exactly where it was put');
@@ -2289,7 +2289,7 @@ console.log('\nPrefab tests');
   // Nothing should end up standing on stilts.
   {
     const w = fresh();
-    const res = PL.placePrefab(w, castle, x0, ground - 1);
+    const res = PL.placePrefab(w, castle, x0, ground);
     const b = res.bounds;
     let floating = 0;
     for (let i = 0; i < b.w; i++) {
@@ -2379,6 +2379,62 @@ console.log('\nPrefab tests');
   const handler = gc.slice(gc.indexOf('Prefab placement cheat'));
   ok(/growDir[\s\S]{0,200}player\.facing/.test(handler),
     'a tap on the player falls back to the direction they are facing');
+}
+
+// ── The front door lands at your feet ────────────────────────────────────────
+{
+  const Prefabs = await import(pathToFileURL(path.join(root, 'js/content/prefabs.js')).href);
+  const { BLOCK } = await import(pathToFileURL(path.join(root, 'js/content/blocks.js')).href);
+  const Wld = await import(pathToFileURL(path.join(root, 'js/world/index.js')).href);
+  const M = await import(pathToFileURL(path.join(root, 'js/interact/meta.js')).href);
+  const PL = await import(pathToFileURL(path.join(root, 'js/world/prefab.js')).href);
+
+  BB.applyWorldSize(1024);
+  const castle = Prefabs.getPrefab('castle');
+
+  // 45 blocks is a long walk around, and a build grows away from the tap, so
+  // whichever side you approach from there must be a door on that side.
+  const doorCols = [];
+  for (let r = 0; r < castle.rows.length; r++) {
+    for (let c = 0; c < castle.rows[r].length; c++) {
+      if (castle.legend[castle.rows[r][c]] === BLOCK.DOOR) doorCols.push(c);
+    }
+  }
+  ok(doorCols.length === 2, `the castle has two doors (${doorCols.length})`);
+  ok(doorCols.includes(0), 'one door is in the left outer wall');
+  ok(doorCols.includes(castle.rows[0].length - 1), 'the other is in the right outer wall');
+
+  // Averaging the ground over a 45-wide footprint put the door up to nine
+  // blocks above the spot the player was standing on. The near door has to line
+  // up with the ground you walk in from, on every kind of terrain.
+  let worst = 0;
+  let checked = 0;
+  for (const dir of [1, -1]) {
+    for (let x = 120; x < 900; x += 7) {
+      const w = Wld.generateWorld(777);
+      w.meta = M.makeWorldMeta();
+      const g = PL.groundAtColumn(w, x, w.surface[x]);
+      if (g == null) continue;
+      const res = PL.placePrefab(w, castle, x, g, { growDir: dir });
+      if (!res.ok) continue;
+      const doors = res.placed.filter(t => t.id === BLOCK.DOOR);
+      if (!doors.length) continue;
+      const near = doors.reduce((a, b) => (Math.abs(b.x - x) < Math.abs(a.x - x) ? b : a));
+      worst = Math.max(worst, Math.abs((g - 1) - near.y));
+      checked++;
+    }
+  }
+  ok(checked > 100, `checked plenty of terrain (${checked} placements)`);
+  ok(worst === 0, `the near door is always level with the ground you walk in from (worst ${worst} blocks off)`);
+
+  // A tap inside solid rock is a deliberate dig-in, not a hillside build.
+  {
+    const w = Wld.generateWorld(777);
+    w.meta = M.makeWorldMeta();
+    const buriedY = w.surface[400] + 20;
+    ok(PL.groundAtColumn(w, 400, buriedY) === null,
+      'a tap buried in rock reports no ground to settle onto');
+  }
 }
 
 if (failed) {

@@ -168,6 +168,10 @@ export const PREFABS = [
     // light, and opens onto its neighbour through a two-block doorway. One
     // ladder at column 39 runs unbroken from the dungeon floor to the top
     // storey — it is the only way between floors, so it must never be cut.
+    //
+    // A door in *both* outer walls: 45 blocks is a long way to walk around, and
+    // a build grows away from where you tapped, so whichever side you approach
+    // from there is a way in on that side.
     anchorRow: 21,
     rows: [
       'S.S.S.S.S.S.S.S.S.S.S.S.S.S.S.S.S.S.S.S.S.S.S',
@@ -189,8 +193,8 @@ export const PREFABS = [
       'S.....................SSSSSSSSSSSSSSSSSLSSSSS',
       'S..........N..........S....N.....S....NL....S',
       'G.....................S..........S.....L....G',
-      '.......................................L....S',
-      'D........C.F.C...........K.C.K.....F.C.L....S',
+      '.......................................L.....',
+      'D........C.F.C...........K.C.K.....F.C.L....D',
       'SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSLSSSSS',
       'S....T.....S....T.....S....T.....S....TL....S',
       'G..........S..........S..........S.....L....G',
