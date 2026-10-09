@@ -47,6 +47,10 @@ The Controls button in the menu switches touch controls between Stick and Kids. 
 | Vast | 8,192 | ~25 min |
 | Epic | 16,384 | ~50 min |
 
+## License
+
+© 2026 James Mitchell / 238 Apps. All rights reserved. You're welcome to play it at https://jmitchell238.github.io/blockbound/, but the code, art and other content may not be copied, reused, republished or sold without permission. Third-party material keeps its own license. See [LICENSE](LICENSE), the [Terms of Use](https://jmitchell238.github.io/arcade-hub/terms.html) and the [Privacy Policy](https://jmitchell238.github.io/arcade-hub/privacy.html).
+
 ## Development
 
 See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for running it locally, tests and versioning. How the code fits together is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), and planned work is in [docs/ROADMAP.md](docs/ROADMAP.md).

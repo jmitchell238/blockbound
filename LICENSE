@@ -1,0 +1,51 @@
+Copyright (c) 2026 James Mitchell / 238 Apps. All Rights Reserved.
+
+"Blockbound", including its source code, design, characters, artwork, text, sounds,
+name, logo, and documentation (together, the "Game"), is the property of James
+Mitchell / 238 Apps, except for any third-party material listed below.
+
+PLAYING THE GAME
+
+You may play the Game for free, for your own personal, non-commercial use, at
+its official address (https://jmitchell238.github.io/blockbound/), including installing it to your
+device from there. No other rights are granted.
+
+RESTRICTIONS
+
+Without prior written permission from James Mitchell / 238 Apps, you may not:
+
+  - copy, reproduce, or redistribute the Game or any part of it
+  - host, mirror, or republish the Game on any other website, app store, or
+    platform
+  - modify the Game, or create derivative works or other products based on it
+  - sell the Game or any part of it, or use it to earn money in any way,
+    including through advertising, subscriptions, or paid access
+  - use any part of the Game to train artificial intelligence or machine
+    learning models
+  - remove or alter this notice or any other copyright notice
+
+This repository is publicly visible on GitHub. That does NOT grant any license
+to use, copy, modify, or distribute the Game, beyond the limited viewing and
+forking within GitHub that GitHub's Terms of Service require.
+
+THIRD-PARTY MATERIAL
+
+The following material was made by others and is NOT owned by James Mitchell /
+238 Apps. It is used under, and remains subject to, its own license. Nothing in
+this notice limits what those licenses allow.
+
+- "The Boy" free sprites (assets/vendor/flatboy) by GameArt2D, via OpenGameArt.
+  CC0 1.0 (public domain).
+
+NO WARRANTY
+
+THE GAME IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL JAMES MITCHELL OR
+238 APPS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY ARISING FROM, OUT
+OF, OR IN CONNECTION WITH THE GAME OR ITS USE.
+
+See also the Terms of Use (https://jmitchell238.github.io/arcade-hub/terms.html)
+and Privacy Policy (https://jmitchell238.github.io/arcade-hub/privacy.html).
+
+For permission or licensing questions: james@238apps.com
