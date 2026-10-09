@@ -6,6 +6,8 @@ The world wraps around, so walking far enough in one direction brings you back t
 
 Play at https://jmitchell238.github.io/blockbound/
 
+You can install it as an app from the browser (Add to Home Screen on iPhone and iPad).
+
 Not affiliated with Majic Jungle Software, Noodlecake or The Blockheads.
 
 ## Controls
@@ -45,50 +47,6 @@ The Controls button in the menu switches touch controls between Stick and Kids. 
 | Vast | 8,192 | ~25 min |
 | Epic | 16,384 | ~50 min |
 
-## Running locally
+## Development
 
-The game uses ES modules, which don't load from `file://`, so serve it:
-
-```bash
-python3 -m http.server 8080
-```
-
-Then open http://localhost:8080.
-
-## Code
-
-```text
-js/
-  main.js        Entry point: DOM, animation loop, menu
-  core/          Version, physics, world size, RNG
-  content/       Block, tool, recipe and milestone data
-  world/         Tiles, generation, lighting, gravity, serialization
-  player/        Movement, mining, placement
-  inventory/     Slots and crafting
-  interact/      Block metadata, use actions, stations, milestones
-  entities/      Mob AI and drawing
-  systems/       Per-tick systems: survival, camera, weather, autosave
-  session/       Session setup and the game loop
-  render/        Drawing
-  input/         Input state
-  ui/ save/ audio/ particles/ textures/
-  compat/api.js  API used by the tests
-```
-
-More detail:
-
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): layers, world model, frame order, rendering, save format
-- [docs/ROADMAP.md](docs/ROADMAP.md): planned cleanups and feature ideas
-- [docs/handbook.html](docs/handbook.html): both of the above on one page
-
-## Tests
-
-```bash
-node tests/run.mjs
-```
-
-## Versioning
-
-`GAME_VERSION` lives in `js/core/constants.js`. When you bump it, set `CACHE` in `sw-bb.js` to `'blockbound-' + GAME_VERSION`. The tests check that they match.
-
-`sw-bb.js` is the service worker for new installs. `sw.js` only exists to move older installs that are stuck on it over to `update.html`.
+See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for running it locally, tests and versioning. How the code fits together is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), and planned work is in [docs/ROADMAP.md](docs/ROADMAP.md).
